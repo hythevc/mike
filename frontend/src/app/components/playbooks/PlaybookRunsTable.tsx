@@ -15,7 +15,7 @@ import {
   TABLE_CHECKBOX_CLASS,
   TableBody,
   TableCell,
-  TableEmptyState,
+  TableEmptyRow,
   TableFilters,
   TableHeaderCell,
   TableHeaderRow,
@@ -400,7 +400,7 @@ export function PlaybookRunsTable({
             ))}
           </TableBody>
         ) : error ? (
-          <TableEmptyState>
+          <TableEmptyRow>
             <EmptyState
               tone="error"
               title="Couldn’t load runs"
@@ -411,9 +411,9 @@ export function PlaybookRunsTable({
                 </PillButtonUI>
               }
             />
-          </TableEmptyState>
+          </TableEmptyRow>
         ) : searched.length === 0 ? (
-          <TableEmptyState>
+          <TableEmptyRow>
             <EmptyState
               title={query ? "No matching runs" : "No runs yet"}
               description={
@@ -422,9 +422,9 @@ export function PlaybookRunsTable({
                   : "Reviews you run with a playbook appear here."
               }
             />
-          </TableEmptyState>
+          </TableEmptyRow>
         ) : displayed.length === 0 ? (
-          <TableEmptyState>
+          <TableEmptyRow>
             <EmptyState
               title="No matching runs"
               description="Adjust the table filters to see more runs."
@@ -440,7 +440,7 @@ export function PlaybookRunsTable({
                 </PillButtonUI>
               }
             />
-          </TableEmptyState>
+          </TableEmptyRow>
         ) : (
           <TableBody role="rowgroup" className={TABLE_MIN_WIDTH}>
             {displayed.map((run) => (

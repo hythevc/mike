@@ -24,7 +24,7 @@ import {
   TABLE_CHECKBOX_CLASS,
   TableBody,
   TableCell,
-  TableEmptyState,
+  TableEmptyRow,
   TableFilters,
   TableHeaderCell,
   TableHeaderRow,
@@ -514,7 +514,7 @@ export function PlaybookTable({
             ))}
           </TableBody>
         ) : error ? (
-          <TableEmptyState>
+          <TableEmptyRow>
             <EmptyState
               tone="error"
               title="Couldn’t load playbooks"
@@ -525,9 +525,9 @@ export function PlaybookTable({
                 </PillButtonUI>
               }
             />
-          </TableEmptyState>
+          </TableEmptyRow>
         ) : playbooks.length === 0 && newImports.length === 0 ? (
-          <TableEmptyState>
+          <TableEmptyRow>
             <EmptyState
               title={
                 filtered
@@ -569,9 +569,9 @@ export function PlaybookTable({
                 )
               }
             />
-          </TableEmptyState>
+          </TableEmptyRow>
         ) : displayed.length === 0 && newImports.length === 0 ? (
-          <TableEmptyState>
+          <TableEmptyRow>
             <EmptyState
               title="No matching playbooks"
               description="Adjust the table filters to see more playbooks."
@@ -587,7 +587,7 @@ export function PlaybookTable({
                 </PillButtonUI>
               }
             />
-          </TableEmptyState>
+          </TableEmptyRow>
         ) : (
           <TableBody role="rowgroup" className={TABLE_MIN_WIDTH}>
             {newImports.map((attempt) => {
