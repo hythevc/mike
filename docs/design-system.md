@@ -29,8 +29,9 @@ also register it for Tailwind class scanning in
 Cross-target primitives use the `XxxUI.tsx` convention and are imported
 directly from `@/shared/ui/XxxUI` by the web app. Do not add a web-only
 re-export whose only job is to rename `XxxUI`: it adds another file, test, and
-catalog entry without adding behavior. The dropdown is the one file named
-without the suffix: `@/shared/ui/dropdown`. `GlassCardUI`, `PillButtonUI`,
+catalog entry without adding behavior. The dropdown and `CloseButton` are the
+two files named without the suffix (`@/shared/ui/dropdown`,
+`@/shared/ui/CloseButton`). `GlassCardUI`, `PillButtonUI`,
 `GlassIconButtonUI`, `TabPillButtonUI`, and `ToggleSwitchUI` are the canonical
 implementations used by both targets. To style a link as a pill, apply
 `pillButtonUIClassName` from `PillButtonUI.styles` directly to the link; this
@@ -48,6 +49,34 @@ The app layout preloads navigation and account-menu icons during the loading
 screen, before opening a menu can trigger an image request.
 `frontend/public/_headers` preserves immutable caching for `/_next/static/*`
 on Cloudflare, whose asset server otherwise revalidates even hashed files.
+
+## Cascade layers
+
+Tailwind v4 declares four cascade layers, `theme, base, components,
+utilities`. A rule in a later layer beats a rule in an earlier one whatever
+their specificity, and a rule outside every layer beats them all. The entry
+stylesheets (`globals.css` for the web app, `word-addin/src/taskpane/styles.css`
+for the add-in) place each shared stylesheet deliberately:
+
+| Stylesheet | Layer | Why |
+| --- | --- | --- |
+| `shared/ui/DesignTokensUI.css` | none | Custom properties and the `@theme` mapping only; nothing in it competes with a utility. |
+| `shared/ui/LiquidGlassUI.css`, `shared/ui/ThemeTokensUI.css` | `components` | Material and state recipes. A utility on the same element refines them: the active `bg-white` of `TabPillButtonUI`, or `shadow-none` and `bg-transparent` on a glass control inside a menu. |
+| `ThemeTokensUI.css`'s keyboard-focus fallback | `components.base` | Its nested `@layer base` lands under `components`: above Tailwind's preflight, below everything else, so a control's own ring or `outline-none` wins. |
+| `shared/ui/MotionUI.css` | `utilities`, after Tailwind's | Its reduced-motion rule has to outrank the `animate-*` utilities it stops. |
+| The dark palette map in `globals.css` | `utilities`, after Tailwind's | See "Dark mode" below. |
+
+Imported without a layer, the material files used to beat every utility, so
+utilities written on glass controls silently did nothing. `MaterialLayersUI.test.ts`
+pins the imports in both entry stylesheets, and `e2e/accessibility.spec.ts`
+checks in a real browser that the active tab pill shows its own fill.
+
+Add new material or state classes to `LiquidGlassUI.css` or
+`ThemeTokensUI.css`, not as unlayered rules in an entry stylesheet, and do not
+reach for `!important` to beat a utility. The unlayered rules that remain in
+`globals.css` override utilities on purpose: the table surface (sticky cells
+keep an opaque backing), the editor, PDF and DOCX viewer styles, and
+`keyboard-focus-ring`, which must beat an unlayered third-party rule.
 
 ## Color tokens
 
@@ -130,6 +159,20 @@ liquid-glass material tokens all have `.dark` values. The user preference adds
 without component-level `dark:` shadow recipes. The preference lives in
 Settings > Appearance.
 
+Most screens predate those tokens and use Tailwind's gray, white and status
+palette directly. The dark palette map in `globals.css` gives each of those
+classes a dark value. It sits in the `utilities` layer after Tailwind's own
+utilities and scopes every rule with `:where(.dark)`, which adds no
+specificity, so a rule replaces exactly the utility it maps and loses to any
+more specific utility on the same element: a `hover:`, `focus:`, `disabled:`
+or `dark:` variant. A variant of a mapped class therefore needs its own dark
+value, or it would paint its light value on a dark surface. Hover and focus
+text and neutral fills take the next brighter step; disabled and selected
+states, borders and status fills keep the base value.
+`darkPaletteMap.test.ts` fails when the source uses a variant of a mapped class
+that has no rule, and checks every rule against the selector Tailwind
+generates. New work should use semantic tokens instead of extending the map.
+
 `MikeIcon` is the exception: the mark is inline SVG, so no class-based
 remapping reaches its gradient stops. It subscribes to the document theme class
 itself and swaps its dark-glass blades for the white ones. Anything else drawing
@@ -171,8 +214,11 @@ rendered to a 256px PNG before upload; the API limits stored images to 512 KB.
 
 ## Typography
 
-Both faces are loaded with `next/font/google` in `frontend/src/app/layout.tsx`
-and exposed as CSS variables on `<body>`:
+Both faces are self-hosted: `frontend/src/app/fonts/fonts.css` declares them
+from the font files beside it and sets the CSS variables on `:root`.
+`frontend/src/app/layout.tsx` imports it before `globals.css`, and the
+component catalog imports it from `.ladle/components.tsx`. No build step
+downloads fonts.
 
 | Face | Variable | Utility | Used for |
 | --- | --- | --- | --- |
@@ -210,10 +256,13 @@ Stick to those steps. A one-off `px-[13px]` is the kind of drift this document
 exists to prevent.
 
 Radius comes from one token, `--radius: 0.625rem`, with the shadcn scale derived
-from it (`--radius-sm/-md/-lg/-xl` = `radius -4px / -2px / radius / +4px`). In
-practice the app uses the plain Tailwind radii directly: `rounded-full` (pills,
-icon buttons), `rounded-lg`/`rounded-md` (rows, list items), `rounded-xl`
-(inputs, cards), `rounded-2xl` (panels, dropdown surfaces).
+from it (`--radius-sm/-md/-lg/-xl` = `radius -4px / -2px / radius / +4px`). The
+`@theme` mapping in `DesignTokensUI.css` points Tailwind's `rounded-sm` to
+`rounded-xl` at that scale, so they are 6, 8, 10 and 14px rather than Tailwind's
+defaults; `rounded-2xl` (16px) and `rounded-full` are Tailwind's own. In use:
+`rounded-full` (pills, icon buttons), `rounded-lg`/`rounded-md` (rows, list
+items), `rounded-xl` (inputs, cards), `rounded-2xl` (panels, dropdown
+surfaces).
 
 ### Fit content before making a card compact
 
@@ -322,7 +371,7 @@ Use the lowest tier that communicates the required depth:
 
 | Material | Class | Use for |
 | --- | --- | --- |
-| Flat | `liquid-glass-flat` | Solid-fill assistant response/message surfaces, tables, glass cards, and signup/login/onboarding cards. |
+| Flat | `liquid-glass-flat` | Solid-fill assistant response/message surfaces, editors, glass cards, and signup/login/onboarding cards. Tables are not glass: `TABLE_SURFACE_CLASS` makes their container transparent, with an opaque page-color backing on sticky header and first-column cells. |
 | Subtle | `liquid-glass-subtle` | Modal inputs, dropdown triggers, tab pills, PageHeader actions, and search/select controls. |
 | Float | `liquid-glass-float` | Solid-fill open dropdowns/submenus, `AppSidebar`, and persistent app/assistant/document/tabular side panels. Uses the original AppSidebar shadow depth. |
 | Modal | `liquid-glass-modal` | The modal frame only; modal contents use the appropriate general tier. |
@@ -354,8 +403,9 @@ Compose the material classes through the established primitives and constants:
 
 - `GlassCardUI` — cards
 - `LIQUID_FLOAT_PANEL_SURFACE_CLASS`,
-  `LIQUID_SUBTLE_PANEL_SURFACE_CLASS`, and `LIQUID_TABLE_SURFACE_CLASS` in
-  `components/ui/liquid-surface.ts` — panels and tables
+  `LIQUID_SUBTLE_PANEL_SURFACE_CLASS`, `EDITOR_SURFACE_CLASS` and
+  `TABLE_SURFACE_CLASS` in `components/ui/liquid-surface.ts` — panels,
+  editors and tables
 - `DropdownContent` / `DropdownSurface` — menus
 - `GlassIconButtonUI` — circular icon buttons
 
@@ -428,7 +478,7 @@ keep their own spacing and should not receive this attribute.
 | `search-bar` | `components/ui` | Search input with clear button. Pass `label` for a meaningful accessible name. |
 | `dropdown` | `shared/ui` | The one dropdown for the web app and the Word add-in: Radix menu behaviour with the liquid-glass look. See "Dropdowns" below. |
 | `liquid-surface` | `components/ui` | Web-only shared surface class constants. |
-| `empty-state` | `components/ui` | Icon + display heading + copy + optional action, for "nothing here yet". Wrap in `TableEmptyState` inside a table. |
+| `empty-state` | `components/ui` | Icon + display heading + copy + optional action, for "nothing here yet". Wrap in `TableEmptyState` inside a table, or in `TableEmptyRow` inside a table built with ARIA roles (`role="table"` may own only rows). |
 | `check-square` | `components/ui` | The selection square used by directory/picker rows. Decorative by default; the row owns the ARIA state. |
 
 For a real standalone checkbox use `<input type="checkbox">` with
@@ -520,13 +570,21 @@ primitive covers.
 
 These are the rules the primitives already follow. Match them in new work.
 
-- **Focus is always visible.** Every interactive primitive carries
-  `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40
-  focus-visible:ring-offset-2`. If you write `outline-none` you owe the element a
-  replacement indicator in the same class string.
-- **Focus rings are blue, never grey.** Use `ring-blue-500/40`, not `ring-ring`
-  or a gray. A control that sets nothing gets the same blue from the base-layer
-  `:focus-visible` rule in `ThemeTokensUI.css` (`--focus-ring-color`).
+- **Focus is always visible.** Interactive primitives draw a ring on
+  `:focus-visible`, normally `focus-visible:outline-none focus-visible:ring-2
+  focus-visible:ring-blue-500/40`, with `focus-visible:ring-offset-2` on a
+  free-standing control and `focus-visible:ring-inset` inside a row or menu.
+  If you write `outline-none` you owe the element a replacement indicator in
+  the same class string.
+- **Focus rings are blue in new work.** Use `ring-blue-500/40`, not
+  `ring-ring` or a gray. A control that sets nothing gets the same blue from
+  the `:focus-visible` fallback in `ThemeTokensUI.css` (`--focus-ring-color`),
+  which sits in the `components.base` layer so a control's own ring wins.
+  Known exceptions still draw a grey ring: the grey-filled text fields
+  (`authInputUIClassName`, `SettingsTextInput`, the MFA code inputs and
+  `PlaybookRuleForm`'s fields), `InputUI` (`ring-ring/50`), and
+  `SelectionCheckbox` and `PreResponseWrapperUI` (`ring-ring`). Do not copy
+  them.
 - **An inset ring traces the hover fill.** A control carrying a hover or
   selected fill class (`LIQUID_GLASS_HOVER_CLASS`, `LIQUID_GLASS_SELECTED_CLASS`,
   and the modal-row pair) gets an inset ring on that fill's perimeter by
@@ -556,6 +614,44 @@ These are the rules the primitives already follow. Match them in new work.
   clear it against white; `bg-gray-100` does not.
 - **Decorative elements are hidden.** Icons inside a labelled control get
   `aria-hidden`.
+- **Navigation is made of links.** A control that goes to another page is a
+  `Link` with an `href`, so it can open in a new tab and announces its
+  destination. The sidebar's destinations come from `NAV_ITEMS` in
+  `components/shared/navItems.ts`, render inside `<nav aria-label="Primary">`,
+  and the current one carries `aria-current="page"`. A section toggle such as
+  Recent Projects or History is a `type="button"` with `aria-expanded`.
+- **Reduced motion is respected.** `shared/ui/MotionUI.css` stops
+  `animate-pulse`, `animate-spin`, `animate-bounce` and the `theme-shimmer`
+  placeholders when the system asks for reduced motion, in the web app and
+  the add-in. Other motion needs its own `motion-reduce:` variant.
+
+## Accessibility gate
+
+`e2e/axe.ts` is the one place browser specs check accessibility. Call
+`expectAccessible(page, { name, theme })` once the page shows its content, or
+`expectAccessibleInEveryTheme(page, name)` to cover both themes. The helper:
+
+- pins the theme with the same `.dark` class the Appearance preference sets,
+  without changing the stored preference that other specs share;
+- waits until `main` has no skeleton pulse and no transition is running, so
+  contrast is measured on final colors;
+- runs axe-core over the page, leaving out Next.js's development overlay;
+- fails on any `critical` violation, on every page and in both themes;
+- holds `serious` violations to `e2e/axe-ratchet.json`: the number of serious
+  rules each page and theme violates, with the rules that made it up. A page
+  with no entry may have none. Counts are of rules, not elements, so a longer
+  table does not change them.
+
+`e2e/accessibility.spec.ts` scans `/login`, `/assistant`, `/projects`,
+`/tabular-reviews`, `/settings`, `/workflows`, `/playbooks` and `/library` in
+both themes. A change that adds a page adds a scan of it through the helper.
+
+The ratchet only goes down. When a fix lands, the helper prints the lower
+entry to copy into `axe-ratchet.json`; lower it in the same change. Do not
+raise an entry to let a new violation through: fix the violation. Today
+every entry above zero is color contrast in the light theme (`text-gray-400`
+and similar muted text below 4.5:1); those entries fall to zero when the
+color tokens are fixed.
 
 ## Notices: toast or WarningPopup
 
@@ -604,8 +700,9 @@ errors as toasts in the same top column.
 
 ## Component catalog
 
-Every primitive in the table above has stories in the Ladle catalog. Run it
-from `frontend/`:
+Every primitive in the table above has stories in the Ladle catalog, except
+`CloseButton` and `WarningPopup`, which appear in the `ModalUI` and
+`NoticeCardUI` stories that render them. Run it from `frontend/`:
 
 ```bash
 npm run catalog          # dev server on http://localhost:61000
@@ -623,9 +720,10 @@ catches a story importing an export that no longer exists.
 
 Two things about the catalog environment are worth knowing before you edit it:
 
-- The catalog imports the app's real `globals.css`, so it renders on the same
-  tokens and materials as the app. The theme toggle drives the same `.dark`
-  class the Settings > Appearance preference sets, so dark values are real.
+- The catalog imports the app's real `fonts.css` and `globals.css`, so it
+  renders in the same faces, tokens and materials as the app. The theme toggle
+  drives the same `.dark` class the Settings > Appearance preference sets, so
+  dark values are real.
 - Tailwind v4's automatic source detection skips dot-directories, so nothing
   in `frontend/.ladle/` is scanned for class names. Catalog chrome is styled
   with plain CSS in `.ladle/ladle.css` for that reason. Both `stories/`
