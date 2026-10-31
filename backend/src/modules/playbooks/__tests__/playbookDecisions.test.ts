@@ -17,7 +17,7 @@ import {
   storedPlaybookFindings,
   type PlaybookFinding,
 } from "../playbooks.operations";
-import { database, type Row } from "./playbookTestDb";
+import { database, ORG, type Row } from "./playbookTestDb";
 
 const REVIEWER = "10000000-0000-4000-8000-000000000001";
 const COLLEAGUE = "10000000-0000-4000-8000-000000000002";
@@ -396,6 +396,40 @@ describe("escalating a finding", () => {
     expect(tables.playbook_finding_decisions[0]).toMatchObject({
       escalated_to: COLLEAGUE,
     });
+  });
+
+  it("offers the members of an organization project, never one denied it", async () => {
+    const { db, tables } = setup({
+      project: { org_id: ORG, visibility: "organization" },
+    });
+    tables.org_members = [
+      { org_id: ORG, user_id: REVIEWER, role: "member" },
+      { org_id: ORG, user_id: COLLEAGUE, role: "member" },
+      { org_id: ORG, user_id: OUTSIDER, role: "member" },
+    ];
+    tables.project_org_access_overrides = [
+      {
+        id: "override-1",
+        project_id: PROJECT,
+        org_id: ORG,
+        user_id: OUTSIDER,
+        role: "deny",
+        created_at: "2026-10-01T00:00:00.000Z",
+      },
+    ];
+
+    expect(await listPlaybookEscalationMembers(db, reviewer)).toEqual({
+      ok: true,
+      data: [{ userId: COLLEAGUE, displayName: "Sam Lee", email: "sam@example.com" }],
+    });
+    expect(
+      await recordPlaybookFindingDecision(db, {
+        ...reviewer,
+        findingId: "indemnity",
+        decision: "escalated",
+        escalatedTo: OUTSIDER,
+      }),
+    ).toMatchObject({ ok: false, kind: "validation" });
   });
 
   it("refuses someone outside the project, and a run with no project", async () => {
