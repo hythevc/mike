@@ -32,6 +32,7 @@ import {
 } from "./NoticeCardUI";
 
 import {
+    closeToast,
     dismissToast,
     subscribe,
     getSnapshot,
@@ -45,6 +46,7 @@ export {
     clearToasts,
     MAX_VISIBLE_TOASTS,
     type ToastAction,
+    type ToastCloseReason,
     type ToastInput,
     type ToastRecord,
     type ToastTone,
@@ -101,7 +103,7 @@ export function toastHasActions(toast: ToastRecord): boolean {
 /** A toast's "Contact support" link and action buttons, for a card's action row. */
 export function ToastActionsUI({ toast }: { toast: ToastRecord }): ReactElement {
     const runAction = async (action: ToastAction) => {
-        if (!action.keepOpen) dismissToast(toast.id);
+        if (!action.keepOpen) closeToast(toast.id, "action");
         await action.onClick();
     };
 
@@ -163,7 +165,10 @@ function ToastItemUI({ toast }: { toast: ToastRecord }) {
         const remaining = remainingRef.current;
         if (remaining === null) return;
         deadlineRef.current = Date.now() + remaining;
-        timerRef.current = setTimeout(() => dismissToast(toast.id), remaining);
+        timerRef.current = setTimeout(
+            () => closeToast(toast.id, "expired"),
+            remaining,
+        );
     }, [clearTimer, toast.id]);
 
     const pause = useCallback(() => {

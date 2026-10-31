@@ -118,6 +118,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         setCurrentChatId,
         sideChatId,
         requestSideChat,
+        flushPendingChatDeletes,
     } =
         useChatHistoryContext();
     const history = useSidebarHistory();
@@ -439,9 +440,11 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
 
     // A failed sign-out leaves the session live, which the user must know
     // about — on a shared machine especially. Signing out again is safe, so
-    // the notice carries a real Retry.
+    // the notice carries a real Retry. A chat delete still inside its undo
+    // window is sent first, while the session can still carry it.
     function handleSignOut() {
-        void signOut()
+        void flushPendingChatDeletes()
+            .then(() => signOut())
             .then(() => router.push("/"))
             .catch((error) => {
                 notifyError(error, {

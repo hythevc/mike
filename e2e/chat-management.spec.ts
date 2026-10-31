@@ -4,7 +4,10 @@ import { test, expect, type Page } from "./fixtures";
 import { hasLlmKey, LLM_SKIP_REASON } from "./llm";
 import { selectClaudeModel, expectSavedAnswer } from "./helpers";
 
-/** The undo window `ChatHistoryContext` keeps before sending a DELETE. */
+/**
+ * The undo window `ChatHistoryContext` keeps before sending a DELETE. It
+ * pauses while the notice is hovered or focused; these tests never do that.
+ */
 const UNDO_WINDOW_MS = 8_000;
 
 /** The sidebar row whose title button is `title`. */

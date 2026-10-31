@@ -141,4 +141,50 @@ describe("deleting a chat from the sidebar", () => {
         });
         expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-1");
     });
+
+    it("holds the 8 seconds while the notice is hovered, so Undo still works", async () => {
+        await confirmDeleteFromRow();
+        const notice = screen.getByRole("status");
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(6_000);
+        });
+        fireEvent.mouseEnter(notice);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(30_000);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+
+        fireEvent.click(within(notice).getByRole("button", { name: "Undo" }));
+        expect(
+            await screen.findByRole("button", { name: "Quarterly filing" }),
+        ).toBeInTheDocument();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(30_000);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+    });
+
+    it("resumes the rest of the window once the pointer leaves the notice", async () => {
+        await confirmDeleteFromRow();
+        const notice = screen.getByRole("status");
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5_000);
+        });
+        fireEvent.mouseEnter(notice);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(20_000);
+        });
+        fireEvent.mouseLeave(notice);
+        // About 3 of the 8 seconds were left when the pointer arrived.
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(2_000);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(1_500);
+        });
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-1");
+    });
 });

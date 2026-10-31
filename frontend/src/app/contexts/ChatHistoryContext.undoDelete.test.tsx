@@ -6,9 +6,10 @@ import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
 import { CHAT_DELETE_UNDO_MS } from "@/app/lib/chatDeleteUndo";
 import type { Chat } from "@/app/components/shared/types";
 
-const { deleteChat, listChats } = vi.hoisted(() => ({
+const { deleteChat, listChats, session } = vi.hoisted(() => ({
     deleteChat: vi.fn(),
     listChats: vi.fn(),
+    session: { user: { id: "u1", email: "a@firm.test" } },
 }));
 
 vi.mock("@/app/lib/mikeApi", () => ({
@@ -19,9 +20,8 @@ vi.mock("@/app/lib/mikeApi", () => ({
     leaveChat: vi.fn(),
 }));
 
-const STABLE_USER = { id: "u1", email: "a@firm.test" };
 vi.mock("@/app/contexts/AuthContext", () => ({
-    useAuth: () => ({ user: STABLE_USER }),
+    useAuth: () => ({ user: session.user }),
 }));
 vi.mock("@/app/contexts/WorkspaceContext", () => ({
     useWorkspaceParam: () => undefined,
@@ -64,31 +64,50 @@ function Probe() {
     );
 }
 
+const history = () => (
+    <>
+        <ChatHistoryProvider>
+            <Probe />
+        </ChatHistoryProvider>
+        <ToastViewportUI />
+    </>
+);
+
 function renderHistory() {
-    return render(
-        <>
-            <ChatHistoryProvider>
-                <Probe />
-            </ChatHistoryProvider>
-            <ToastViewportUI />
-        </>,
-    );
+    return render(history());
 }
 
 async function deleteFiling() {
-    renderHistory();
+    const view = renderHistory();
     await waitFor(() =>
         expect(screen.getByTestId("titles")).toHaveTextContent(
             "Quarterly filing,Lease review",
         ),
     );
     act(() => latest.deleteChatWithUndo(filing));
+    return view;
+}
+
+/**
+ * What AuthContext does on every window focus and every return to the tab:
+ * it re-reads the session and hands out a new user object for the same
+ * account, which re-reads the chat list.
+ */
+async function refreshSession(view: ReturnType<typeof render>) {
+    const reads = listChats.mock.calls.length;
+    session.user = { ...session.user };
+    view.rerender(history());
+    await waitFor(() => expect(listChats.mock.calls.length).toBe(reads + 1));
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+    });
 }
 
 beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.clearAllMocks();
     clearToasts();
+    session.user = { id: "u1", email: "a@firm.test" };
     listChats.mockResolvedValue([filing, lease]);
     deleteChat.mockResolvedValue(undefined);
 });
@@ -211,5 +230,180 @@ describe("deleteChatWithUndo", () => {
             await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS);
         });
         expect(deleteChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("puts the chat back on Undo after a session check re-reads the list", async () => {
+        const view = await deleteFiling();
+        await refreshSession(view);
+        expect(screen.getByTestId("titles")).not.toHaveTextContent(
+            "Quarterly filing",
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+        expect(screen.getByTestId("titles")).toHaveTextContent(
+            "Quarterly filing,Lease review",
+        );
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS * 2);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+    });
+
+    it("puts the chat back when a delete sent after a session check is refused", async () => {
+        deleteChat.mockRejectedValue(
+            Object.assign(new Error("Forbidden"), { status: 403 }),
+        );
+        const view = await deleteFiling();
+        await refreshSession(view);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS);
+        });
+
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-a");
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+            "Couldn't delete the chat",
+        );
+        expect(screen.getByTestId("titles")).toHaveTextContent(
+            "Quarterly filing,Lease review",
+        );
+    });
+
+    it("keeps the chat out of a list read while its delete is still being sent", async () => {
+        let finishDelete!: () => void;
+        deleteChat.mockReturnValue(
+            new Promise<void>((resolve) => {
+                finishDelete = resolve;
+            }),
+        );
+        await deleteFiling();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS);
+        });
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-a");
+
+        // A session check re-reads the list before the server has answered.
+        await act(async () => {
+            await latest.loadChats();
+        });
+        expect(screen.getByTestId("titles")).not.toHaveTextContent(
+            "Quarterly filing",
+        );
+
+        // Signing out now waits for that delete instead of sending another.
+        let flushed = false;
+        void latest.flushPendingChatDeletes().then(() => {
+            flushed = true;
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(flushed).toBe(false);
+        await act(async () => finishDelete());
+        expect(flushed).toBe(true);
+        expect(deleteChat).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId("titles")).toHaveTextContent("Lease review");
+        expect(screen.getByTestId("titles")).not.toHaveTextContent(
+            "Quarterly filing",
+        );
+    });
+
+    it("puts back a chat deleted before the list loaded once the list would show it", async () => {
+        let resolveList!: (rows: Chat[]) => void;
+        listChats.mockReturnValueOnce(
+            new Promise<Chat[]>((resolve) => {
+                resolveList = resolve;
+            }),
+        );
+        renderHistory();
+        await waitFor(() => expect(listChats).toHaveBeenCalledTimes(1));
+        expect(screen.getByTestId("titles")).toHaveTextContent("loading");
+
+        // Deleted from the chat's own page while the history still loads.
+        act(() => latest.deleteChatWithUndo(filing));
+        await act(async () => resolveList([filing, lease]));
+        expect(screen.getByTestId("titles")).toHaveTextContent("Lease review");
+        expect(screen.getByTestId("titles")).not.toHaveTextContent(
+            "Quarterly filing",
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+        expect(screen.getByTestId("titles")).toHaveTextContent(
+            "Quarterly filing,Lease review",
+        );
+    });
+
+    it("keeps the window open while the notice is hovered or focused", async () => {
+        await deleteFiling();
+        const notice = screen.getByRole("status");
+
+        fireEvent.mouseEnter(notice);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS * 3);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+
+        // Keyboard focus on Undo holds it too, after the pointer leaves.
+        const undo = screen.getByRole("button", { name: "Undo" });
+        fireEvent.focus(undo);
+        fireEvent.mouseLeave(notice);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS * 3);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+
+        fireEvent.blur(undo, { relatedTarget: document.body });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS);
+        });
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-a");
+    });
+
+    it("sends the delete at once when the notice is closed", async () => {
+        await deleteFiling();
+
+        fireEvent.click(
+            screen.getByRole("button", { name: "Dismiss notification" }),
+        );
+
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-a");
+        expect(screen.getByTestId("titles")).not.toHaveTextContent(
+            "Quarterly filing",
+        );
+    });
+
+    it("drops a waiting delete, unsent, when the session ends", async () => {
+        const view = await deleteFiling();
+
+        // AuthContext discards every notice when the session ends or
+        // another account signs in.
+        act(() => clearToasts());
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS * 2);
+        });
+        view.unmount();
+
+        expect(deleteChat).not.toHaveBeenCalled();
+    });
+
+    it("sends every waiting delete at once when asked to before signing out", async () => {
+        await deleteFiling();
+        act(() => latest.deleteChatWithUndo(lease));
+
+        await act(async () => {
+            await latest.flushPendingChatDeletes();
+        });
+
+        expect(deleteChat).toHaveBeenCalledTimes(2);
+        expect(deleteChat).toHaveBeenCalledWith("chat-a");
+        expect(deleteChat).toHaveBeenCalledWith("chat-b");
+        expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+        // Nothing is left to send when the session then ends.
+        act(() => clearToasts());
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS * 2);
+        });
+        expect(deleteChat).toHaveBeenCalledTimes(2);
     });
 });

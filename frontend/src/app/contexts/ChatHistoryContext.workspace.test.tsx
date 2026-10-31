@@ -6,6 +6,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
+import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
+import { CHAT_DELETE_UNDO_MS } from "@/app/lib/chatDeleteUndo";
 
 const listChats = vi.fn();
 const createChat = vi.fn();
@@ -237,10 +239,12 @@ describe("ChatHistoryProvider and the active workspace", () => {
 
     it("does not put a deleted chat into a newer workspace when its delete fails", async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
+        // The Undo notice's own lifetime is the undo window.
+        const withNotices = () => <>{tree()}<ToastViewportUI /></>;
         try {
             listChats.mockImplementation(async ({ workspace: scope }) => [chat(scope, scope)]);
             deleteChat.mockRejectedValueOnce(new Error("Denied"));
-            const { rerender } = render(tree());
+            const { rerender } = render(withNotices());
             await screen.findByText("personal");
             act(() =>
                 latest.deleteChatWithUndo({
@@ -250,15 +254,16 @@ describe("ChatHistoryProvider and the active workspace", () => {
             );
             await screen.findByText("empty");
             workspace.current = "org-1";
-            rerender(tree());
+            rerender(withNotices());
             await screen.findByText("org-1");
 
-            await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS); });
 
             expect(deleteChat).toHaveBeenCalledWith("personal");
             expect(notifyError).toHaveBeenCalled();
             expect(latest.chats?.map(row => row.id)).toEqual(["org-1"]);
         } finally {
+            clearToasts();
             vi.useRealTimers();
         }
     });

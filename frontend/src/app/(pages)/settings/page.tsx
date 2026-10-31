@@ -9,6 +9,7 @@ import { Modal } from "@/app/components/modals/Modal";
 import { FieldLabel } from "@/app/components/ui/form-field";
 import { SettingsTextInput } from "@/app/components/settings/SettingsTextInput";
 import { useAuth } from "@/app/contexts/AuthContext";
+import { useChatHistoryContext } from "@/app/contexts/ChatHistoryContext";
 import { useUserProfile } from "@/app/contexts/UserProfileContext";
 import { ConfirmPopup } from "@/app/components/popups/ConfirmPopup";
 import {
@@ -60,6 +61,7 @@ const EMAIL_RATE_LIMIT_CODES = new Set([
 export default function SettingsPage() {
   const router = useRouter();
   const { user, signOut, updateEmail } = useAuth();
+  const { flushPendingChatDeletes } = useChatHistoryContext();
   const { profile, updateDisplayName } = useUserProfile();
   const [displayName, setDisplayName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
@@ -115,6 +117,9 @@ export default function SettingsPage() {
         setIsDeleting(false);
         return;
       }
+      // A chat delete still inside its undo window goes first, while the
+      // account can still send it.
+      await flushPendingChatDeletes();
       await deleteAccount();
       await signOut();
       router.push("/");

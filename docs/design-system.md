@@ -599,6 +599,12 @@ sole action. Style a custom action with
 Use a **toast** only for a short confirmation ("Changes saved") or
 information.
 
+An Undo toast holds back work until its window ends. Pass the window as
+`durationMs`, so it pauses while the toast is hovered or focused, and finish
+or drop the work in `onClose`, which says why the toast left: `expired`,
+`dismissed`, `action`, `replaced`, `evicted`, or `cleared` when the session
+ends. The chat delete in `ChatHistoryContext.tsx` follows this pattern.
+
 The Word add-in has no `WarningPopup`, so there `ToastViewportUI` draws
 errors as toasts in the same top column.
 

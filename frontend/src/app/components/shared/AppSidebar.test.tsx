@@ -5,7 +5,10 @@ import { listProjectsPage } from "@/app/lib/mikeApi";
 import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
 import { AppSidebar } from "./AppSidebar";
 
-const { signOut } = vi.hoisted(() => ({ signOut: vi.fn() }));
+const { signOut, flushPendingChatDeletes } = vi.hoisted(() => ({
+    signOut: vi.fn(),
+    flushPendingChatDeletes: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ push: vi.fn() }),
@@ -39,6 +42,7 @@ vi.mock("@/app/contexts/ChatHistoryContext", () => ({
         loadingMoreChats: false,
         loadMoreChats: vi.fn(),
         setCurrentChatId: vi.fn(),
+        flushPendingChatDeletes,
     }),
 }));
 
@@ -61,6 +65,7 @@ describe("AppSidebar failures", () => {
         clearToasts();
         vi.mocked(listProjectsPage).mockResolvedValue([]);
         signOut.mockResolvedValue(undefined);
+        flushPendingChatDeletes.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -116,5 +121,26 @@ describe("AppSidebar failures", () => {
         expect(
             screen.getByRole("button", { name: "Retry" }),
         ).toBeInTheDocument();
+    });
+
+    // Once the session ends, a delete still waiting on Undo can no longer
+    // be sent; the person confirmed it, so it goes before sign-out does.
+    it("sends chat deletes still waiting on Undo before signing out", async () => {
+        const user = userEvent.setup();
+        let finishDeletes!: () => void;
+        flushPendingChatDeletes.mockReturnValue(
+            new Promise<void>((resolve) => {
+                finishDeletes = resolve;
+            }),
+        );
+
+        renderSidebar();
+        await user.click(screen.getByText("Alice").closest("button")!);
+        await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+        expect(flushPendingChatDeletes).toHaveBeenCalledOnce();
+        expect(signOut).not.toHaveBeenCalled();
+        finishDeletes();
+        await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
     });
 });

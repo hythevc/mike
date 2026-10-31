@@ -119,9 +119,10 @@ export function SidebarChatItem({
             setRenameOpen(false);
         } catch (error) {
             // The context put the old title back; without this the user
-            // watches their edit silently revert — the rename twin of the
-            // surfaced delete failure below. The modal stays open so the
-            // typed title is still there to retry.
+            // watches their edit silently revert. (A refused delete is
+            // reported by the chat history, since this row is gone by
+            // then.) The modal stays open so the typed title is still there
+            // to retry.
             setRenameError(
                 userFacingApiError(
                     error,

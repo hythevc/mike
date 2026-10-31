@@ -8,6 +8,7 @@ import {
     dismissToast,
     showToast,
 } from "./ToastUI";
+import { getSnapshot } from "../lib/toastStore";
 
 describe("ToastUI", () => {
     beforeEach(() => {
@@ -304,5 +305,95 @@ describe("ToastUI", () => {
             "white",
             "black",
         ]);
+    });
+
+    describe("onClose", () => {
+        it("says the toast expired once its own timer ran out, hover pauses included", () => {
+            const onClose = vi.fn();
+            render(<ToastViewportUI />);
+            act(() => {
+                showToast({ message: "Deleted", durationMs: 8_000, onClose });
+            });
+            fireEvent.mouseEnter(screen.getByRole("status"));
+            act(() => {
+                vi.advanceTimersByTime(30_000);
+            });
+            expect(onClose).not.toHaveBeenCalled();
+
+            fireEvent.mouseLeave(screen.getByRole("status"));
+            act(() => {
+                vi.advanceTimersByTime(8_100);
+            });
+            expect(onClose).toHaveBeenCalledExactlyOnceWith("expired");
+            expect(screen.queryByRole("status")).toBeNull();
+        });
+
+        it("tells a closed toast from one whose action was chosen", () => {
+            const closed = vi.fn();
+            const acted = vi.fn();
+            const undo = vi.fn();
+            render(<ToastViewportUI />);
+            act(() => {
+                showToast({ message: "Closed", dedupeKey: "a", onClose: closed });
+            });
+            fireEvent.click(
+                screen.getByRole("button", { name: "Dismiss notification" }),
+            );
+            act(() => {
+                showToast({
+                    message: "Acted on",
+                    dedupeKey: "b",
+                    actions: [{ label: "Undo", onClick: undo }],
+                    onClose: acted,
+                });
+            });
+            fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+            expect(closed).toHaveBeenCalledExactlyOnceWith("dismissed");
+            expect(acted).toHaveBeenCalledExactlyOnceWith("action");
+            expect(undo).toHaveBeenCalledOnce();
+        });
+
+        it("names a toast that was replaced, pushed out or cleared", () => {
+            const replaced = vi.fn();
+            const evicted = vi.fn();
+            const cleared = vi.fn();
+            act(() => {
+                showToast({ message: "Old", dedupeKey: "same", onClose: replaced });
+                showToast({ message: "New", dedupeKey: "same" });
+                showToast({ message: "Oldest", onClose: evicted });
+                for (let i = 0; i < MAX_VISIBLE_TOASTS; i += 1) {
+                    showToast({ message: `Newer ${i}` });
+                }
+                showToast({ message: "Last", onClose: cleared });
+                clearToasts();
+            });
+
+            expect(replaced).toHaveBeenCalledExactlyOnceWith("replaced");
+            expect(evicted).toHaveBeenCalledExactlyOnceWith("evicted");
+            expect(cleared).toHaveBeenCalledExactlyOnceWith("cleared");
+        });
+
+        it("runs once, after the toast has left the stack", () => {
+            // Whether the toast was still in the stack each time it ran.
+            const stillListed: boolean[] = [];
+            let id = "";
+            act(() => {
+                id = showToast({
+                    message: "Once",
+                    onClose: () => {
+                        stillListed.push(
+                            getSnapshot().some((toast) => toast.id === id),
+                        );
+                    },
+                });
+            });
+            act(() => {
+                dismissToast(id);
+                dismissToast(id);
+                clearToasts();
+            });
+            expect(stillListed).toEqual([false]);
+        });
     });
 });

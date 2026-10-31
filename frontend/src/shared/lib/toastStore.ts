@@ -34,6 +34,25 @@ export function retryToastAction(
     };
 }
 
+/**
+ * Why a toast left the stack.
+ *
+ * - `expired`: its own timer ran out. The timer pauses while the toast is
+ *   hovered or focused.
+ * - `dismissed`: the person closed it, or code dismissed it.
+ * - `action`: the person chose one of its actions.
+ * - `replaced`: a newer toast with the same dedupe key took its place.
+ * - `evicted`: newer toasts pushed it out of a full stack.
+ * - `cleared`: every toast was discarded at once, as when the session ends.
+ */
+export type ToastCloseReason =
+    | "expired"
+    | "dismissed"
+    | "action"
+    | "replaced"
+    | "evicted"
+    | "cleared";
+
 export interface ToastInput {
     tone?: ToastTone;
     title?: string;
@@ -53,6 +72,12 @@ export interface ToastInput {
      * so a polling loop that fails five times shows one toast.
      */
     dedupeKey?: string;
+    /**
+     * Runs once, after the toast has left the stack, with the reason. Work
+     * that lasts only as long as its toast, such as a delete that waits for
+     * Undo, finishes or drops itself here.
+     */
+    onClose?: (reason: ToastCloseReason) => void;
 }
 
 export interface ToastRecord extends ToastInput {
@@ -143,21 +168,39 @@ export function showToast(input: ToastInput): string {
     const kept = input.dedupeKey
         ? toasts.filter((toast) => toast.dedupeKey !== input.dedupeKey)
         : toasts;
-    toasts = trimToStack([...kept, record]);
+    const replaced = toasts.filter((toast) => !kept.includes(toast));
+    const next = trimToStack([...kept, record]);
+    const evicted = kept.filter((toast) => !next.includes(toast));
+    toasts = next;
     emit();
+    for (const toast of replaced) toast.onClose?.("replaced");
+    for (const toast of evicted) toast.onClose?.("evicted");
     return record.id;
 }
 
-export function dismissToast(id: string) {
-    if (!toasts.some((toast) => toast.id === id)) return;
-    toasts = toasts.filter((toast) => toast.id !== id);
+/**
+ * Remove a toast and tell its `onClose` why. The toast UI uses this for a
+ * timer that ran out and an action that was chosen; everything else calls
+ * `dismissToast`.
+ */
+export function closeToast(id: string, reason: ToastCloseReason) {
+    const closed = toasts.find((toast) => toast.id === id);
+    if (!closed) return;
+    toasts = toasts.filter((toast) => toast !== closed);
     emit();
+    closed.onClose?.(reason);
+}
+
+export function dismissToast(id: string) {
+    closeToast(id, "dismissed");
 }
 
 export function clearToasts() {
     if (toasts.length === 0) return;
+    const cleared = toasts;
     toasts = [];
     emit();
+    for (const toast of cleared) toast.onClose?.("cleared");
 }
 
 export function subscribe(listener: Listener) {
