@@ -17,6 +17,10 @@ import { stopOutcomeFrame } from "../../lib/streamRuns";
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { requireAuth } from "../../middleware/auth";
+import {
+    chatCreateRateLimit,
+    modelCallRateLimit,
+} from "../../middleware/modelRateLimit";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
 import { enqueueChatTurnAudit } from "../../lib/audit";
@@ -141,7 +145,7 @@ chatRouter.get("/", requireAuth, asyncRoute(async (req, res) => {
 }));
 
 // POST /chat/create
-chatRouter.post("/create", requireAuth, asyncRoute(async (req, res) => {
+chatRouter.post("/create", requireAuth, chatCreateRateLimit, asyncRoute(async (req, res) => {
     const userId = res.locals.userId as string;
     const userEmail = res.locals.userEmail as string | undefined;
     const parsedProjectId = parseOptionalProjectId(req.body?.project_id);
@@ -507,7 +511,7 @@ chatRouter.delete("/:chatId", requireAuth, asyncRoute(async (req, res) => {
 }));
 
 // POST /chat — streaming
-chatRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
+chatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (req, res) => {
     setOperation("chat.turn");
     const requestId = requestIdOf(res);
     const userId = res.locals.userId as string;

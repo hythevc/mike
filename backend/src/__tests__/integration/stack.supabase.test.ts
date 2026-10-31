@@ -34,6 +34,7 @@ const PUBLIC_TABLES = [
   "library_folders",
   "default_workflow_installations",
   "quick_actions",
+  "rate_limit_windows",
   "mike_workflows",
   "mike_workflow_assets",
   "project_subfolders",

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { reportError } from "@/app/lib/errorReporting";
 import { diagnosticRoute } from "@/shared/lib/sentryPrivacy";
 import type { NextRequest } from "next/server";
+import { forwardClientAddress } from "./clientAddress";
 import {
     UPSTREAM_UNAVAILABLE_FINGERPRINT,
     upstreamReportWindow,
@@ -40,6 +41,9 @@ async function proxy(request: NextRequest, context: RouteContext) {
         headers.delete("host");
         headers.delete("connection");
         headers.delete("content-length");
+        // The API rate-limits by client address: pass on only the address the
+        // edge supplied, never one the client wrote (see clientAddress.ts).
+        forwardClientAddress(headers, request.headers);
         headers.set("x-forwarded-host", request.nextUrl.host);
         headers.set(
             "x-forwarded-proto",

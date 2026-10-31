@@ -2,6 +2,7 @@ import { createServerSupabase, type Db } from "../lib/supabase";
 import { safeError } from "../lib/safeError";
 import { withKind } from "../lib/appError";
 import { runIsolated } from "../lib/dbq/jobScope";
+import { pruneExpiredRateLimitWindows } from "../lib/rateLimitStore";
 import { reportError, setOperation } from "../lib/observability/sentry";
 import type { Operation } from "../lib/observability/sentryPrivacy";
 import { backfillDocumentText, sweepStaleProcessingDocuments } from "../modules/documents/documents.service";
@@ -37,5 +38,6 @@ export async function runStaleWorkSweep(
     await runSweep("maintenance.organization_archives", () => expireDepartureArchives(db));
     await runSweep("maintenance.organizations", () => purgeExpiredOrganizations(db));
     await runSweep("maintenance.subagent_runs", () => purgeExpiredSubagentRuns(db));
+    await runSweep("maintenance.rate_limits", () => pruneExpiredRateLimitWindows(db));
     return { documents: documents ?? 0, cells: cells ?? 0 };
 }

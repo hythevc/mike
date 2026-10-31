@@ -9,7 +9,7 @@ backend/src/
 ├── app.ts                 Express app: middleware, rate limits, mounts one router per module
 ├── index.ts               HTTP entrypoint
 ├── workerRuntime.ts       queue workers entrypoint (imports modules through facades)
-├── middleware/            request plumbing (auth, trusted origin) — depends on lib/ only
+├── middleware/            request plumbing (auth, trusted origin, per-user model rate limits) — depends on lib/ only
 ├── modules/<domain>/      one directory per HTTP surface (see "Module anatomy")
 ├── lib/                   shared kernel: infrastructure + cross-domain primitives
 ├── workers/, jobs/        queue consumers and scheduled jobs — reach modules via facades

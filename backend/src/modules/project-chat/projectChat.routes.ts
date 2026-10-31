@@ -14,6 +14,7 @@ import { stopOutcomeFrame } from "../../lib/streamRuns";
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { requireAuth } from "../../middleware/auth";
+import { modelCallRateLimit } from "../../middleware/modelRateLimit";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
 import { enqueueChatTurnAudit } from "../../lib/audit";
@@ -59,7 +60,7 @@ import {
 export const projectChatRouter = Router({ mergeParams: true });
 
 // POST /projects/:projectId/chat — streaming
-projectChatRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
+projectChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (req, res) => {
     setOperation("project_chat.turn");
     const requestId = requestIdOf(res);
     const userId = res.locals.userId as string;

@@ -389,6 +389,9 @@ services:
     image: ${MIKE_IMAGE_REPO:-ghcr.io/open-legal-products}/mike-frontend:${MIKE_IMAGE_TAG:-2.1.0}
     environment:
       - API_BASE_URL=${API_BASE_URL:-http://backend:3001}
+      # Header in which the edge in front of this stack puts the browser's
+      # address (docs/deployment.md, "Rate limits and client addresses").
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-}
       # Next server side (the /api gateway); same project as the browser.
       - SENTRY_DISABLED=${SENTRY_DISABLED:-}
       - SENTRY_INSTALL=${SENTRY_INSTALL:-}

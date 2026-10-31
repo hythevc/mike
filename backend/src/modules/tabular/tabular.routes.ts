@@ -13,6 +13,7 @@
 import { Router, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { requireAuth } from "../../middleware/auth";
+import { modelCallRateLimit } from "../../middleware/modelRateLimit";
 import {
     attachStreamRunSse,
     getActiveStreamRun,
@@ -432,7 +433,7 @@ tabularRouter.post(
 );
 
 // POST /tabular-review/:reviewId/generate
-tabularRouter.post("/:reviewId/generate", requireAuth, asyncRoute(async (req, res) => {
+tabularRouter.post("/:reviewId/generate", requireAuth, modelCallRateLimit, asyncRoute(async (req, res) => {
     setOperation("tabular.run");
     const userId = res.locals.userId as string;
     const userEmail = res.locals.userEmail as string | undefined;
@@ -951,7 +952,7 @@ tabularRouter.get(
 // ---------------------------------------------------------------------------
 
 // POST /tabular-review/:reviewId/chat
-tabularRouter.post("/:reviewId/chat", requireAuth, asyncRoute(async (req, res) => {
+tabularRouter.post("/:reviewId/chat", requireAuth, modelCallRateLimit, asyncRoute(async (req, res) => {
     setOperation("tabular.chat");
     const userId = res.locals.userId as string;
     const userEmail = res.locals.userEmail as string | undefined;

@@ -349,6 +349,64 @@ personal key restores the global key as the fallback. Work in an organization
 never uses personal keys: it runs on the organization's key for a provider,
 and otherwise on the globally configured key.
 
+### Rate limits and client addresses
+
+The API rate-limits requests in lanes, each with its own window and cap
+(`RATE_LIMIT_*` in `backend/.env.example`). Three things decide how a lane
+behaves.
+
+**What a budget belongs to.** Requests that call a model (chat, project chat
+and Word chat turns, tabular review chat and generation, playbook reviews) and
+starting a chat are limited per signed-in user, after authentication. People
+who share an office address each get their own budget. Sign-in, MFA, email
+and public lanes are limited per client address; failed sign-ins are also
+limited per account, keyed by a digest of the email address. The general lane
+and the export, import, deletion, signed-upload and Word tool-result lanes are
+limited per client address too, and upload sessions have their own per-user
+limits (see above).
+
+**Where the count lives.** The model, sign-in, MFA, email and public lanes
+count in Postgres (the `rate_limit_windows` table, through the
+`check_rate_limit` function), so a budget is the same on every API replica and
+survives a deploy. The table holds only a digest of each key, never an
+address, user id or email, and the maintenance sweep deletes windows once
+they have ended. Every other lane counts in process memory, so ordinary
+requests take no extra database round trip. A single-process install can set
+`RATE_LIMIT_STORE=memory` to keep every lane in memory; budgets are then per
+process and reset on restart.
+
+**What happens when Postgres cannot answer.** Model lanes let the request
+through. Sign-in, MFA, email and public lanes refuse it with a 503, so
+brute-force protection does not switch off while the database is slow. Both
+cases are logged, and sent to error tracking when it is enabled.
+
+Client addresses come from `X-Forwarded-For`. A browser can set that header
+itself, so neither the web app's `/api` gateway nor the Word add-in host
+passes on the value it receives. Configure the edge in front of them (CDN,
+load balancer or platform router) to set the client's address in a header
+that clients cannot override, and name that header in `CLIENT_IP_HEADER` on
+the web app and on the add-in host, for example `cf-connecting-ip`,
+`fly-client-ip` or `x-real-ip`. If the edge writes `X-Forwarded-For` itself,
+appending the address it saw, `CLIENT_IP_HEADER=x-forwarded-for` uses the
+right-most entry. Name only a header your edge always sets: a header it
+passes through unchanged can be forged.
+
+Without `CLIENT_IP_HEADER`, the web gateway forwards no client address and the
+API sees every browser at the gateway's own address, so all users share each
+per-address budget. The gateway logs a warning about this once in production.
+The add-in host falls back to the address of the connection it accepted.
+
+On the API, `TRUST_PROXY_HOPS` (default 1) is the number of proxies between
+the API and the browser whose `X-Forwarded-For` entries it trusts, counting
+the gateway. Raise it when a load balancer that appends to `X-Forwarded-For`
+sits between the gateway and the API; otherwise the API takes that load
+balancer's view of the gateway as the client.
+
+Upgrading: apply the migrations (`backend/scripts/migrate.sh up`) before
+starting this version of the API. Until the counters exist, the sign-in, MFA
+and email lanes answer 503 with `schema_out_of_date`. Set `CLIENT_IP_HEADER`
+on the web app, and on the add-in host if you run it, at the same time.
+
 ### Error tracking
 
 Error reports are sent to the Mike project's own Sentry by default, so the

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetClientAddressWarning } from "./clientAddress";
 import { GET, POST } from "./route";
 import { upstreamReportWindow } from "./upstreamFailure";
 
@@ -274,6 +275,95 @@ describe("same-origin API gateway", () => {
             await GET(new NextRequest("https://app.example.test/api/projects"), context(["projects"]));
             expect(reportError).toHaveBeenCalledTimes(2);
             expect(reportError.mock.calls[1]?.[1]).toMatchObject({ tags: { failure_code: "ENOTFOUND" } });
+        });
+    });
+
+    // The API keys its sign-in, email, MFA and public rate limits by the
+    // address in X-Forwarded-For, so a value the browser wrote would buy a
+    // fresh budget on every request.
+    describe("client address", () => {
+        beforeEach(() => {
+            resetClientAddressWarning();
+            fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+        });
+
+        async function forwardedHeaders(headers: Record<string, string>) {
+            await POST(
+                new NextRequest("https://app.example.test/api/auth/login", {
+                    method: "POST",
+                    body: "{}",
+                    headers,
+                }),
+                context(["auth", "login"]),
+            );
+            const [, init] = fetchMock.mock.calls.at(-1) as [URL, RequestInit];
+            return new Headers(init.headers);
+        }
+
+        it("never forwards a client-supplied X-Forwarded-For or Forwarded", async () => {
+            const forwarded = await forwardedHeaders({
+                "x-forwarded-for": "198.51.100.66",
+                forwarded: "for=198.51.100.66",
+            });
+
+            expect(forwarded.get("x-forwarded-for")).toBeNull();
+            expect(forwarded.get("forwarded")).toBeNull();
+        });
+
+        it("forwards the configured edge header's address instead of the client's", async () => {
+            vi.stubEnv("CLIENT_IP_HEADER", "CF-Connecting-IP");
+
+            const forwarded = await forwardedHeaders({
+                "cf-connecting-ip": "203.0.113.7",
+                "x-forwarded-for": "198.51.100.66",
+            });
+
+            expect(forwarded.get("x-forwarded-for")).toBe("203.0.113.7");
+        });
+
+        it("takes the entry the edge appended when the header is a list", async () => {
+            vi.stubEnv("CLIENT_IP_HEADER", "x-forwarded-for");
+
+            const forwarded = await forwardedHeaders({
+                "x-forwarded-for": "198.51.100.66, 203.0.113.7",
+            });
+
+            expect(forwarded.get("x-forwarded-for")).toBe("203.0.113.7");
+        });
+
+        it("forwards no address when the edge header is missing or not an address", async () => {
+            vi.stubEnv("CLIENT_IP_HEADER", "x-real-ip");
+
+            expect((await forwardedHeaders({ "x-forwarded-for": "198.51.100.66" })).get("x-forwarded-for")).toBeNull();
+            expect((await forwardedHeaders({ "x-real-ip": "unknown" })).get("x-forwarded-for")).toBeNull();
+        });
+
+        it("refuses to proxy with a setting that is not a header name", async () => {
+            vi.stubEnv("CLIENT_IP_HEADER", "client ip");
+            vi.spyOn(console, "error").mockImplementation(() => {});
+
+            const response = await GET(
+                new NextRequest("https://app.example.test/api/health"),
+                context(["health"]),
+            );
+
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(response.status).toBe(502);
+            expect(reportError.mock.calls[0]?.[1]).toMatchObject({
+                tags: { stage: "gateway-config" },
+            });
+        });
+
+        it("warns once in production when no edge header is configured", async () => {
+            vi.stubEnv("NODE_ENV", "production");
+            vi.stubEnv("API_BASE_URL", "https://backend.example.test");
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            await forwardedHeaders({});
+            await forwardedHeaders({});
+
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(String(warn.mock.calls[0]?.[0])).toContain("CLIENT_IP_HEADER");
         });
     });
 });

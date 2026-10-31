@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import { Router, type Response } from "express";
 import { requireAuth, requireMfaIfEnrolled } from "../../middleware/auth";
+import { modelCallRateLimit } from "../../middleware/modelRateLimit";
 import { sendInternalError } from "../../lib/httpError";
 import { setOperation } from "../../lib/observability/sentry";
 import {
@@ -707,7 +708,9 @@ playbooksRouter.put("/:playbookId", requireMfaIfEnrolled, async (req, res) => {
   }
 });
 
-playbooksRouter.post("/:playbookId/review", async (req, res) => {
+// A review is one large model call (or a tool loop when the playbook has
+// supplementary documents), so it spends the chat turns' per-user budget.
+playbooksRouter.post("/:playbookId/review", modelCallRateLimit, async (req, res) => {
   setOperation("playbooks.review");
   try {
     const text =
