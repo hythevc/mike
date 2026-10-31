@@ -588,8 +588,32 @@ export function quoteFieldsOf(
 }
 
 /**
+ * A stored quote entry as a caller who may read `readable` sees it. An entry
+ * checked against a document outside `readable` (one deleted since the
+ * check, which leaves the rest of its folder row visible, or one the caller
+ * may not read) keeps its quote and status but loses the document's id and
+ * the passages taken from it.
+ */
+function readableQuoteCheck(
+    check: TabularQuoteCheck,
+    readable: ReadonlySet<string>,
+): TabularQuoteCheck {
+    if (typeof check.document_id === "string" && readable.has(check.document_id)) {
+        return check;
+    }
+    const {
+        source_excerpt: _excerpt,
+        context_before: _before,
+        context_after: _after,
+        ...entry
+    } = check;
+    return { ...entry, document_id: null };
+}
+
+/**
  * A checked cell's quotes in full, as the quote-checks endpoint returns them:
- * each quote with the source passage it matched and the text around it.
+ * each quote with the source passage it matched and the text around it, for
+ * the documents in `readable`.
  */
 export function quoteChecksOf(
     cell: Record<string, unknown>,
@@ -600,7 +624,11 @@ export function quoteChecksOf(
         row_id: String(cell.row_id),
         column_index: Number(cell.column_index),
         quote_status: status,
-        quote_checks: status ? storedQuoteChecks(cell) : [],
+        quote_checks: status
+            ? storedQuoteChecks(cell).map((check) =>
+                  readableQuoteCheck(check, readable),
+              )
+            : [],
         no_text_document_ids: status ? noTextDocumentIds(cell, readable) : [],
     };
 }

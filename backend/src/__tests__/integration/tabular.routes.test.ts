@@ -1066,6 +1066,42 @@ describe("tabular.routes", () => {
             expect(res.body).toEqual({ cells: [] });
         });
 
+        it("serves no passage from a recorded source that is no longer a source of the row", async () => {
+            seedReview();
+            // The answer also quoted d2, deleted since: the row now has only d1.
+            const [cell] = (
+                supabaseState.tables.tabular_cells as QueryResult
+            ).data as Record<string, unknown>[];
+            cell.quote_checks = [
+                ...(cell.quote_checks as unknown[]),
+                {
+                    field: "reasoning",
+                    quote: "the side letter",
+                    document_id: "d2",
+                    status: "found",
+                    source_excerpt: "the side letter",
+                    context_before: "Words only d2 held",
+                    context_after: "and more of them",
+                },
+            ];
+            cell.source_versions = {
+                ...(cell.source_versions as Record<string, unknown>),
+                d2: { version_id: "v1", content_sha256: null, has_text: true },
+            };
+
+            const res = await request(app)
+                .get("/tabular-review/r1/quote-checks")
+                .set(...AUTH);
+
+            expect(res.status).toBe(200);
+            expect(res.body.cells[0].quote_checks).toEqual([
+                expect.objectContaining({ document_id: "d1", source_excerpt: "pay rent" }),
+                { field: "reasoning", quote: "the side letter", document_id: null, status: "found" },
+            ]);
+            expect(res.text).not.toContain("Words only d2 held");
+            expect(res.text).not.toContain("d2");
+        });
+
         it.each(["-1", "1.5", "first", "1234567"])(
             "rejects column_index=%s",
             async (column) => {

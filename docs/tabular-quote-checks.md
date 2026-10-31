@@ -40,9 +40,10 @@ found in source", and should not say "verified" or "accurate".
 ## How quotes are matched
 
 Matching ignores differences in whitespace, letter case, quote characters and
-apostrophes, dash characters, ligatures and soft hyphens. For a quote with at
-least eight letters and digits it also ignores spacing and the punctuation that
-cannot change what a number says, so a stray comma, a missing space or a
+apostrophes, dash characters, ligatures, soft hyphens and other invisible
+characters (zero width spaces and joiners, byte order marks). For a quote with
+at least eight letters and digits it also ignores spacing and the punctuation
+that cannot change what a number says, so a stray comma, a missing space or a
 line-break hyphen does not hide a real quote.
 
 Some differences always count, because they change what the quote says:
@@ -50,12 +51,29 @@ Some differences always count, because they change what the quote says:
 - A match has to start and end where a word or a number starts and ends.
   "5 days" is not found in "15 days", "2.5%" is not found in "12.5%",
   "10,000.00" is not found in "110,000.00", "enforceable" is not found in
-  "unenforceable" (nor in "un-" ending one line and "enforceable" starting the
-  next), and "exclusive" is not found in "non-exclusive".
+  "unenforceable", and "exclusive" is not found in "non-exclusive".
+- A word hyphenated at the end of a line is still one word. Text extracted
+  from a PDF, including an Office file converted to PDF, joins the lines of a
+  page with a space, so "un-" ending one line and "enforceable" starting the
+  next reads "un- enforceable". "enforceable" is not found there, nor
+  "exclusive" in "non- exclusive" or "Exclusive" in "Non- Exclusive", and the
+  same holds across a page break. A hyphen followed by a linking word is not a
+  hyphenated word: "and post-closing" is found in "pre- and post-closing". The
+  linking words are "and", "or", "nor" and "to", and "et", "ou", "und",
+  "oder", "bis", "bzw", "sowie", "y", "e", "o", "u", "ed", "od", "en" and "of"
+  for French, German, Spanish, Italian, Portuguese and Dutch text.
 - A sign directly before a number belongs to it: "0.50%" is not found in
   "-0.50%".
 - Punctuation between two digits counts: `$10,000.00` never matches
   `$1,000,000`.
+- A number keeps its groups of thousands: "500 euros" is not found in
+  "1 500 euros". A no-break, narrow no-break or thin space between two digits
+  always joins them; an ordinary space does so only between one to three
+  digits and a group of exactly three, so "Sections 1 2 and 13" is still three
+  numbers.
+- A dash between two numbers makes a range, also when the dash ends a line:
+  "10 days" is not found in "5–10 days", nor where "5–" ends one line and
+  "10 days" starts the next.
 - Currency, percent, comparison and arithmetic symbols count: "€10,000" is not
   found in "$10,000", and "≥ 3.50" is not found in "≤ 3.50".
 - Two numbers stay two numbers: "Sections 12 and 13" is not found in
@@ -65,10 +83,23 @@ Letters are checked at word edges only in scripts that put spaces between
 words. In Chinese, Japanese, Thai and similar text, a quote can match inside a
 run of characters; digits are still checked there.
 
+Because the text cannot show where its lines ended, a hyphen typed directly
+after a word and followed by a space reads as a line-end hyphen too: in
+"Annex A- Form of Notice", a quote that starts at "Form of Notice" is not
+found. An ordinary space between digit groups that are not one number
+("Schedule 3 100 shares") likewise joins them.
+
 These rules catch a word or number that was cut or changed at the edge of a
 quote, and a changed symbol or separator inside it. They do not catch every
 paraphrase: a quote whose words all appear verbatim in the source is found,
 even where the surrounding text qualifies them.
+
+The checks run when an answer is saved, in the same process: on the API
+server for the synchronous generate route and for regenerating a cell, and in
+the worker for queued runs. Each source is prepared once per row, in time
+linear in its length and about the same in any script: on a development
+machine, preparing 3 MB of text in both forms took 0.1 to 0.2 s, whether the
+text was English, French, German, Arabic or Japanese.
 
 ## Quotes with omissions
 
@@ -120,8 +151,12 @@ been deleted. Regenerating the cell checks it again.
   quote text or source passages, which keeps it small on large reviews.
 - `GET /tabular-review/:reviewId/quote-checks` returns the checked cells'
   quotes in full: each quote, the source text it matched and the text around
-  it. `row_id` and `column_index` narrow it to one row or one cell. Like the
-  detail endpoint, it only covers rows whose every source the caller may read.
+  it. `row_id` and `column_index` narrow it to one row or one cell; without
+  them it returns every checked cell of the review, however many there are.
+  Like the detail endpoint, it only covers rows whose every source the caller
+  may read, and it gives source text only from those sources: a quote checked
+  against a document that is no longer a source of the row (one deleted since
+  the check) keeps its status, with a null `document_id` and no source text.
 - The `cell_update` frames of the generate streams carry `quote_status` and
   `quote_outcomes` for finished cells, and no quote text, source passages or
   document ids. A reader that attaches to a run someone else started sees only

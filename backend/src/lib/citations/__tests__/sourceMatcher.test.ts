@@ -36,10 +36,40 @@ const ALTERED_QUOTES: [string, string][] = [
         "enforceable against the Guarantor",
         "This covenant is un-\nenforceable against the Guarantor.",
     ],
+    // PDF text joins the lines of a page with a space, sometimes two, and
+    // starts each page with a heading.
+    [
+        "enforceable against the Guarantor",
+        "This covenant is un- enforceable against the Guarantor.",
+    ],
+    [
+        "enforceable against the Guarantor",
+        "This covenant is un-  enforceable against the Guarantor.",
+    ],
+    [
+        "enforceable against the Guarantor",
+        "This covenant is un\u00AD enforceable against the Guarantor.",
+    ],
+    [
+        "enforceable against the Guarantor",
+        "This covenant is un-\n\n## Page 2\n\nenforceable against the Guarantor.",
+    ],
     [
         "exclusive licence to use the Software",
         "The Customer has a non-exclusive licence to use the Software.",
     ],
+    [
+        "exclusive licence to use the Software",
+        "The Customer has a non- exclusive licence to use the Software.",
+    ],
+    [
+        "Exclusive Licence to use the Software",
+        "The Customer has a Non- Exclusive Licence to use the Software.",
+    ],
+    ["500 euros par mois", "Le loyer est de 1 500 euros par mois."],
+    ["Le loyer est de 1", "Le loyer est de 1 500 euros par mois."],
+    ["10 days of the notice", "within 5–\n10 days of the notice"],
+    ["10 days of the notice", "within 5– 10 days of the notice"],
     [
         "pay rent of €10,000.00 per month",
         "The Tenant shall pay rent of $10,000.00 per month.",
@@ -99,6 +129,41 @@ describe("foldWithMap", () => {
             "sections12and13",
         );
     });
+
+    it("drops a zero width no-break space, which never separates two words or digits", () => {
+        const text = "The con\uFEFFtract price is 1\uFEFF000 dollars.";
+        expect(foldWithMap(text).norm).toBe("the contract price is 1000 dollars.");
+        expect(foldWithMap(text, { tolerant: true }).norm).toBe(
+            "thecontractpriceis1000dollars",
+        );
+        // As a zero width space always was.
+        expect(foldWithMap(text.replaceAll("\uFEFF", "\u200B")).norm).toBe(
+            foldWithMap(text).norm,
+        );
+    });
+
+    it("folds text in other scripts by the same rules", () => {
+        // An ideographic space is a space; full-width and Arabic-Indic digits
+        // stay apart; punctuation drops and currency and comparison symbols
+        // stay in the tolerant form.
+        expect(foldWithMap("賃料は、月額\u3000１５万円。").norm).toBe(
+            "賃料は、月額 １５万円。",
+        );
+        expect(
+            foldWithMap("賃料は、月額\u3000１５万円。", { tolerant: true }).norm,
+        ).toBe("賃料は月額１５万円");
+        expect(foldWithMap("البند ١، ٢ و٣", { tolerant: true }).norm).toBe(
+            "البند١ ٢و٣",
+        );
+        expect(foldWithMap("₹ 500 ≤ ¥ 600", { tolerant: true }).norm).toBe(
+            "₹500≤¥600",
+        );
+        // Letters lowercase one by one; a letter that lowercases to two code
+        // units maps both of them to itself.
+        const greek = foldWithMap("ΣΥΜΒΑΣΗ İstanbul");
+        expect(greek.norm).toBe("συμβαση i\u0307stanbul");
+        expect([...greek.origIdx.slice(8, 10)]).toEqual([8, 8]);
+    });
 });
 
 describe("cutsIntoWord", () => {
@@ -117,6 +182,35 @@ describe("cutsIntoWord", () => {
         expect(cuts("l'Acheteur s'engage", "Acheteur")).toBe(false);
     });
 
+    it("accepts a match next to a hyphen left open for a later word", () => {
+        expect(cuts("the pre- and post-closing covenants", "the pre")).toBe(false);
+        expect(cuts("short- to long-term", "to long-term")).toBe(false);
+        expect(cuts("Pre- Or Post-Closing", "Or Post-Closing")).toBe(false);
+        expect(
+            cuts(
+                "les obligations pré- et post-contractuelles",
+                "et post-contractuelles",
+            ),
+        ).toBe(false);
+        expect(cuts("Ein- und Ausfuhr", "und Ausfuhr")).toBe(false);
+        expect(cuts("Ein-\nund Ausfuhr", "Ein")).toBe(false);
+    });
+
+    it("accepts a match after a hyphen that does not join two parts of a word", () => {
+        expect(cuts("Item 4 - the price", "the price")).toBe(false);
+        expect(cuts("Clause 5- Payment terms", "Payment terms")).toBe(false);
+        expect(cuts("the following:\n- the Buyer shall pay", "the Buyer")).toBe(false);
+        expect(cuts("COVID-\n19 measures", "19 measures")).toBe(false);
+    });
+
+    it("keeps numbers apart that an ordinary space does not group", () => {
+        expect(cuts("Sections 1 2 and 13", "2 and 13")).toBe(false);
+        expect(cuts("Sections 1 2 and 13", "Sections 1")).toBe(false);
+        expect(cuts("In 2019 500 people applied", "500 people")).toBe(false);
+        expect(cuts("Clause 12 3456 refers", "3456 refers")).toBe(false);
+        expect(cuts("Le loyer est de 1 500 euros", "1 500 euros")).toBe(false);
+    });
+
     it("rejects a match that starts or ends inside a word or number", () => {
         expect(cuts("unenforceable", "enforceable")).toBe(true);
         expect(cuts("non-exclusive", "exclusive")).toBe(true);
@@ -133,6 +227,33 @@ describe("cutsIntoWord", () => {
         expect(cuts("+2%", "2%")).toBe(true);
         expect(cuts("5–10 days", "10 days")).toBe(true);
         expect(cuts("enforce-\nable", "enforce")).toBe(true);
+    });
+
+    it("rejects a match that starts or ends at a hyphen that ends a line", () => {
+        // A line break, or the space PDF text puts where a line ended.
+        expect(cuts("non- exclusive", "exclusive")).toBe(true);
+        expect(cuts("un-  enforceable", "enforceable")).toBe(true);
+        expect(cuts("un-\r\nenforceable", "enforceable")).toBe(true);
+        expect(cuts("Non- Exclusive Licence", "Exclusive Licence")).toBe(true);
+        expect(cuts("un\u00AD enforceable", "enforceable")).toBe(true);
+        expect(cuts("un-\u200B enforceable", "enforceable")).toBe(true);
+        expect(cuts("enforce- able", "enforce")).toBe(true);
+        expect(cuts("enforce\u00AD\nable", "enforce")).toBe(true);
+        // A hyphenated word broken across two pages of PDF text.
+        expect(cuts("un-\n\n## Page 2\n\nenforceable", "enforceable")).toBe(true);
+        expect(cuts("enforce-\n\n## Page 12\n\nable", "enforce")).toBe(true);
+        // "and" that is the rest of a word is not a linking word.
+        expect(cuts("Eng- land", "land")).toBe(true);
+        expect(cuts("Is- landers", "landers")).toBe(true);
+    });
+
+    it("rejects a match that cuts a number grouped by an ordinary space or a line-end dash", () => {
+        expect(cuts("Le loyer est de 1 500 euros", "500 euros")).toBe(true);
+        expect(cuts("Le loyer est de 1 500 euros", "de 1")).toBe(true);
+        expect(cuts("10 000 000 shares", "000 000 shares")).toBe(true);
+        expect(cuts("10 000 000 shares", "10 000")).toBe(true);
+        expect(cuts("within 5– 10 days", "10 days")).toBe(true);
+        expect(cuts("within 5–\n10 days", "within 5")).toBe(true);
     });
 
     it("checks letters only in scripts that put spaces between words", () => {
@@ -221,6 +342,31 @@ describe("prepareQuoteSource.locate", () => {
         expect(
             prepareQuoteSource("| Rent | $10,000 per month |").locate(
                 "Rent $10,000 per month",
+            ),
+        ).not.toBeNull();
+    });
+
+    it("finds a whole quote in PDF text that joins lines with a space", () => {
+        const pdf = prepareQuoteSource(
+            "The Customer has a non- exclusive licence to use the Software. " +
+                "This covenant is un- enforceable against the Guarantor, " +
+                "whose pre- and post-closing covenants survive.",
+        );
+        expect(pdf.locate("non-exclusive licence to use the Software")?.excerpt).toBe(
+            "non- exclusive licence to use the Software",
+        );
+        expect(pdf.locate("unenforceable against the Guarantor")?.excerpt).toBe(
+            "un- enforceable against the Guarantor",
+        );
+        expect(pdf.locate("and post-closing covenants survive")).not.toBeNull();
+        expect(
+            prepareQuoteSource("Le loyer est de 1 500 euros par mois.").locate(
+                "1 500 euros par mois",
+            ),
+        ).not.toBeNull();
+        expect(
+            prepareQuoteSource("The con\uFEFFtract price is 1\uFEFF000 dollars.").locate(
+                "contract price is 1000 dollars",
             ),
         ).not.toBeNull();
     });

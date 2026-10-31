@@ -40,7 +40,9 @@ export type TabularQuoteCheck = {
    * cites, or the one it was found in when the citation names none. Null when
    * the citation names a document that is not a source of the row (see
    * `cited_reference`), and when a quote that names no document was found in
-   * none of the row's several sources.
+   * none of the row's several sources. Also null when that document is no
+   * longer a source of the row the caller may read (one deleted since the
+   * check): the entry then keeps its status but carries no source text.
    */
   document_id: string | null;
   /**
@@ -100,7 +102,8 @@ export type TabularCellQuoteFields = TabularCellQuoteStatus & {
 /**
  * One checked cell's quotes in full, from
  * `GET /tabular-review/:reviewId/quote-checks`: each quote with the source
- * passage it matched and the text around it.
+ * passage it matched and the text around it, from the row's sources the
+ * caller may read.
  */
 export type TabularCellQuoteChecks = {
   row_id: string;

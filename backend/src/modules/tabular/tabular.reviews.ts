@@ -831,6 +831,9 @@ export async function getTabularReviewDetail(
     };
 }
 
+/** Cells per page of the quote-checks read: PostgREST's default `max_rows`. */
+const QUOTE_CHECK_CELL_PAGE_SIZE = 1000;
+
 /**
  * The quote checks of a review's checked cells in full: each quote with the
  * source passage it matched and the text around it. Limited to rows whose
@@ -875,21 +878,36 @@ export async function getTabularQuoteChecks(
     if (!rows.length) return { ok: true, data: { cells: [] } };
     const visibleRowIds = new Set(rows.map((row) => row.id));
 
-    let query = db
-        .from("tabular_cells")
-        .select(
-            "row_id, column_index, status, quote_status, quote_checks, source_versions",
-        )
-        .eq("review_id", reviewId);
-    if (rowId) query = query.eq("row_id", rowId);
-    if (columnIndex !== undefined) query = query.eq("column_index", columnIndex);
-    const { data: cells, error: cellsError } = await query;
-    if (cellsError) return internalFailure(cellsError);
+    // A review can have more cells than one response carries: PostgREST
+    // returns at most `max_rows` rows (1,000 by default, and in
+    // supabase/config.toml) and cuts a longer result short without an error.
+    // The cells are read a page at a time, in a fixed order, until a page
+    // comes back short.
+    const cells: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += QUOTE_CHECK_CELL_PAGE_SIZE) {
+        let query = db
+            .from("tabular_cells")
+            .select(
+                "row_id, column_index, status, quote_status, quote_checks, source_versions",
+            )
+            .eq("review_id", reviewId);
+        if (rowId) query = query.eq("row_id", rowId);
+        if (columnIndex !== undefined) query = query.eq("column_index", columnIndex);
+        const { data, error: cellsError } = await query
+            .order("row_id", { ascending: true })
+            .order("column_index", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, from + QUOTE_CHECK_CELL_PAGE_SIZE - 1);
+        if (cellsError) return internalFailure(cellsError);
+        const page = (data ?? []) as Record<string, unknown>[];
+        cells.push(...page);
+        if (page.length < QUOTE_CHECK_CELL_PAGE_SIZE) break;
+    }
 
     return {
         ok: true,
         data: {
-            cells: ((cells ?? []) as Record<string, unknown>[])
+            cells: cells
                 .filter((cell) => visibleRowIds.has(cell.row_id as string))
                 .map((cell) => quoteChecksOf(cell, readableDocumentIds))
                 .filter((cell) => cell.quote_status !== null),

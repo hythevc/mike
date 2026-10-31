@@ -743,6 +743,60 @@ describe("getTabularQuoteChecks", () => {
         );
     });
 
+    it("reads a review with more cells than one response holds, a page at a time", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Lease.pdf", source_document_ids: ["doc-a"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a"]);
+        const cells = Array.from({ length: 1001 }, (_, column) =>
+            doneCell("row-1", column),
+        );
+        const { db, calls } = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: { id: "rev-1" }, error: null },
+                tabular_cells: [
+                    { data: cells.slice(0, 1000), error: null },
+                    { data: cells.slice(1000), error: null },
+                ],
+            },
+        });
+
+        const result = await getTabularQuoteChecks(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result.ok && result.data.cells.map((cell) => cell.column_index)).toEqual(
+            cells.map((cell) => cell.column_index),
+        );
+        expect(calls.filter((call) => call.table === "tabular_cells")).toEqual([
+            expect.objectContaining({ range: [0, 999] }),
+            expect.objectContaining({ range: [1000, 1999] }),
+        ]);
+    });
+
+    it("fails rather than returning part of a review when a later page cannot be read", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Lease.pdf", source_document_ids: ["doc-a"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a"]);
+        const { db } = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: { id: "rev-1" }, error: null },
+                tabular_cells: [
+                    {
+                        data: Array.from({ length: 1000 }, (_, column) =>
+                            doneCell("row-1", column),
+                        ),
+                        error: null,
+                    },
+                    { data: null, error: { message: "statement timeout" } },
+                ],
+            },
+        });
+
+        const result = await getTabularQuoteChecks(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result).toMatchObject({ ok: false });
+    });
+
     it("returns nothing for a row the caller may not read, without reading cells", async () => {
         loadReviewRows.mockResolvedValue([
             { id: "row-2", label: "Secret.pdf", source_document_ids: ["doc-x"] },

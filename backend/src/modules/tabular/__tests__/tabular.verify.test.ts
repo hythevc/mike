@@ -4,6 +4,7 @@
 // how a cell, a stale source and a row without text are reported.
 
 import { describe, expect, it, vi } from "vitest";
+import { extractPdfMarkdown } from "../../../lib/extraction/documentMarkdown";
 import type { RowDocumentText } from "../tabular.rows";
 import type { CellResult } from "../tabular.shared";
 import {
@@ -233,6 +234,20 @@ describe("checking a cell's quotes against its row's text", () => {
         ],
         ["0.50% per annum", "The Margin is -0.50% per annum."],
         ["Sections 12 and 13", "as set out in Sections 1, 2 and 13"],
+        // Lines of PDF text, joined with a space or two where a line ended.
+        [
+            "exclusive licence to use the Software",
+            "The Customer has a non- exclusive licence to use the Software.",
+        ],
+        [
+            "enforceable against the Guarantor",
+            "This covenant is un- enforceable against the Guarantor.",
+        ],
+        [
+            "enforceable against the Guarantor",
+            "This covenant is un-  enforceable against the Guarantor.",
+        ],
+        ["500 euros par mois", "Le loyer est de 1 500 euros par mois."],
     ])("reports %j as not found in %j", (quote, text) => {
         const checkOne = createCellQuoteChecker(rowText([{ id: "doc-a", markdown: text }]));
         const result = checkOne(answer(`Clause ${cite("doc-a", quote)}`));
@@ -288,6 +303,64 @@ describe("checking a cell's quotes against its row's text", () => {
     it("reports an answer without quotes as no_quote", () => {
         const result = check(answer("Not Found", "The lease does not address this."));
         expect(result).toMatchObject({ quote_status: "no_quote", quote_checks: [] });
+    });
+});
+
+/** A one-page PDF with one line of text per entry. */
+function pdfWithLines(lines: string[]): ArrayBuffer {
+    const content = lines
+        .map((line, index) => `BT /F1 12 Tf 72 ${720 - index * 16} Td (${line}) Tj ET`)
+        .join("\n");
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+    let pdf = "%PDF-1.4\n";
+    const offsets: number[] = [];
+    for (const [index, object] of objects.entries()) {
+        offsets.push(pdf.length);
+        pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    }
+    const xref = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (const offset of offsets) {
+        pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return new TextEncoder().encode(pdf).buffer as ArrayBuffer;
+}
+
+describe("a source extracted from a PDF", () => {
+    it("does not find a quote that drops the first half of a word hyphenated at a line end", async () => {
+        const markdown = await extractPdfMarkdown(
+            pdfWithLines([
+                "The Customer has a non-",
+                "exclusive licence to use the Software. This covenant is un-",
+                "enforceable against the Guarantor.",
+            ]),
+        );
+        // The text joins the lines of a page with whitespace, keeping the hyphens.
+        expect(markdown).toMatch(/non-\s+exclusive/);
+        expect(markdown).toMatch(/un-\s+enforceable/);
+        const check = createCellQuoteChecker(rowText([{ id: "doc-a", markdown }]));
+        const statuses = (...quotes: string[]) =>
+            check(answer(quotes.map((quote) => cite("doc-a", quote)).join(" ")))
+                .quote_checks.map((quote) => quote.status);
+        expect(
+            statuses(
+                "exclusive licence to use the Software",
+                "enforceable against the Guarantor",
+            ),
+        ).toEqual(["not_found", "not_found"]);
+        expect(
+            statuses(
+                "non-exclusive licence to use the Software",
+                "unenforceable against the Guarantor",
+            ),
+        ).toEqual(["found", "found"]);
     });
 });
 
@@ -566,6 +639,69 @@ describe("reading stored checks back", () => {
             quote_checks: stored.quote_checks.slice(0, 2),
             no_text_document_ids: [],
         });
+    });
+
+    it("gives no passage or id from a recorded source that is no longer a readable source of the row", () => {
+        // A folder row whose second file was deleted after the check: the row
+        // stays visible to anyone who may read the file left in it.
+        const folder = {
+            row_id: "row-1",
+            column_index: 0,
+            status: "done",
+            quote_status: "partly_found",
+            quote_checks: [
+                {
+                    field: "summary",
+                    quote: "pay rent",
+                    document_id: "doc-a",
+                    page: 1,
+                    status: "found",
+                    source_excerpt: "pay rent",
+                    context_before: "The Tenant shall",
+                    context_after: "of $10,000.00",
+                },
+                {
+                    field: "summary",
+                    quote: "the side letter",
+                    document_id: "doc-gone",
+                    page: 3,
+                    status: "found",
+                    source_excerpt: "the side letter",
+                    context_before: "Words only that file held",
+                    context_after: "and more of them",
+                },
+                {
+                    field: "reasoning",
+                    quote: "an annex",
+                    document_id: null,
+                    cited_reference: "Annex.pdf",
+                    status: "not_found",
+                },
+            ],
+            source_versions: {
+                "doc-a": { version_id: "a-v1", content_sha256: null, has_text: true },
+                "doc-gone": { version_id: "g-v1", content_sha256: null, has_text: true },
+            },
+        };
+
+        const checks = quoteChecksOf(folder, new Set(["doc-a"]));
+
+        expect(checks.quote_checks).toEqual([
+            folder.quote_checks[0],
+            {
+                field: "summary",
+                quote: "the side letter",
+                document_id: null,
+                page: 3,
+                status: "found",
+            },
+            folder.quote_checks[2],
+        ]);
+        expect(JSON.stringify(checks)).not.toContain("doc-gone");
+        // Still one entry per quote, in the order of the cell's outcomes.
+        expect(checks.quote_checks.map((check) => check.status)).toEqual(
+            quoteStatusOf(folder).quote_outcomes.map((outcome) => outcome.status),
+        );
     });
 
     it.each(["pending", "generating", "error"])(

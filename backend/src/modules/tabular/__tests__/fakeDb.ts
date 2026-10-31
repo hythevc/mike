@@ -19,6 +19,8 @@ export type RecordedCall = {
     op: "select" | "insert" | "update" | "delete";
     payload?: unknown;
     filters: Record<string, unknown>;
+    /** The rows a paged read asked for, as `.range(from, to)` gave them. */
+    range?: [number, number];
 };
 
 export type RecordedRpc = { fn: string; args: Record<string, unknown> };
@@ -93,7 +95,10 @@ export function makeFakeDb(spec: FakeDbSpec = {}): FakeDb {
             or: () => builder,
             order: () => builder,
             limit: () => builder,
-            range: () => builder,
+            range: (from: number, to: number) => {
+                state.range = [from, to];
+                return builder;
+            },
             single: () => settle(),
             maybeSingle: () => settle(),
             then: (

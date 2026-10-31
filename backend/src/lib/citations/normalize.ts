@@ -109,9 +109,57 @@ export type FoldedText = {
   origIdx: Uint32Array;
 };
 
-function isWhitespace(code: number, ch: string): boolean {
-  if (code === 32 || (code >= 9 && code <= 13)) return true;
-  return code > 127 && /\s/.test(ch);
+// What folding needs to know about a UTF-16 code unit, as bit flags. Each code
+// unit is classified by regular expression the first time it is seen and read
+// back from `CLASSES` after that, so folding a long source runs no regular
+// expression per character, whatever its script.
+const CLASSIFIED = 1;
+/** Whitespace as `\s` matches it, except the invisible U+FEFF. */
+const SPACE = 1 << 1;
+/** A character no reader sees: folding drops it (see `FOLDED`). */
+const INVISIBLE = 1 << 2;
+/** A typographic variant that folding writes another way (see `FOLDED`). */
+const FOLDS = 1 << 3;
+/** A decimal digit, in any script. */
+const DIGIT = 1 << 4;
+/** A letter, a combining mark or a number. */
+const ALPHANUMERIC = 1 << 5;
+/** Neither a letter, a number nor whitespace (see `isPunctuation`). */
+const PUNCTUATION = 1 << 6;
+const CURRENCY = 1 << 7;
+const MATH = 1 << 8;
+/** Lowercases to more than one code unit (U+0130). */
+const LOWERCASE_EXPANDS = 1 << 9;
+
+const CLASSES = new Uint16Array(0x10000);
+/** The lowercase of each classified code unit that lowercases to one unit. */
+const LOWERCASE = new Uint16Array(0x10000);
+
+function classify(code: number): number {
+  const ch = String.fromCharCode(code);
+  let flags = CLASSIFIED;
+  if (Object.prototype.hasOwnProperty.call(FOLDED, ch)) {
+    flags |= FOLDED[ch] === "" ? INVISIBLE : FOLDS;
+  }
+  if (/\s/.test(ch) && !(flags & INVISIBLE)) flags |= SPACE;
+  if (/\p{Nd}/u.test(ch)) flags |= DIGIT;
+  if (/[\p{L}\p{M}\p{N}]/u.test(ch)) flags |= ALPHANUMERIC;
+  if (isPunctuation(ch)) flags |= PUNCTUATION;
+  if (/\p{Sc}/u.test(ch)) flags |= CURRENCY;
+  if (/\p{Sm}/u.test(ch)) flags |= MATH;
+  const lower = ch.toLowerCase();
+  if (lower.length === 1) LOWERCASE[code] = lower.charCodeAt(0);
+  else flags |= LOWERCASE_EXPANDS;
+  return flags;
+}
+
+function classOf(code: number): number {
+  let flags = CLASSES[code];
+  if (flags === 0) {
+    flags = classify(code);
+    CLASSES[code] = flags;
+  }
+  return flags;
 }
 
 function isAsciiAlphanumeric(code: number): boolean {
@@ -122,67 +170,61 @@ function isAsciiAlphanumeric(code: number): boolean {
   );
 }
 
-function isFoldedPunctuation(folded: string): boolean {
-  const code = folded.charCodeAt(0);
-  if (folded.length === 1 && code < 128) return !isAsciiAlphanumeric(code);
-  return isPunctuation(folded);
-}
-
-function isDigit(ch: string | undefined): boolean {
-  if (ch === undefined) return false;
-  const code = ch.charCodeAt(0);
+/** Whether code unit `code` (-1 for none) is a decimal digit. */
+function isDigitCode(code: number): boolean {
+  if (code < 0) return false;
   if (code < 128) return code >= 48 && code <= 57;
-  return /\p{Nd}/u.test(ch);
-}
-
-function isLetterOrDigit(ch: string | undefined): boolean {
-  if (ch === undefined) return false;
-  const code = ch.charCodeAt(0);
-  if (code < 128) return isAsciiAlphanumeric(code);
-  return /[\p{L}\p{M}\p{N}]/u.test(ch);
+  return (classOf(code) & DIGIT) !== 0;
 }
 
 /** Percent signs and every currency symbol: "10%" and "€10" are not "10". */
-function isUnitSymbol(folded: string): boolean {
+function isUnitSymbol(code: number): boolean {
   return (
-    folded === "%" ||
-    folded === "\u2030" || // per mille
-    folded === "\u2031" || // per ten thousand
-    /^\p{Sc}$/u.test(folded)
+    code === 37 || // percent sign
+    code === 0x2030 || // per mille
+    code === 0x2031 || // per ten thousand
+    (classOf(code) & CURRENCY) !== 0
   );
 }
 
 // Minus and hyphen characters that are a sign when they stand directly before
 // a digit ("-0.50%"). En and em dashes are punctuation even there.
-const SIGN_CHARACTERS = new Set(["-", "\u2010", "\u2011", "\u2212"]);
+const SIGN_CHARACTERS = new Set([0x2d, 0x2010, 0x2011, 0x2212]);
 
 // ASCII operators that also appear as markup ("<br>", "> quoted line"): they
-// count only when a number follows them.
-const ASCII_OPERATORS = new Set(["+", "<", ">", "="]);
+// count only when a number follows them. Plus, less-than, equals, greater-than.
+const ASCII_OPERATORS = new Set([0x2b, 0x3c, 0x3d, 0x3e]);
 
 function numberFollows(text: string, from: number): boolean {
-  let i = from;
-  while (i < text.length && isWhitespace(text.charCodeAt(i), text[i])) i += 1;
-  return isDigit(text[i]) || /^\p{Sc}$/u.test(text[i] ?? "");
+  for (let i = from; i < text.length; i++) {
+    const flags = classOf(text.charCodeAt(i));
+    if (flags & (SPACE | INVISIBLE)) continue;
+    return (flags & (DIGIT | CURRENCY)) !== 0;
+  }
+  return false;
 }
 
 /**
- * Whether the tolerant form keeps punctuation character `folded` (the folded
- * form of `text[i]`). It keeps what can change the meaning of a number: a
+ * Whether the tolerant form keeps the punctuation at `text[i]`, which folds to
+ * code unit `folded`. It keeps what can change the meaning of a number: a
  * separator between two digits ("1,000.50", "5-10"), a sign directly before a
  * digit ("-0.50"), percent and currency symbols, comparison and arithmetic
  * symbols ("≥ 3.50"), and an ASCII operator a number follows ("> 50%").
  */
-function keptWhenTolerant(text: string, i: number, folded: string): boolean {
-  const before = text[i - 1];
-  const after = text[i + 1];
-  if (isDigit(before) && isDigit(after)) return true;
+function keptWhenTolerant(text: string, i: number, folded: number): boolean {
+  const before = i > 0 ? text.charCodeAt(i - 1) : -1;
+  const after = i + 1 < text.length ? text.charCodeAt(i + 1) : -1;
+  if (isDigitCode(before) && isDigitCode(after)) return true;
   if (isUnitSymbol(folded)) return true;
-  if (SIGN_CHARACTERS.has(text[i]) && isDigit(after) && !isLetterOrDigit(before)) {
+  if (
+    SIGN_CHARACTERS.has(text.charCodeAt(i)) &&
+    isDigitCode(after) &&
+    !(before >= 0 && (classOf(before) & ALPHANUMERIC) !== 0)
+  ) {
     return true;
   }
   if (ASCII_OPERATORS.has(folded)) return numberFollows(text, i + 1);
-  return folded.charCodeAt(0) > 127 && /^\p{Sm}$/u.test(folded);
+  return folded > 127 && (classOf(folded) & MATH) !== 0;
 }
 
 /** Growable buffer of UTF-16 code units, each with the source index it came from. */
@@ -226,12 +268,6 @@ class FoldBuffer {
 // U+FFFD, so `norm` stays as long as `origIdx`. A leading U+FEFF is kept.
 const UTF16 = new TextDecoder("utf-16le", { ignoreBOM: true });
 
-function isDigitCode(code: number): boolean {
-  if (code < 0) return false;
-  if (code < 128) return code >= 48 && code <= 57;
-  return /\p{Nd}/u.test(String.fromCharCode(code));
-}
-
 /**
  * The normalization the tabular quote checks match with. It is stricter about
  * numbers and more forgiving about typography than `normalizeWithMap`.
@@ -249,7 +285,8 @@ function isDigitCode(code: number): boolean {
  * between two digits, a single space stays, so "1, 2" never reads as "12".
  *
  * Each output character maps back to the original character it came from; a
- * ligature that expands to two letters maps both to the same index.
+ * ligature that expands to two letters maps both to the same index. The work
+ * is linear in the length of `text`, in any script.
  */
 export function foldWithMap(
   text: string,
@@ -263,16 +300,6 @@ export function foldWithMap(
   let droppedAt = -1;
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    const ch = text[i];
-    if (isWhitespace(code, ch)) {
-      if (tolerant) {
-        if (droppedAt < 0) droppedAt = i;
-      } else if (!prevSpace) {
-        out.push(32, i);
-        prevSpace = true;
-      }
-      continue;
-    }
     if (code < 128 && isAsciiAlphanumeric(code)) {
       // The common case, without a table lookup.
       if (tolerant && droppedAt >= 0 && code <= 57 && isDigitCode(out.lastCode())) {
@@ -283,27 +310,58 @@ export function foldWithMap(
       prevSpace = false;
       continue;
     }
-    const folded = code < 128 ? ch : (FOLDED[ch] ?? ch);
-    if (!folded) continue;
-    if (
-      tolerant &&
-      isFoldedPunctuation(folded) &&
-      !keptWhenTolerant(text, i, folded)
-    ) {
+    const flags = classOf(code);
+    if (flags & INVISIBLE) continue;
+    if (flags & SPACE) {
+      if (tolerant) {
+        if (droppedAt < 0) droppedAt = i;
+      } else if (!prevSpace) {
+        out.push(32, i);
+        prevSpace = true;
+      }
+      continue;
+    }
+    if (flags & FOLDS) {
+      // A typographic variant folds to ASCII: one punctuation mark, or the
+      // letters of a ligature, none of them a digit.
+      const folded = FOLDED[text[i]];
+      const mark = folded.charCodeAt(0);
+      if (
+        tolerant &&
+        folded.length === 1 &&
+        !isAsciiAlphanumeric(mark) &&
+        !keptWhenTolerant(text, i, mark)
+      ) {
+        if (droppedAt < 0) droppedAt = i;
+        continue;
+      }
+      for (let k = 0; k < folded.length; k++) {
+        const unit = folded.charCodeAt(k);
+        out.push(unit >= 65 && unit <= 90 ? unit + 32 : unit, i);
+      }
+      droppedAt = -1;
+      prevSpace = false;
+      continue;
+    }
+    if (tolerant && (flags & PUNCTUATION) !== 0 && !keptWhenTolerant(text, i, code)) {
       if (droppedAt < 0) droppedAt = i;
       continue;
     }
-    const lowered = folded.toLowerCase();
-    if (
-      tolerant &&
-      droppedAt >= 0 &&
-      isDigitCode(lowered.charCodeAt(0)) &&
-      isDigitCode(out.lastCode())
-    ) {
-      out.push(32, droppedAt);
-    }
-    for (let k = 0; k < lowered.length; k++) {
-      out.push(lowered.charCodeAt(k), i);
+    if (flags & LOWERCASE_EXPANDS) {
+      const lowered = text[i].toLowerCase();
+      for (let k = 0; k < lowered.length; k++) {
+        out.push(lowered.charCodeAt(k), i);
+      }
+    } else {
+      if (
+        tolerant &&
+        droppedAt >= 0 &&
+        (flags & DIGIT) !== 0 &&
+        isDigitCode(out.lastCode())
+      ) {
+        out.push(32, droppedAt);
+      }
+      out.push(LOWERCASE[code], i);
     }
     droppedAt = -1;
     prevSpace = false;
