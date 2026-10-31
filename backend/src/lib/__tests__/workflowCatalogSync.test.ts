@@ -61,7 +61,7 @@ async function sourceArchive(options: { adapted?: boolean } = {}) {
   const zip = new JSZip();
   const archiveRoot = "mike-workflows-test";
   const root = `${archiveRoot}/assistant-workflows/proofread`;
-  zip.file(`${archiveRoot}/LICENSE`, "MIT License\n\nCopyright (c) 2026 Mike\n");
+  zip.file(`${archiveRoot}/LICENSE`, "MIT License\n\nCopyright (c) 2026 Sample Author\n");
   if (options.adapted) addAdaptedWorkflow(zip, archiveRoot);
   zip.file(
     `${root}/SKILL.md`,

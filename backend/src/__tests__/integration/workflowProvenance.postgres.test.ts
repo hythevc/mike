@@ -59,7 +59,7 @@ const KEY = "lease-review";
 function defaultsAndAdapted(attribution: string) {
   const zip = new JSZip();
   const root = "catalog-test";
-  zip.file(`${root}/LICENSE`, "MIT License\n\nCopyright (c) 2026 Mike\n");
+  zip.file(`${root}/LICENSE`, "MIT License\n\nCopyright (c) 2026 Sample Author\n");
   const skill = (key: string, type: string, extra = "", license = "MIT") => `---
 name: "${key}"
 description: "Test workflow. Draft for lawyer review."

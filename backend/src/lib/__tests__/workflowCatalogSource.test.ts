@@ -21,7 +21,7 @@ const COMMIT = "a".repeat(40);
 // The catalog's own MIT licence, as a catalog root carries it.
 const ROOT_LICENSE = `MIT License
 
-Copyright (c) 2026 Mike
+Copyright (c) 2026 Sample Author
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
