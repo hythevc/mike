@@ -6,6 +6,12 @@ import type {
     OrgMemberHandover,
     OrgDepartureList,
     OrgDepartureResolution,
+    PlaybookDecisionPerson,
+    PlaybookDecisionRecordSaved,
+    PlaybookFindingDecision,
+    PlaybookFindingDecisionKind,
+    PlaybookMatchedPosition,
+    PlaybookRunDecisions,
 } from "@mike/contracts";
 export type {
     AuditActor,
@@ -15,6 +21,13 @@ export type {
     OrgDepartureItem,
     OrgDepartureList,
     OrgDepartureResolution,
+    PlaybookDecisionPerson,
+    PlaybookDecisionRecordSaved,
+    PlaybookFindingDecision,
+    PlaybookFindingDecisionKind,
+    PlaybookFindingDecisionMethod,
+    PlaybookMatchedPosition,
+    PlaybookRunDecisions,
 } from "@mike/contracts";
 
 /**
@@ -4252,6 +4265,11 @@ export interface PlaybookFinding {
     ruleId: string | null;
     ruleName: string;
     status: PlaybookFindingStatus;
+    /**
+     * Which of the rule's positions the clause met. Absent on runs recorded
+     * before findings had one, which read as "none".
+     */
+    matchedPosition?: PlaybookMatchedPosition;
     quote: string;
     location: string;
     analysis: string;
@@ -4615,6 +4633,131 @@ export async function deletePlaybookRun(runId: string): Promise<void> {
     return apiRequest("playbooks.review", `/playbooks/runs/${encodeURIComponent(runId)}`, {
         method: "DELETE",
     });
+}
+
+function playbookRunDecisionsPath(runId: string): string {
+    return `/playbooks/runs/${encodeURIComponent(runId)}/decisions`;
+}
+
+/** A run's decisions, and the project its reviewed document is in. */
+export async function getPlaybookRunDecisions(
+    runId: string,
+): Promise<PlaybookRunDecisions> {
+    return apiRequest("playbooks.decide", playbookRunDecisionsPath(runId));
+}
+
+/** Records or changes the caller's decision on one finding. */
+export async function recordPlaybookDecision(
+    runId: string,
+    findingId: string,
+    payload: {
+        decision: PlaybookFindingDecisionKind;
+        /** Required for an override. */
+        note?: string;
+        /** The colleague's user id, for an escalation. */
+        escalatedTo?: string;
+    },
+): Promise<PlaybookFindingDecision> {
+    return apiRequest(
+        "playbooks.decide",
+        `${playbookRunDecisionsPath(runId)}/${encodeURIComponent(findingId)}`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        },
+    );
+}
+
+/** Removes the decision on one finding, leaving it undecided. */
+export async function clearPlaybookDecision(
+    runId: string,
+    findingId: string,
+): Promise<void> {
+    return apiRequest(
+        "playbooks.decide",
+        `${playbookRunDecisionsPath(runId)}/${encodeURIComponent(findingId)}`,
+        { method: "DELETE" },
+    );
+}
+
+/**
+ * Accepts the listed findings together. The server accepts only acceptable
+ * findings that met the standard position, and returns the run's decisions.
+ */
+export async function acceptMatchingPlaybookFindings(
+    runId: string,
+    findingIds: string[],
+): Promise<PlaybookRunDecisions> {
+    return apiRequest(
+        "playbooks.decide",
+        `${playbookRunDecisionsPath(runId)}/bulk-accept`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ findingIds }),
+        },
+    );
+}
+
+/** Who a finding of the run can be escalated to: the project's members. */
+export async function listPlaybookEscalationMembers(
+    runId: string,
+): Promise<PlaybookDecisionPerson[]> {
+    return apiRequest(
+        "playbooks.decide",
+        `/playbooks/runs/${encodeURIComponent(runId)}/escalation-members`,
+    );
+}
+
+export type PlaybookDecisionRecordExport =
+    | { kind: "saved"; saved: PlaybookDecisionRecordSaved }
+    | { kind: "download"; blob: Blob; filename: string };
+
+/** The filename a Content-Disposition header names, preferring its UTF-8 form. */
+function dispositionFilename(header: string): string | null {
+    const encoded = header.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    if (encoded) {
+        try {
+            return decodeURIComponent(encoded);
+        } catch {
+            // A malformed encoding falls back to the plain filename below.
+        }
+    }
+    return header.match(/filename="?([^";]+)"?/i)?.[1] ?? null;
+}
+
+/**
+ * Exports a run's decision record. The server saves it to the reviewed
+ * document's project when the caller can add documents there, and otherwise
+ * answers with the Word file for the caller to download.
+ */
+export async function exportPlaybookDecisionRecord(
+    runId: string,
+): Promise<PlaybookDecisionRecordExport> {
+    const path = `/playbooks/runs/${encodeURIComponent(runId)}/decision-record`;
+    const response = await apiFetch(
+        `${API_BASE}${path}`,
+        { method: "POST", cache: "no-store" },
+        "playbooks.export",
+    );
+    if (!response.ok) {
+        throw await toApiError(response, path, "POST", "playbooks.export");
+    }
+    if (response.status === 201) {
+        const body = (await response.json()) as {
+            saved: PlaybookDecisionRecordSaved;
+        };
+        return { kind: "saved", saved: body.saved };
+    }
+    return {
+        kind: "download",
+        blob: await response.blob(),
+        filename:
+            dispositionFilename(
+                response.headers.get("content-disposition") ?? "",
+            ) ?? "Decision record.docx",
+    };
 }
 
 /** A run as the sidebar's History lists it. */

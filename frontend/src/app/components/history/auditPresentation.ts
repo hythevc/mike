@@ -75,6 +75,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "playbook.deleted": "Playbook deleted",
   "playbook.run": "Playbook review run",
   "playbook.run.deleted": "Playbook run deleted",
+  "playbook.decision": "Playbook decision recorded",
   "export.chats": "Chats exported",
   "export.account": "Account data exported",
   "export.tabular": "Review exported",
@@ -98,7 +99,22 @@ export function auditLabel(value: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+/** A playbook decision row names what was decided; its detail holds codes. */
+const PLAYBOOK_DECISION_ACTIONS: Record<string, string> = {
+  accepted: "Finding accepted",
+  overridden: "Finding overridden",
+  escalated: "Finding escalated",
+  cleared: "Decision cleared",
+};
+
 export function auditAction(event: AuditEvent): string {
+  if (event.action === "playbook.decision") {
+    if (detailText(event, "method") === "bulk")
+      return "Matching findings accepted";
+    const decision =
+      PLAYBOOK_DECISION_ACTIONS[detailText(event, "decision") ?? ""];
+    if (decision) return decision;
+  }
   const label = ACTION_LABELS[event.action] ?? auditLabel(event.action);
   // Failed or cancelled operations must not read as successful changes.
   if (event.status === "completed") return label;
@@ -165,7 +181,8 @@ export function auditSubject(event: AuditEvent) {
   else if (action.startsWith("workflow.")) type = "Workflow";
   else if (action.startsWith("tabular.") || action === "export.tabular")
     type = "Review";
-  else if (action.startsWith("playbook.run")) type = "Playbook run";
+  else if (action.startsWith("playbook.run") || action === "playbook.decision")
+    type = "Playbook run";
   else if (action.startsWith("playbook.")) type = "Playbook";
   else if (action === "export.chats") type = "Chats";
   else if (action === "export.account") type = "Account";

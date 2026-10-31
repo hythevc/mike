@@ -124,6 +124,46 @@ describe("audit event presentation", () => {
     );
   });
 
+  it("names what a playbook decision row decided from its codes alone", () => {
+    const decided = {
+      ...event,
+      action: "playbook.decision",
+      title: null,
+      surface: "playbooks",
+      detail: {
+        playbook_id: "pb-1",
+        run_id: "run-1",
+        finding_id: "f-1",
+        decision: "overridden",
+        method: "single",
+      },
+    };
+    expect(auditAction(decided)).toBe("Finding overridden");
+    expect(auditSubject(decided)).toMatchObject({ type: "Playbook run", name: "-" });
+    for (const [decision, label] of [
+      ["accepted", "Finding accepted"],
+      ["escalated", "Finding escalated"],
+      ["cleared", "Decision cleared"],
+    ])
+      expect(
+        auditAction({ ...decided, detail: { ...decided.detail, decision } }),
+      ).toBe(label);
+    expect(
+      auditAction({
+        ...decided,
+        detail: {
+          finding_ids: ["f-1", "f-2"],
+          count: 2,
+          decision: "accepted",
+          method: "bulk",
+        },
+      }),
+    ).toBe("Matching findings accepted");
+    expect(auditAction({ ...decided, detail: {} })).toBe(
+      "Playbook decision recorded",
+    );
+  });
+
   it("keeps failed actions from reading as successful changes", () => {
     const failed = { ...event, action: "document.uploaded", status: "failed" };
     expect(auditAction(failed)).toBe("Document upload");
