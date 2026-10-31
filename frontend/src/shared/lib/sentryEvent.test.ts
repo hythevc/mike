@@ -10,7 +10,6 @@ import {
     normalizeVersion,
     releaseName,
     redactText,
-    MIKE_SENTRY_DSN,
     installKind,
     redactFilesystemPaths,
     repoRelativePath,
@@ -437,11 +436,16 @@ describe("automatic captures of an already-reported error", () => {
 });
 
 describe("resolveDsn", () => {
-    it("is off when disabled, uses an explicit DSN, else the built-in Mike DSN", () => {
-        expect(resolveDsn({ disabled: "true", dsn: "https://x@y/1", fallback: MIKE_SENTRY_DSN.frontend })).toEqual({ dsn: "", source: "disabled" });
-        expect(resolveDsn({ disabled: "TRUE ", fallback: "f" })).toEqual({ dsn: "", source: "disabled" });
-        expect(resolveDsn({ disabled: "false", dsn: " https://x@y/1 ", fallback: "f" })).toEqual({ dsn: "https://x@y/1", source: "env" });
-        expect(resolveDsn({ dsn: "", fallback: MIKE_SENTRY_DSN.wordAddin })).toEqual({ dsn: MIKE_SENTRY_DSN.wordAddin, source: "default" });
+    it("is off when disabled, uses an explicit DSN, and is off without one", () => {
+        expect(resolveDsn({ disabled: "true", dsn: "https://x@y/1" })).toEqual({ dsn: "", source: "disabled" });
+        expect(resolveDsn({ disabled: "TRUE " })).toEqual({ dsn: "", source: "disabled" });
+        expect(resolveDsn({ disabled: "false", dsn: " https://x@y/1 " })).toEqual({ dsn: "https://x@y/1", source: "env" });
+    });
+
+    it("has no built-in destination: nothing configured means nothing is sent", () => {
+        for (const input of [{}, { dsn: "" }, { dsn: "   " }, { disabled: "false" }, { disabled: "", dsn: undefined }]) {
+            expect(resolveDsn(input)).toEqual({ dsn: "", source: "none" });
+        }
     });
 
     it("only an explicit 'official' marks the official deployment", () => {

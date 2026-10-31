@@ -1,8 +1,9 @@
 /**
  * Error reporting for the Word add-in. Same policy as the web app (see
  * frontend/src/app/lib/errorReporting.ts and the shared scrubber it uses):
- * on by default with a community privacy policy, every console.error bridged,
- * explicit reports deduplicated against the bridge.
+ * off unless a DSN is baked in at build time, the community privacy policy,
+ * every console.error bridged once enabled, explicit reports deduplicated
+ * against the bridge.
  *
  * The add-in adds one thing the web app does not have: the Office host. A
  * bug that only reproduces in Word on Mac 16.x or Word on the web is
@@ -12,7 +13,6 @@
 import * as Sentry from "@sentry/react";
 import { privacyBoundaryIntegration } from "@mike/sentry-event";
 import {
-  MIKE_SENTRY_DSN,
   createEventScrubber,
   installKind,
   normalizeApiPath,
@@ -61,12 +61,12 @@ export function addinSentryOptions(
     nodeEnv?: string;
   },
 ): Sentry.BrowserOptions {
-  // ON BY DEFAULT: the Mike project's own DSN unless REACT_APP_SENTRY_DISABLED
-  // or a DSN of your own is baked in at build time (README, "Telemetry").
+  // OFF BY DEFAULT: only a DSN of the operator's own, baked in at build time
+  // (REACT_APP_SENTRY_DSN), enables reporting; REACT_APP_SENTRY_DISABLED
+  // keeps it off even then (README, "Telemetry").
   const { dsn } = resolveDsn({
     disabled: env.disabled,
     dsn: env.dsn,
-    fallback: MIKE_SENTRY_DSN.wordAddin,
   });
   const dataCollection = {
             userInfo: false,
@@ -104,7 +104,10 @@ export function addinSentryOptions(
   };
 }
 
-/** Initialise once per bundle entry (task pane, commands, OAuth dialog). */
+/**
+ * Initialise once per bundle entry (task pane, commands, OAuth dialog).
+ * Without a DSN no Sentry client is created; returns whether one was.
+ */
 export function initAddinErrorReporting(surface: AddinSurface): boolean {
   const options = addinSentryOptions(surface, {
     disabled: process.env.REACT_APP_SENTRY_DISABLED,

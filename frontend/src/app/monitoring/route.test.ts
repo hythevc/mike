@@ -85,6 +85,19 @@ describe("POST /monitoring", () => {
         ]);
     });
 
+    it("forwards nothing when no DSN is configured, and says so on GET", async () => {
+        const response = await post(
+            envelope([{ dsn: "https://browser@tunnel.invalid/1" }, { type: "event" }, { event_id: "d".repeat(32) }]),
+        );
+        expect(response.status).toBe(204);
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(await GET().json()).toEqual({ reports: "none", see: "docs/observability.md#configuration" });
+        // An explicit runtime "false" alone still leaves nowhere to send to.
+        process.env.SENTRY_DISABLED = "false";
+        expect((await post(envelope([{ dsn: "x" }, { type: "event" }, {}]))).status).toBe(204);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it("answers 204 and sends nothing when the deployment is opted out", async () => {
         process.env.SENTRY_DISABLED = "true";
         const response = await post(envelope([{ dsn: "x" }, { type: "event" }, {}]));
@@ -117,6 +130,7 @@ describe("POST /monitoring", () => {
     });
 
     it.each([undefined, "1"])("cancels an oversized stream before reading it all (Content-Length: %s)", async (declared) => {
+        process.env.SENTRY_DSN = OWN_DSN;
         let reads = 0;
         const cancel = vi.fn();
         const body = new ReadableStream<Uint8Array>({
@@ -139,6 +153,7 @@ describe("POST /monitoring", () => {
     });
 
     it("rejects oversized, empty and unparseable envelopes without forwarding", async () => {
+        process.env.SENTRY_DSN = OWN_DSN;
         expect((await post("", { "content-length": String(MAX_ENVELOPE_BYTES + 1) })).status).toBe(413);
         expect((await post("x".repeat(MAX_ENVELOPE_BYTES + 1))).status).toBe(413);
         expect((await post("")).status).toBe(400);
@@ -147,6 +162,7 @@ describe("POST /monitoring", () => {
     });
 
     it("answers 502 when Sentry is unreachable", async () => {
+        process.env.SENTRY_DSN = OWN_DSN;
         fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         const response = await post(envelope([{ dsn: "x" }, { type: "event" }, {}]));
@@ -170,6 +186,7 @@ describe("POST /monitoring", () => {
     });
 
     it("answers 413 for an oversized stream even when cancelling it fails", async () => {
+        process.env.SENTRY_DSN = OWN_DSN;
         const body = new ReadableStream<Uint8Array>({
             pull(controller) {
                 controller.enqueue(new Uint8Array(MAX_ENVELOPE_BYTES + 1));
@@ -190,7 +207,7 @@ describe("POST /monitoring", () => {
         process.env.SENTRY_DISABLED = "true";
         expect(await GET().json()).toMatchObject({ reports: "disabled", disabledBy: "runtime" });
         process.env.SENTRY_DISABLED = "false";
-        expect(await GET().json()).toEqual({ reports: "default", see: expect.any(String) });
+        expect(await GET().json()).toEqual({ reports: "none", see: expect.any(String) });
     });
 
     it("answers GET with the rule that decides the destination, never the DSN", async () => {

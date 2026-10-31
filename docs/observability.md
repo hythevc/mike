@@ -1,134 +1,127 @@
 # Error tracking with Sentry
 
-Every Mike runtime can report unexpected failures to [Sentry](https://sentry.io)
-(or any Sentry-compatible endpoint, including a self-hosted instance):
+Every runtime can report unexpected failures to [Sentry](https://sentry.io)
+(or any Sentry-compatible endpoint, including a self-hosted instance) once an
+operator gives it a DSN:
 
 | Runtime | SDK | Enabled by |
 | --- | --- | --- |
 | Backend API process | `@sentry/node` | `SENTRY_DSN` in `backend/.env` |
 | Backend worker thread / standalone worker / one-shot jobs | `@sentry/node` | same `SENTRY_DSN` (one project for the whole backend) |
-| Web app, in the browser | `@sentry/nextjs` | `NEXT_PUBLIC_SENTRY_DSN` at **build** time |
+| Web app, in the browser | `@sentry/nextjs` | the web app's DSN: `SENTRY_DSN` at runtime on the Next server, or `NEXT_PUBLIC_SENTRY_DSN` at **build** time |
 | Web app, Next.js server (the `/api` gateway) | `@sentry/nextjs` | `SENTRY_DSN` in the frontend's runtime environment |
 | Word add-in (task pane, ribbon commands, OAuth dialog) | `@sentry/react` | `REACT_APP_SENTRY_DSN` at **build** time |
 
-**On by default.** Error reports are sent to the Mike project's own Sentry by default, so the
-maintainers can fix failures encountered by forks and self-hosted installs.
-Before network transmission, every runtime rebuilds reports from an explicit
-allowlist: code locations and line numbers, controlled operation labels,
-HTTP method/status and normalized routes, validated correlation IDs, release,
-and environment. Client document filenames, document text, raw error and
+**Off by default.** No runtime carries a built-in destination. Until an
+operator sets a DSN, no Sentry client is created in any runtime, the web
+app's `/monitoring` tunnel forwards nothing, and no error report leaves the
+deployment. `SENTRY_DISABLED=true` (`NEXT_PUBLIC_SENTRY_DISABLED=true` /
+`REACT_APP_SENTRY_DISABLED=true` for the browser and add-in builds) keeps
+reporting off even when a DSN is set.
+
+Once a DSN is set, every runtime rebuilds reports from an explicit
+allowlist before network transmission: code locations and line numbers,
+controlled operation labels, HTTP method/status and normalized routes,
+validated correlation IDs, release, and environment. Client document filenames, document text, raw error and
 console messages, request URLs/queries/headers/bodies, user identities, and
 breadcrumbs are excluded. Automatic sessions, replay, attachments, traces,
 and other non-error payloads are blocked. The same boundary applies to
-community and official installations. See the [observability guide](observability.md)
-for the exact policy, source-map behavior, and limitations.
-To opt out, set `SENTRY_DISABLED=true`
-(`NEXT_PUBLIC_SENTRY_DISABLED=true` / `REACT_APP_SENTRY_DISABLED=true` for the
-browser and add-in builds); to use your own Sentry instead, set the matching
-`*_SENTRY_DSN`.
+community and official installations. The sections below give the exact
+policy, source-map behavior, and limitations.
 
 The [data audit](sentry-data-audit.md) preserves the earlier leak findings and
 records the final transport boundary that closes them. Internal source-code
 filenames identify the failing code; client document filenames are excluded.
 
 Resolution order, per runtime: `*_SENTRY_DISABLED=true` → off;
-`*_SENTRY_DSN` set → that DSN; otherwise the built-in Mike project DSN. For the
-web app one rule, `reportingDestination` in `frontend/src/app/lib/errorReporting.ts`,
-decides for the Next server's own events and for every browser envelope alike
-(the browser posts to `/monitoring`, `frontend/src/app/monitoring/route.ts`,
-which forwards): `SENTRY_DISABLED=true` → off (when unset or empty, the baked
-`NEXT_PUBLIC_SENTRY_DISABLED` supplies this default); `SENTRY_DSN` (`FRONTEND_SENTRY_DSN`
-in compose) → that project; `NEXT_PUBLIC_SENTRY_DSN` baked at image build →
-that project; otherwise the built-in Mike project. `SENTRY_ENVIRONMENT` and
+`*_SENTRY_DSN` set → that DSN; otherwise off. For the web app one rule,
+`reportingDestination` in `frontend/src/app/lib/errorReporting.ts`, decides
+for the Next server's own events and for every browser envelope alike (the
+browser posts to `/monitoring`, `frontend/src/app/monitoring/route.ts`, which
+forwards): `SENTRY_DISABLED=true` → off (when unset or empty, the baked
+`NEXT_PUBLIC_SENTRY_DISABLED` supplies this default); `SENTRY_DSN`
+(`FRONTEND_SENTRY_DSN` in compose) → that project; `NEXT_PUBLIC_SENTRY_DSN`
+baked at image build → that project; otherwise off. `SENTRY_ENVIRONMENT` and
 `SENTRY_INSTALL` at runtime override what the bundle was built with. The rule
-that applied is printed once at boot (`[sentry] web app reports → ...`) and
-answered by `GET /monitoring` (`{"reports":"runtime"}` etc., plus
-`"disabledBy":"runtime"|"build"` when off, never the DSN), so
-a pulled image honours the operator's opt-out and destination without a
-rebuild and the operator can see that it did. Backend test
-processes (vitest, `NODE_ENV=test`) never report unless
-`SENTRY_ALLOW_IN_TESTS=true`. Browser tests disable reporting or use intercepted
-transports. Every event carries `install=community` unless
-the deployment sets `SENTRY_INSTALL=official` (env, all three runtimes), and
-`environment` defaults to `self-hosted`, so the official deployment and the
-community are separable in Sentry. The boot log says which applies:
-`[sentry] enabled for api → Mike project Sentry (community install). Opt out
-with SENTRY_DISABLED=true or point SENTRY_DSN at your own project.`
+that applied is printed once at boot (`[sentry] web app reports: off (no DSN
+configured; ...)` or `[sentry] web app reports → ...`) and answered by
+`GET /monitoring` (`{"reports":"none"}`, `"runtime"`, `"build"` or
+`"disabled"`, plus `"disabledBy":"runtime"|"build"` when switched off, never
+the DSN), so a pulled image honours the operator's destination and opt-out
+without a rebuild and the operator can see that it did.
 
-### Public DSNs and default-on reporting
+The browser creates its Sentry client only when the deployment has a
+destination. A DSN baked into the bundle starts it while the page loads, so
+errors thrown during hydration are covered. Otherwise the page asks
+`GET /monitoring` once and starts the client only when the answer is
+`runtime` or `build`; errors thrown before that answer arrives are not
+reported, so bake `NEXT_PUBLIC_SENTRY_DSN` if you need them. Either way the
+tunnel applies the runtime opt-out and destination to every envelope.
+
+Backend test processes (vitest, `NODE_ENV=test`) never report unless
+`SENTRY_ALLOW_IN_TESTS=true`. Browser tests disable reporting or use
+intercepted transports. Every event carries `install=community` unless the
+deployment sets `SENTRY_INSTALL=official` (env, all three runtimes), and
+`environment` defaults to `self-hosted`. The boot log says which applies:
+`[sentry] enabled for api (environment self-hosted, release ...)`, or
+`[sentry] disabled for api (no SENTRY_DSN configured)` when no DSN is set.
+
+### Public DSNs
 
 **Public DSN does not mean public error reports.** A DSN lets an SDK submit
 events; it does not grant access to read stored events or administer the
-Sentry organization. Mike's default reports go to the maintainers' `open-legal-products`
-organization. The source-map upload token (`SENTRY_AUTH_TOKEN`) is a separate,
-privileged secret and must never appear in source or browser bundles. See
+Sentry organization. A DSN baked into the web app or add-in bundle ships to
+every browser, so treat it as public. The source-map upload token
+(`SENTRY_AUTH_TOKEN`) is a separate, privileged secret and must never appear
+in source or browser bundles. See
 [Sentry's explanation of public DSNs](https://www.sentry.help/en/articles/13964341-my-dsn-key-is-publicly-visible-is-this-a-security-vulnerability).
-
-There are established precedents, but publishing a DSN and choosing default-on
-telemetry are separate decisions. These are applications, not a claim that
-installing their underlying libraries automatically reports to their authors:
-
-| Project | What its own source or documentation establishes |
-| --- | --- |
-| [Zulip Desktop](https://github.com/zulip/zulip-desktop/blob/1cc112def5cd4b0b3ffe15c0857258c527b4421a/app/main/sentry.ts) (Apache-2.0) | Publishes a Sentry DSN. Packaged builds report unless the user disables `errorReporting`; development builds are excluded. |
-| [Element Web](https://github.com/element-hq/element-web/blob/5fc4f4090cea4357bf101e051e9864cde7610145/apps/web/element.io/develop/config.json) (AGPL/GPL options) | Publishes a Sentry DSN in its develop deployment configuration. Its [integration](https://github.com/element-hq/element-web/blob/5fc4f4090cea4357bf101e051e9864cde7610145/apps/web/src/sentry.ts) explicitly submits bug reports; this is not evidence of Mike's same automatic reporting policy. |
-| [GitLab Service Ping](https://docs.gitlab.com/development/internal_analytics/service_ping/) | Documents default-on telemetry sending a weekly usage payload to GitLab. This is a precedent for default-on usage reporting, not proof of default-on Sentry crash reporting from self-managed instances. GitLab's [Sentry setup](https://docs.gitlab.com/omnibus/settings/configuration/#error-reporting-and-logging-with-sentry) asks administrators to enable it and supply their own DSNs. |
-
-Mike's policy remains explicit: automatic error reporting is on by default,
-with the exclusions above, an opt-out, and an alternative destination under
-the operator's control. Other projects' choices do not imply identical data
-collection, privacy guarantees, or consent policies.
 
 ### Quota protection and its limits
 
 Anyone can copy a public DSN and submit junk directly. Local SDK filtering
-cannot stop that sender. The controls below protect different things:
+cannot stop that sender. The controls below are enforced by this code base
+for whatever project you configure:
 
-| Control | Current implementation / verified state | Limit |
+| Control | Implementation | Limit |
 | --- | --- | --- |
 | Per-issue burst limit | Backend and shared web/add-in scrubbers allow 10 events per issue key per minute by default, before the quota budget below. Backend override: `SENTRY_MAX_EVENTS_PER_ISSUE_PER_MINUTE`. | Keyed on the raw error text, so varying messages bypass it; the transport budget below is keyed on the final grouping. |
-| Quota budget in the final transport | Per issue as Sentry groups it (the diagnostic fingerprint, error type and top frame), only occurrences 1, 2, 4, 8, … are sent, each tagged `occurrence`; the count restarts after an hour without that issue. Each SDK client also sends at most 50 events a day across all issues. Diagnostic test probes skip the per-issue step. A loop failing every second costs about 17 events a day per issue. This replaced a flat 60-a-minute cap, under which one install's stuck poll loops used the whole 5,000-event month in nine hours (2026-09-23). | Per process, worker thread, browser tab, or task pane, so a fleet of installs still adds up. Restarts reset it. Installs built before this change keep the old cap until they update. Does not stop direct submissions to the public DSN. |
+| Quota budget in the final transport | Per issue as Sentry groups it (the diagnostic fingerprint, error type and top frame), only occurrences 1, 2, 4, 8, … are sent, each tagged `occurrence`; the count restarts after an hour without that issue. Each SDK client also sends at most 50 events a day across all issues. Diagnostic test probes skip the per-issue step. A loop failing every second costs about 17 events a day per issue. | Per process, worker thread, browser tab, or task pane, so many installs reporting to one project still add up. Restarts reset it. Does not stop direct submissions to a public DSN. |
 | Duplicate and expected-error suppression | Explicit reports mark the same error object to prevent a later console/unhandled duplicate. API 4xx and deliberate client cancellations are excluded from the API reporting paths. | New error objects or independent console messages can still produce events. Grouping several events into one issue does not make them one quota unit. |
 | Non-error telemetry | The final transport rejects sessions, transactions, spans, logs, replay, attachments and every other non-error item. | Adding a new telemetry category requires an explicit privacy-reviewed policy change. |
-| Sentry spike protection | Enabled on all three projects of the `open-legal-products` organization when checked on 2026-10-20 UTC; no project notification actions are attached. | Uses historical volume; Sentry explicitly says it must not be the sole defense. |
-| Inbound filters | The frontend project has browser-extension, crawler, legacy-browser, hydration-error, and chunk-load-error filters enabled; localhost filtering is off (checked on the same date). | Filters can hide genuine bugs too. Custom release/message filters are offered during the Business trial but none are set, and the Developer plan does not offer them; no custom IP blocklist was set on the inspected frontend project. |
-| Hard DSN rate limit | The inspected frontend key has no custom limit. The organization was created on a 14-day Business trial (1,000,000 errors) that ends on 2026-11-03; it then falls back to the Developer plan with 5,000 errors per month, where key rate-limit controls are unavailable. | The monthly allowance can be exhausted, leaving genuine new errors unrecorded. |
-| Official/community isolation | Separate backend, frontend, and add-in projects; official and community events currently share each runtime's default key/project. | `install=official` is a client-supplied tag, not authentication or a reserved quota. |
 
-These are a dated account audit, not settings enforced by the repository.
-Recheck them in Sentry when changing the plan or deploying to another account.
-Preventing IP storage is a privacy control, not quota protection. Likewise,
-the Next.js `/monitoring` tunnel is not an authenticated abuse barrier; the
-public upstream DSN remains usable directly.
+Account-side controls (spike protection, inbound filters, key rate limits,
+spending limits, notifications) live in your own Sentry organization; this
+repository sets none of them. Preventing IP storage is a privacy control, not
+quota protection. Likewise, the Next.js `/monitoring` tunnel is not an
+authenticated abuse barrier; a DSN baked into a bundle remains usable
+directly.
 
-For stronger protection, maintainers should:
+For stronger protection:
 
-1. Separate official and community ingestion keys/projects and enforce
-   server-side limits for each where the plan supports them. Separate projects
-   alone still share the organization's allowance. If using spend allocation,
-   understand that it reserves a minimum and can still draw from unallocated
-   capacity; it is not automatically a per-project ceiling.
-2. Keep spike protection on and configure spike/usage notifications to a
-   responsible maintainer. The default per-project email alert for
-   high-priority issues is not a quota alert. The owner's personal quota
-   notifications (80% and 100%, by email) are on; the spike-protection page
-   currently has no project notification actions configured.
-3. Set an explicit pay-as-you-go spending ceiling if upgrading to a paid
-   plan. A cost ceiling prevents overspending, not loss of error visibility
-   when the allowance is consumed. No plan upgrade was made for this audit.
+1. Use separate projects and keys per runtime and enforce server-side limits
+   for each where the plan supports them. Separate projects alone still share
+   the organization's allowance. If using spend allocation, understand that it
+   reserves a minimum and can still draw from unallocated capacity; it is not
+   automatically a per-project ceiling.
+2. Keep spike protection on and send spike and usage notifications to a
+   responsible person. The default per-project email alert for high-priority
+   issues is not a quota alert.
+3. Set an explicit pay-as-you-go spending ceiling on a paid plan. A cost
+   ceiling prevents overspending, not loss of error visibility when the
+   allowance is consumed.
 4. Review accepted, filtered, and dropped events in Stats & Usage. Keep noise
    filters narrow; specifically review whether dropping hydration and chunk
-   loading failures is appropriate for Mike's supported browsers and deploys.
+   loading failures is appropriate for your supported browsers and deploys.
 5. During abuse, disable the affected key, investigate, then rotate and ship
-   the replacement. Older installs using the revoked key will stop reporting.
-   A replacement public key is discoverable again. Allowed-origin filters can
+   the replacement. Installs still using the revoked key stop reporting. A
+   replacement public key is discoverable again. Allowed-origin filters can
    reduce unwanted browser traffic, but are not authentication against a
    sender that constructs its own requests.
 
 A controlled ingest service could enforce shared budgets before forwarding,
 but that requires an architecture where the upstream credential cannot be
-used to bypass it. It is not implemented by the current tunnel. There is no
-claim that the current public community endpoint is abuse-proof.
+used to bypass it. It is not implemented by the current tunnel, and no
+public DSN is claimed to be abuse-proof.
 
 References: [Sentry volume controls](https://www.sentry.help/en/articles/13964888-what-are-some-ways-i-can-control-the-event-volume-for-my-organisation),
 [spike-protection limitations](https://www.sentry.help/en/articles/13964833-spike-protection-did-not-work-as-i-would-expect),
@@ -318,9 +311,9 @@ add free-form text just to restore a more detailed exception message.
 Backend (`backend/.env`, read at process start):
 
 ```
-SENTRY_DISABLED=false                  # true = send nothing
-SENTRY_DSN=                            # your own Sentry; empty = image default, then Mike project
-SENTRY_INSTALL=                        # "official" only on Mike's own deployment
+SENTRY_DISABLED=false                  # true = send nothing, even with a DSN
+SENTRY_DSN=                            # your own Sentry; empty = the image's baked default, if any, else off
+SENTRY_INSTALL=                        # "official" keeps the fuller (still scrubbed) event shape; empty = minimised community shape
 SENTRY_ENVIRONMENT=production          # defaults to self-hosted
 SENTRY_RELEASE=mike@1.4.0              # optional; defaults to mike@<MIKE_VERSION>+<sha12>
 SENTRY_TRACES_SAMPLE_RATE=0            # optional, 0..1
@@ -340,17 +333,18 @@ using published images so their baked release identity survives `env_file`.
 Without a version the release is `mike@0.0.0` (plus `+<sha12>` if available).
 
 Web app. One runtime setting on the Next server decides where every web-app
-report goes, the server's own and the browser's: the browser SDK always starts
-with a placeholder DSN, and every envelope it produces goes to the Next
-server's `/monitoring` route, which applies the same rule and forwards. The
-published images therefore need no build-time configuration at all:
+report goes, the server's own and the browser's: the browser SDK starts with a
+placeholder DSN only when a destination exists (see "Off by default" above),
+and every envelope it produces goes to the Next server's `/monitoring` route,
+which applies the same rule and forwards. The published images therefore need
+no build-time configuration at all:
 
 ```
 # root .env (Docker Compose); the Next server reads these at runtime
 SENTRY_DISABLED=false                  # true = nothing leaves, browser included
-FRONTEND_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
+FRONTEND_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>   # empty = off
 SENTRY_ENVIRONMENT=production
-SENTRY_INSTALL=                        # "official" only on Mike's own deployment
+SENTRY_INSTALL=                        # "official" keeps the fuller (still scrubbed) event shape
 
 # building the frontend yourself (optional): build-time defaults
 NEXT_PUBLIC_SENTRY_DISABLED=true       # server/tunnel default to off; runtime false re-enables both
@@ -358,15 +352,16 @@ NEXT_PUBLIC_SENTRY_DSN=...             # used when SENTRY_DSN is not set at runt
 ```
 
 Check which rule applied on a running deployment: the boot log line
-`[sentry] web app reports → ...`, or `curl -s https://<host>/monitoring`, which
-answers `{"reports":"disabled"|"runtime"|"build"|"default"}` (with
-`"disabledBy":"runtime"|"build"` when off) and never the DSN. An explicit
+`[sentry] web app reports ...`, or `curl -s https://<host>/monitoring`, which
+answers `{"reports":"none"|"disabled"|"runtime"|"build"}` (with
+`"disabledBy":"runtime"|"build"` when switched off) and never the DSN. An explicit
 runtime `SENTRY_DISABLED` (`true` or `false`) always wins over the image's baked
 default; the shipped `.env.example` sets `false`.
 
 The `/monitoring` route is not an open relay: the destination is the server's
-own configuration, the client's envelope header is overwritten with it, and a
-malformed operator DSN drops envelopes rather than falling back upstream.
+own configuration, the client's envelope header is overwritten with it, and
+without a DSN, or with a malformed one, envelopes are dropped (answered 204 or
+not forwarded) rather than sent anywhere else.
 
 Use a separate Sentry project for the web app and the backend: separate issue
 streams, separate source maps, and the frontend DSN is public in the bundle.
@@ -421,8 +416,8 @@ It records no deploy: publishing an image is not deploying it.
 Word add-in (build time, `word-addin/.env` or the Docker build arguments):
 
 ```
-REACT_APP_SENTRY_DISABLED=true         # opt-out
-REACT_APP_SENTRY_DSN=...               # your own Sentry; empty = Mike project Sentry
+REACT_APP_SENTRY_DISABLED=true         # keeps reporting off even with a DSN
+REACT_APP_SENTRY_DSN=...               # your own Sentry; empty = off, no client is created
 REACT_APP_SENTRY_ENVIRONMENT=...       # optional
 REACT_APP_SENTRY_RELEASE=...           # optional
 ```
@@ -561,15 +556,17 @@ rebuilding them. For both new and reused builds the workflow asks Sentry's API
 (`files/artifact-bundles/`) whether a bundle is associated with the release and
 fails the run if not.
 
-Where events go is decided together with where maps go, so a fork never
-reports upstream by accident. The image owner is the repository owner, so a
-fork publishes to `ghcr.io/<owner>/mike-*` with no setup, and:
+Where events go is decided together with where maps go. No image carries a
+built-in destination: an image reports only to a DSN baked from the
+repository's own variables or set by its operator at runtime. The image owner
+is the repository owner, so a fork publishes to `ghcr.io/<owner>/mike-*` with
+no setup, and:
 
 | Repository | Events | Source maps |
 | --- | --- | --- |
-| `open-legal-products` | built-in Mike DSNs | required; missing configuration stops publication before building |
+| `open-legal-products` | no baked DSN; only what the operator sets at runtime | required; missing configuration stops publication before building |
 | fork with `FORK_SENTRY_DSN_FRONTEND` and `FORK_SENTRY_DSN_BACKEND` variables | the fork's own projects (baked as defaults, overridable at runtime) | uploaded to the fork's org when its own secret and variables are set |
-| fork without them | reporting disabled in every runtime (`SENTRY_DISABLED=true` baked as the image default; an explicit runtime value wins, and the stock `.env.example` sets `SENTRY_DISABLED=false`, so a fork's operators set it to `true`) | none |
+| fork without them | none: no DSN is baked, and `SENTRY_DISABLED=true` is baked as the image default (an explicit runtime value wins; an operator who wants reports sets a DSN and `SENTRY_DISABLED=false`) | none |
 
 Self-hosted Sentry servers (`SENTRY_URL`) are not supported by the workflow.
 The Word add-in image is not published (its build bakes the deployment's
@@ -602,10 +599,11 @@ when it receives an event, so earlier issues keep their minified frames.
 ## Verifying a deployment
 
 1. Set a local or deployment-owned DSN and restart. The backend logs
-   `[sentry] enabled for api (environment ...)` for an explicit DSN. An unset
-   DSN uses Mike's project and logs that destination; only
-   `SENTRY_DISABLED=true` (or the test-process guard) disables reporting.
-   Rebuild browser bundles after changing their `*_SENTRY_*` variables.
+   `[sentry] enabled for api (environment ...)`. Without a DSN it logs
+   `[sentry] disabled for api (no SENTRY_DSN configured)` and creates no
+   client; `SENTRY_DISABLED=true` (or the test-process guard) also keeps it
+   off. Rebuild browser bundles after changing their `NEXT_PUBLIC_*` or
+   `REACT_APP_*` Sentry variables.
 2. Backend: set `SENTRY_ENABLE_TEST_ROUTE=true`, restart, and run
 
    ```bash

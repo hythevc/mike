@@ -5,6 +5,8 @@
  * SENTRY_DISABLED or FRONTEND_SENTRY_DSN. Routing every envelope through this
  * handler restores that: the Next server decides at runtime whether the
  * envelope leaves at all and which project it goes to, then forwards it.
+ * With no DSN configured there is no destination, and every envelope is
+ * answered 204 without a request leaving the server.
  *
  * This is not an open relay. The destination comes from the server's own
  * environment, never from the request; the client's envelope header is
@@ -87,10 +89,13 @@ export async function POST(request: NextRequest): Promise<Response> {
 }
 
 /**
- * Which rule decides where this deployment's reports go, for operators
- * checking a running container (`curl -s https://<host>/monitoring`). The
- * rule only, never the DSN; a DSN's key is public anyway, but the point of
- * this answer is "which configuration won", not the address.
+ * Which rule decides where this deployment's reports go: "none" (no DSN, the
+ * default), "disabled", "runtime" or "build". Operators check a running
+ * container with `curl -s https://<host>/monitoring`, and a page whose bundle
+ * carries no DSN asks the same question before it creates a Sentry client
+ * (startBrowserErrorReporting). The rule only, never the DSN; a DSN's key is
+ * public anyway, but the point of this answer is "which configuration won",
+ * not the address.
  */
 export function GET(): Response {
     const { source, disabledBy } = reportingDestination(process.env);
