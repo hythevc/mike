@@ -54,3 +54,22 @@ historical names: the session cookie, the add-in sign-in handoff and the
 project export manifest format, browser storage keys, database table names,
 and the `@mike/*` package and alias names. Renaming them would sign every user
 out and break verification of exports that were already signed.
+
+## Legacy-brand sweep
+
+`scripts/brand-sweep.mjs` counts, for each application (`frontend/src`,
+`backend/src` and `word-addin/src`), the places that still show the upstream
+project's name, its domain or support mailbox, its Sentry organisation, or a
+download name starting with `mike-`. Comments, attribution text, the
+generated brand modules and the persisted identifiers above are not counted.
+
+```bash
+node scripts/brand-sweep.mjs                     # compare with the baselines
+node scripts/brand-sweep.mjs --list frontend     # every hit, as file:line:column
+node scripts/brand-sweep.mjs --write-baselines   # record lower counts
+```
+
+The baselines live in `scripts/brand-sweep/<app>.json`, one per application,
+so a change that rebrands one application lowers only that file.
+`.github/workflows/brand-sweep.yml` fails when any count rises above its
+baseline, and when a generated module is out of date.

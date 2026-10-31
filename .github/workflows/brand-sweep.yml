@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# CI: the brand config and the legacy-brand ratchet.
+#
+# packages/brand/brand.json is the single source of the product's names,
+# addresses and marks; scripts/brand/generate.mjs writes it into a module in
+# each application, and both modules are committed. This workflow fails when
+#
+#   - a generated module differs from brand.json (run
+#     `node scripts/brand/generate.mjs` and commit the result), or
+#   - an application shows the upstream project's name or addresses in more
+#     places than its baseline in scripts/brand-sweep/<app>.json allows. Use
+#     the generated brand module instead; `node scripts/brand-sweep.mjs --list`
+#     prints every hit. A change that removes hits lowers its application's
+#     baseline with `node scripts/brand-sweep.mjs --write-baselines`.
+#
+# Both scripts are dependency-free, so no npm install is needed.
+name: Brand sweep
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  # Include stacked PRs whose base is another feature branch.
+  pull_request:
+
+concurrency:
+  group: brand-sweep-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+permissions:
+  contents: read
+
+jobs:
+  brand:
+    name: Brand config and legacy-brand counts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+
+      - name: Generated brand modules match brand.json
+        run: node scripts/brand/generate.mjs --check
+
+      - name: Brand generator tests
+        run: node --test scripts/brand/generate.test.mjs
+
+      - name: Brand sweep tests
+        run: node --test scripts/brand-sweep.test.mjs
+
+      - name: Legacy-brand counts do not rise above the baselines
+        run: node scripts/brand-sweep.mjs
