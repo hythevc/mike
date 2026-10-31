@@ -8,6 +8,7 @@ import {
     forgetPostOnboardingDestination,
     loginPathFor,
     postLoginDestination,
+    signupPathFor,
     postOnboardingDestination,
     rememberPostOnboardingDestination,
     safeAuthNext,
@@ -98,6 +99,21 @@ describe("loginPathFor", () => {
     ])("needs no next for %s", (destination) => {
         expect(loginPathFor(destination)).toBe("/login");
     });
+});
+
+describe("signupPathFor", () => {
+    it("carries a page of the app through sign-up", () => {
+        expect(signupPathFor("/projects/project-1?tab=documents")).toBe(
+            `/signup?next=${encodeURIComponent("/projects/project-1?tab=documents")}`,
+        );
+    });
+
+    it.each([null, DEFAULT_SIGNED_IN_PATH, "/onboarding/models", "//evil.example/projects/1"])(
+        "needs no next for %s",
+        (destination) => {
+            expect(signupPathFor(destination)).toBe("/signup");
+        },
+    );
 });
 
 describe("postLoginDestination", () => {

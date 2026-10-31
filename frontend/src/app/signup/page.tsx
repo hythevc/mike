@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signup } from "@/app/lib/authApi";
+import { loginPathFor, postLoginDestination } from "@/app/lib/authRedirects";
 import { InputUI } from "@/shared/ui/InputUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { pillButtonUIClassName } from "@/shared/ui/PillButtonUI.styles";
@@ -81,14 +82,20 @@ function SignupContent() {
     const isAccountCreatedPreview =
         process.env.NODE_ENV !== "production" &&
         searchParams.get("preview") === "account-created";
+    // The page the person was on their way to when sent to sign in
+    // (`?next`), or the first onboarding step. A new account opens that
+    // page; the onboarding gate sends it through onboarding first and back.
+    const next = searchParams.get("next");
+    const destination = postLoginDestination(next);
 
     useEffect(() => {
         if (isAccountCreatedPreview) return;
         if (!authLoading && isAuthenticated && !loading && !success) {
-            router.replace("/onboarding/profile");
+            router.replace(destination);
         }
     }, [
         authLoading,
+        destination,
         isAccountCreatedPreview,
         isAuthenticated,
         loading,
@@ -99,10 +106,10 @@ function SignupContent() {
     useEffect(() => {
         if (!success) return;
         const timer = setTimeout(() => {
-            router.push("/onboarding/profile");
+            router.push(destination);
         }, 2000);
         return () => clearTimeout(timer);
-    }, [router, success]);
+    }, [destination, router, success]);
 
     const handleSignup = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -131,11 +138,8 @@ function SignupContent() {
 
         try {
             const trimmedEmail = email.trim();
-            const result = await signup(
-                trimmedEmail,
-                password,
-                "/onboarding/profile",
-            );
+            // Also where the confirmation email's link lands.
+            const result = await signup(trimmedEmail, password, destination);
 
             if (!result.requiresEmailConfirmation) {
                 await refreshSession();
@@ -166,7 +170,7 @@ function SignupContent() {
                             Redirecting you to finish setting up your account...
                         </p>
                         <Link
-                            href="/onboarding/profile"
+                            href={destination}
                             className={pillButtonUIClassName({
                                 tone: "black",
                                 size: "normal",
@@ -274,6 +278,7 @@ function SignupContent() {
                                 onError={setError}
                                 disabled={loading}
                                 onLoadingChange={setLoading}
+                                next={destination}
                             />
                         </div>
                     </form>
@@ -281,7 +286,7 @@ function SignupContent() {
                 <div className="text-center text-sm text-gray-500">
                     Have an account?{" "}
                     <Link
-                        href="/login"
+                        href={loginPathFor(next)}
                         className="font-medium transition-colors hover:text-gray-950"
                     >
                         Log in

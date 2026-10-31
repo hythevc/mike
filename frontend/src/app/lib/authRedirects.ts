@@ -78,17 +78,33 @@ export function safeAuthNext(
     return `${resolved.pathname}${resolved.search}`;
 }
 
+function withNext(
+    page: "/login" | "/signup",
+    destination: string | null | undefined,
+): string {
+    const next = safeAuthNext(destination, "");
+    if (!next || !isAppRoute(next) || next === DEFAULT_SIGNED_IN_PATH) {
+        return page;
+    }
+    return `${page}?next=${encodeURIComponent(next)}`;
+}
+
 /**
  * The sign-in page for someone sent away from `destination`. The page they
  * asked for rides along as `?next`, so signing in returns them to it; the
  * default landing page, and anything that is not a page of the app, does not.
  */
 export function loginPathFor(destination: string | null | undefined): string {
-    const next = safeAuthNext(destination, "");
-    if (!next || !isAppRoute(next) || next === DEFAULT_SIGNED_IN_PATH) {
-        return "/login";
-    }
-    return `/login?next=${encodeURIComponent(next)}`;
+    return withNext("/login", destination);
+}
+
+/**
+ * The sign-up page for someone who reached sign-in on the way to
+ * `destination`, keeping that page as `?next` by the same rule as
+ * `loginPathFor`: a new account then lands there, through onboarding.
+ */
+export function signupPathFor(destination: string | null | undefined): string {
+    return withNext("/signup", destination);
 }
 
 /**

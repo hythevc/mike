@@ -141,6 +141,31 @@ describe("LoginPage", () => {
         expect(push).toHaveBeenCalledWith("/onboarding/profile");
     });
 
+    // Someone with no account yet follows the same link through sign-up.
+    it("keeps the page in next on the sign-up link", () => {
+        navigation.searchParams = new URLSearchParams({
+            next: "/projects/project-1?tab=chats",
+        });
+        render(<LoginPage />);
+
+        expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+            "href",
+            `/signup?next=${encodeURIComponent("/projects/project-1?tab=chats")}`,
+        );
+    });
+
+    it("links to a plain sign-up page without a usable next", () => {
+        navigation.searchParams = new URLSearchParams({
+            next: "//evil.example/projects/1",
+        });
+        render(<LoginPage />);
+
+        expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+            "href",
+            "/signup",
+        );
+    });
+
     it("hands the page in next to Google and single sign-on as well", async () => {
         navigation.searchParams = new URLSearchParams({
             next: "/projects/project-1",

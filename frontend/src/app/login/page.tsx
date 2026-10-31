@@ -7,6 +7,7 @@ import {
     DEFAULT_SIGNED_IN_PATH,
     ONBOARDING_START_PATH,
     postLoginDestination,
+    signupPathFor,
 } from "@/app/lib/authRedirects";
 import { completeUserOnboarding, getUserProfile } from "@/app/lib/mikeApi";
 import { InputUI } from "@/shared/ui/InputUI";
@@ -88,7 +89,8 @@ export default function LoginPage() {
     const router = useRouter();
     // The page the user was sent here from (`?next`), or the first
     // onboarding step, which sends an onboarded user on to the app.
-    const destination = postLoginDestination(useSearchParams().get("next"));
+    const next = useSearchParams().get("next");
+    const destination = postLoginDestination(next);
     const {
         isAuthenticated,
         authLoading,
@@ -369,7 +371,8 @@ export default function LoginPage() {
                 <div className="text-center text-sm text-gray-500">
                     Don&apos;t have an account?{" "}
                     <Link
-                        href="/signup"
+                        // A new account keeps the page it was sent here for.
+                        href={signupPathFor(next)}
                         className="font-medium transition-colors hover:text-gray-950"
                     >
                         Sign up
