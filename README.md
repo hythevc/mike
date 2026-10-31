@@ -1,5 +1,7 @@
 # Mike
 
+> **Notice:** this is a modified version of Mike by Open-Legal-Products, modified since 2026-10-31. See [NOTICE.md](NOTICE.md).
+
 ![Mike](docs/assets/link-image.jpg)
 
 Mike (MikeOSS) is an open-source legal AI platform for document review,
