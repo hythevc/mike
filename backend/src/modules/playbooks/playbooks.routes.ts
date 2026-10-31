@@ -5,6 +5,8 @@ import { requireAuth, requireMfaIfEnrolled } from "../../middleware/auth";
 import { modelCallRateLimit } from "../../middleware/modelRateLimit";
 import { sendInternalError } from "../../lib/httpError";
 import { setOperation } from "../../lib/observability/sentry";
+import { sendServiceFailure } from "../../lib/serviceResult";
+import { createServerSupabase } from "../../lib/supabase";
 import {
   buildContentDisposition,
   createFileReadStream,
@@ -51,6 +53,12 @@ import {
   playbookConfiguration,
   queuePlaybookReview,
   updatePlaybookContent,
+  getPlaybookRunDecisions,
+  recordPlaybookFindingDecision,
+  clearPlaybookFindingDecision,
+  bulkAcceptPlaybookFindings,
+  listPlaybookEscalationMembers,
+  exportPlaybookDecisionRecord,
 } from "./playbooks.service";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -207,6 +215,133 @@ playbooksRouter.get("/runs", async (req, res) => {
     sendError(res, error);
   }
 });
+
+// Decisions on a run's findings. Each route answers the run's 404 to anyone
+// who cannot open the run; see playbooks.decisions.ts.
+function runCaller(req: { params: Record<string, string> }, res: Response) {
+  return {
+    userId: res.locals.userId as string,
+    userEmail: res.locals.userEmail as string | null | undefined,
+    runId: req.params.runId ?? "",
+  };
+}
+
+playbooksRouter.get("/runs/:runId/decisions", async (req, res) => {
+  try {
+    const result = await getPlaybookRunDecisions(
+      createServerSupabase(),
+      runCaller(req, res),
+    );
+    if (!result.ok) return void sendServiceFailure(res, result);
+    res.json(result.data);
+  } catch (error) {
+    sendInternalError(res, error);
+  }
+});
+
+playbooksRouter.get("/runs/:runId/escalation-members", async (req, res) => {
+  try {
+    const result = await listPlaybookEscalationMembers(
+      createServerSupabase(),
+      runCaller(req, res),
+    );
+    if (!result.ok) return void sendServiceFailure(res, result);
+    res.json(result.data);
+  } catch (error) {
+    sendInternalError(res, error);
+  }
+});
+
+// Accepts the confirmed findings that met the standard position.
+playbooksRouter.post(
+  "/runs/:runId/decisions/bulk-accept",
+  requireMfaIfEnrolled,
+  async (req, res) => {
+    setOperation("playbooks.decide");
+    try {
+      const result = await bulkAcceptPlaybookFindings(createServerSupabase(), {
+        ...runCaller(req, res),
+        findingIds: req.body?.findingIds,
+      });
+      if (!result.ok) return void sendServiceFailure(res, result);
+      res.json(result.data);
+    } catch (error) {
+      sendInternalError(res, error);
+    }
+  },
+);
+
+// Records or changes the decision on one finding.
+playbooksRouter.put(
+  "/runs/:runId/decisions/:findingId",
+  requireMfaIfEnrolled,
+  async (req, res) => {
+    setOperation("playbooks.decide");
+    try {
+      const result = await recordPlaybookFindingDecision(
+        createServerSupabase(),
+        {
+          ...runCaller(req, res),
+          findingId: req.params.findingId,
+          decision: req.body?.decision,
+          note: req.body?.note,
+          escalatedTo: req.body?.escalatedTo,
+        },
+      );
+      if (!result.ok) return void sendServiceFailure(res, result);
+      res.json(result.data);
+    } catch (error) {
+      sendInternalError(res, error);
+    }
+  },
+);
+
+playbooksRouter.delete(
+  "/runs/:runId/decisions/:findingId",
+  requireMfaIfEnrolled,
+  async (req, res) => {
+    setOperation("playbooks.decide");
+    try {
+      const result = await clearPlaybookFindingDecision(
+        createServerSupabase(),
+        { ...runCaller(req, res), findingId: req.params.findingId },
+      );
+      if (!result.ok) return void sendServiceFailure(res, result);
+      res.status(204).send();
+    } catch (error) {
+      sendInternalError(res, error);
+    }
+  },
+);
+
+// Exports the run's decision record. With { destination: "project" } it is
+// saved to its document's project (201 with where it went) when the caller
+// can add documents there; otherwise the answer is the Word file itself.
+playbooksRouter.post(
+  "/runs/:runId/decision-record",
+  requireMfaIfEnrolled,
+  async (req, res) => {
+    setOperation("playbooks.export");
+    try {
+      const result = await exportPlaybookDecisionRecord(
+        createServerSupabase(),
+        { ...runCaller(req, res), destination: req.body?.destination },
+      );
+      if (!result.ok) return void sendServiceFailure(res, result);
+      if (result.data.kind === "saved")
+        return void res.status(201).json({ saved: result.data.saved });
+      res.setHeader("Content-Type", PLAYBOOK_IMPORT_CONTENT_TYPES.docx);
+      res.setHeader("Content-Length", result.data.bytes.byteLength);
+      res.setHeader(
+        "Content-Disposition",
+        buildContentDisposition("attachment", result.data.filename),
+      );
+      res.status(200).send(result.data.bytes);
+    } catch (error) {
+      sendInternalError(res, error);
+    }
+  },
+);
 
 /**
  * Hand back a presigned PUT for the source .docx or .pdf. The browser uploads straight

@@ -288,7 +288,8 @@ async function loadUserTabularChats(
 }
 
 /**
- * The playbooks this user created, the reviews they ran, and their imports.
+ * The playbooks this user created, the reviews they ran with the decisions
+ * recorded on them, and their imports.
  *
  * Playbook access is decided by resolvePlaybookRoles, the same rule the
  * playbooks list uses: an organization's playbook needs current membership,
@@ -357,15 +358,29 @@ async function loadUserPlaybooks(
                           .order("created_at", { ascending: true }),
                   "id, playbook_id, filename, file_type, size_bytes, text_length, created_at",
               );
+    const runs = runCandidates.filter(
+        (row) =>
+            typeof row.playbook_id === "string" &&
+            inScope.has(row.playbook_id),
+    );
+    // The decisions recorded on those runs' findings, notes included, go
+    // with them; a run that stays behind keeps its decisions.
+    const runIds = idsFrom(runs);
+    const decisions =
+        runIds.length === 0
+            ? []
+            : await selectAll(db, "playbook_finding_decisions", (query) =>
+                  query
+                      .in("run_id", runIds)
+                      .order("decided_at", { ascending: true })
+                      .order("id", { ascending: true }),
+              );
 
     return {
         playbooks,
         playbook_sources: sources,
-        playbook_runs: runCandidates.filter(
-            (row) =>
-                typeof row.playbook_id === "string" &&
-                inScope.has(row.playbook_id),
-        ),
+        playbook_runs: runs,
+        playbook_finding_decisions: decisions,
         // Import records are metadata (file name, stage, error); one made in
         // an organization the user has left stays with that organization.
         playbook_imports: imports.filter(

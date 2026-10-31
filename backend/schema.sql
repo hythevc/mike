@@ -5583,6 +5583,46 @@ create index if not exists idx_playbook_runs_user_started
   on public.playbook_runs(user_id, started_at desc);
 alter table public.playbook_runs enable row level security;
 
+-- A reviewer's decision on each finding of a run: accepted, overridden with a
+-- note, or escalated to a named colleague, one at a time or in bulk. One per
+-- finding (finding_key is the finding's id in findings_json); clearing a
+-- decision deletes its row. People become null when their account is deleted.
+create table if not exists public.playbook_finding_decisions (
+  id uuid primary key default gen_random_uuid(),
+  run_id uuid not null references public.playbook_runs(id) on delete cascade,
+  finding_key text not null,
+  decision text not null,
+  -- 'bulk' when it was accepted together with the run's other findings that
+  -- met the standard position; 'single' otherwise.
+  method text not null default 'single',
+  note text,
+  escalated_to uuid references auth.users(id) on delete set null,
+  decided_by uuid references auth.users(id) on delete set null,
+  decided_at timestamptz not null default now(),
+  constraint playbook_finding_decisions_run_finding_unique
+    unique (run_id, finding_key),
+  constraint playbook_finding_decisions_finding_key_check
+    check (length(finding_key) between 1 and 200),
+  constraint playbook_finding_decisions_decision_check
+    check (decision in ('accepted', 'overridden', 'escalated')),
+  constraint playbook_finding_decisions_method_check
+    check (method in ('single', 'bulk')),
+  -- Only acceptance is ever made in bulk.
+  constraint playbook_finding_decisions_bulk_check
+    check (method = 'single' or decision = 'accepted'),
+  -- An override always records why.
+  constraint playbook_finding_decisions_override_note_check
+    check (decision <> 'overridden' or length(btrim(coalesce(note, ''))) > 0),
+  constraint playbook_finding_decisions_note_length_check
+    check (note is null or length(note) <= 4000)
+);
+-- Account deletion nulls these columns; the indexes keep that a lookup.
+create index if not exists idx_playbook_finding_decisions_decided_by
+  on public.playbook_finding_decisions(decided_by);
+create index if not exists idx_playbook_finding_decisions_escalated_to
+  on public.playbook_finding_decisions(escalated_to);
+alter table public.playbook_finding_decisions enable row level security;
+
 create table if not exists public.playbook_imports (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -8041,6 +8081,7 @@ revoke all on public.audit_events from anon, authenticated;
 revoke all on public.db_jobs from anon, authenticated;
 revoke all on public.playbooks from anon, authenticated;
 revoke all on public.playbook_runs from anon, authenticated;
+revoke all on public.playbook_finding_decisions from public, anon, authenticated;
 revoke all on public.playbook_imports from anon, authenticated;
 revoke all on public.playbook_sources from anon, authenticated;
 revoke all on public.playbook_shares from anon, authenticated;
@@ -12188,6 +12229,7 @@ insert into public.schema_migrations (filename) values
   ('20261024_04_org_member_data_policy.sql'),
   ('20261027_01_document_text_failed_jobs.sql'),
   ('20261029_01_chat_overview_candidates.sql'),
+  ('20261031_50_playbook_decisions.sql'),
   ('20261031_51_tabular_quote_status.sql'),
   ('20261031_52_workflow_provenance.sql'),
   ('20261031_53_request_desk.sql'),

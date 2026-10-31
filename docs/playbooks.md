@@ -305,9 +305,9 @@ run.
   the API process after the response, as before jobs; the heartbeat alone
   keeps it from reading as interrupted, and a restart loses it.
 
-Review findings include the rule, status, exact contract quote,
-location, analysis, and suggested language. Each run is retained with the
-exact content it was reviewed against.
+Review findings include the rule, status, matched position, exact contract
+quote, location, analysis, and suggested language. Each run is retained with
+the exact content it was reviewed against.
 
 Word reviews read the stored file and save suggestions as tracked changes when
 the caller can edit it. If that file changes while the model is reviewing it,
@@ -339,6 +339,91 @@ imported playbook, 100,000 serialized characters per playbook, and
 180,000 characters per reviewed contract. Oversized inputs fail explicitly
 instead of being silently truncated.
 
+### Deciding findings
+
+The summary and findings of a finished run are a draft for a lawyer to
+decide on; the results say so under **Run details**, with "Legal
+information, not legal advice." Each finding's card shows, beside its
+status, location, assessment and suggested language:
+
+- **AI recommendation**: what the review suggests doing, read from the
+  finding's status (for example **Revise to meet the playbook** for an
+  unacceptable clause).
+- **Matched position**: **Standard**, **Fallback** or **None**. A finding is
+  acceptable whether the clause met the standard position or only a
+  fallback, so the review records which. Only an acceptable or needs-review
+  finding can match a position, and only one its rule defines; a run
+  recorded before findings had a matched position reads as **None**.
+
+Under **Your decision** the reviewer can **Accept finding**, **Override** it
+with a note saying why (the note is required), or **Escalate** it to a named
+member of the project the reviewed document is in, with an optional note.
+There is no queue: the colleague is named on the record, and nothing is
+sent to them. A review of pasted text, or of a document outside a project
+the reviewer can open, cannot be escalated. **Change decision** replaces a
+decision or clears it. Focus stays in the finding's card throughout: a
+form puts it in its first field when it opens (an escalation's status line
+while the project's members load), and it then moves to **Change decision**,
+which reads out the decision, once one is saved, to **Accept finding** once
+it is cleared, and back to the button that opened a form that is cancelled.
+
+A counter above the findings counts the issues decided first, since they
+are what needs a lawyer's decision, then every finding: for example "2 of 3
+issues decided, 5 of 12 findings decided". Issues are the findings the
+**Issues only** view shows (unacceptable, missing and needs review). A run
+whose findings are all issues, such as an issues-only review, shows the one
+count, and a run with no issues counts its findings.
+
+**Accept matching findings** accepts, together, the undecided findings that
+are acceptable and met the standard position. A fallback match is never
+among them, and neither is a finding already decided. A confirmation lists
+the findings it will accept before anything is recorded, and each is
+recorded as accepted in bulk under the reviewer's name. When no undecided
+finding qualifies, the button is disabled and the page says so in words.
+
+A finding has at most one decision, kept in `playbook_finding_decisions`
+with who made it, when, and whether it was made one by one or in bulk.
+Decisions go with their run when it is deleted; the reviewer and the
+colleague become blank on the record when their account is deleted, and
+the account data export carries a run's decisions, notes included, with the
+run. Like runs, decisions are personal: only the person who ran a review can
+open it and decide its findings, while they can still open its playbook, and
+anyone else gets the same 404 as a run that does not exist. The routes are
+`GET /playbooks/runs/:runId/decisions`, `PUT` and
+`DELETE /playbooks/runs/:runId/decisions/:findingId`,
+`POST /playbooks/runs/:runId/decisions/bulk-accept`, and
+`GET /playbooks/runs/:runId/escalation-members`.
+
+The decision record is a Word document a supervisor can read without
+opening the review:
+
+- the document, the playbook as the run reviewed it, the model, scope,
+  posture, and when it was reviewed and exported;
+- every finding with its rule, status, matched position, quote, location and
+  suggested language, beside its decision, method, reviewer and time, and
+  any note or colleague it was escalated to;
+- the findings accepted in bulk in their own section, with their count;
+- the label "AI-generated draft. Decisions recorded by", followed by the
+  reviewer's name, and the line "Legal information, not legal advice."
+
+Times in the record are in UTC. The export button says where the record
+goes before anything is saved. When the reviewed document is in a project
+the reviewer can add documents to (file storage must be configured), it
+reads **Save decision record to** followed by the project's name: the
+record, notes included, becomes a document everyone who can open the
+project can read. Otherwise it reads **Download decision record**.
+
+`POST /playbooks/runs/:runId/decision-record` takes `{"destination":
+"project"}` or `{"destination": "download"}`, and downloads when the body
+names neither. With `project` it saves the record to the project as a new
+Word document and answers `201` with where it went, when the reviewer can
+still add documents there; otherwise, and always with `download`, it
+answers with the file, which downloads. A record is therefore never saved
+to a project unless the reviewer chose that; if their access changed since
+the page loaded, the record downloads and the page says why. Any other
+destination is refused with `400`. The Word add-in shows a review's
+findings in the chat, without decisions.
+
 ## Audit log
 
 Playbook activity is recorded in the activity history (the **History** page,
@@ -353,10 +438,20 @@ surface, as chat, document, and tabular review activity is:
 | `playbook.deleted` | A playbook is deleted. |
 | `playbook.run` | A review completes or fails. The row holds the model and the stored document reviewed, if any; `detail` holds the playbook and run ids, scope, posture, and, for a completed review, the number of findings per status. |
 | `playbook.run.deleted` | A review run is deleted. |
+| `playbook.decision` | A decision on a finding is recorded, changed or cleared, or matching findings are accepted together. `detail` holds the playbook, run and finding ids, the decision (`accepted`, `overridden`, `escalated` or `cleared`), the method (`single`, or `bulk` with the count), and, for an escalation, the colleague's account id. |
+| `playbook.run.exported` | A run's decision record is downloaded. The row holds the stored document reviewed, if any; `detail` holds the playbook and run ids and the destination (`download`). |
+
+A decision record saved to a project is a new document there, so it is
+recorded as `document.generated` in the project's organization, under the
+`playbooks` surface, with the project and new document ids and the playbook
+and run ids in `detail`. History shows it with a link to the project, as it
+shows other generated documents.
 
 Rows carry the playbook's name as their title and ids in `detail`, never
-rule text, findings, or contract text. An import refused in the request that
-asked for it (wrong file type, model unavailable) answers that request with
+rule text, findings, or contract text. Decision and decision-record rows
+carry ids and codes only: no title, no note, and no one's name. An import
+refused in the request that asked for it (wrong file type, model
+unavailable) answers that request with
 the reason and is not recorded. A review or import is recorded by the claim
 of its job that wrote the outcome, so a job run again after a restart does
 not record it twice; an import whose failure could not be written to its row

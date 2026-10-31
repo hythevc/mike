@@ -22,7 +22,9 @@ export type PlaybookAuditAction =
   | "playbook.replaced"
   | "playbook.deleted"
   | "playbook.run"
-  | "playbook.run.deleted";
+  | "playbook.run.deleted"
+  | "playbook.run.exported"
+  | "playbook.decision";
 
 export function recordPlaybookAudit(
   db: Db,
@@ -119,6 +121,102 @@ export async function recordPlaybookRunDeletedAudit(
     title: playbook.name,
     documentId: run.documentId,
     detail: { playbook_id: run.playbookId, run_id: run.runId },
+  });
+}
+
+/**
+ * A decision recorded, changed or cleared on a run's findings: one row per
+ * action, so accepting matching findings together is one row listing their
+ * ids. Ids and decision codes only. The note, the finding's text and the
+ * names of the people involved never reach the audit log, so the row has no
+ * title either.
+ */
+export async function recordPlaybookDecisionAudit(
+  db: Db,
+  event: {
+    userId: string;
+    userEmail?: string | null;
+    orgId: string | null;
+    playbookId: string;
+    runId: string;
+    documentId: string | null;
+    findingIds: readonly string[];
+    decision: "accepted" | "overridden" | "escalated" | "cleared";
+    method: "single" | "bulk";
+    /** The colleague's account id, for an escalation. */
+    escalatedTo?: string | null;
+  },
+): Promise<void> {
+  await recordPlaybookAudit(db, {
+    userId: event.userId,
+    userEmail: event.userEmail,
+    orgId: event.orgId,
+    action: "playbook.decision",
+    title: null,
+    documentId: event.documentId,
+    detail: {
+      playbook_id: event.playbookId,
+      run_id: event.runId,
+      ...(event.method === "bulk"
+        ? { finding_ids: [...event.findingIds], count: event.findingIds.length }
+        : { finding_id: event.findingIds[0] }),
+      decision: event.decision,
+      method: event.method,
+      ...(event.escalatedTo ? { escalated_to: event.escalatedTo } : {}),
+    },
+  });
+}
+
+/**
+ * A run's decision record exported. Saved to a project, it is a new document
+ * there, recorded as `document.generated` in the project's organization with
+ * the project and document ids, as generated documents are, so the
+ * project's history shows where it came from. Downloaded, it is recorded as
+ * `playbook.run.exported`. Ids only, like the decision rows: the record's
+ * notes and the people it names stay out of the audit log, and the row
+ * carries no title.
+ */
+export async function recordDecisionRecordExportAudit(
+  db: Db,
+  event: {
+    userId: string;
+    userEmail?: string | null;
+    /** The playbook's organization, for a download. */
+    orgId: string | null;
+    playbookId: string;
+    runId: string;
+    /** The document the run reviewed, if any. */
+    documentId: string | null;
+    saved: {
+      documentId: string;
+      projectId: string;
+      projectOrgId: string | null;
+    } | null;
+  },
+): Promise<void> {
+  const detail = { playbook_id: event.playbookId, run_id: event.runId };
+  if (event.saved) {
+    await recordAudit(db, {
+      userId: event.userId,
+      userEmail: event.userEmail,
+      orgId: event.saved.projectOrgId,
+      action: "document.generated",
+      surface: PLAYBOOK_AUDIT_SURFACE,
+      title: null,
+      projectId: event.saved.projectId,
+      documentId: event.saved.documentId,
+      detail,
+    });
+    return;
+  }
+  await recordPlaybookAudit(db, {
+    userId: event.userId,
+    userEmail: event.userEmail,
+    orgId: event.orgId,
+    action: "playbook.run.exported",
+    title: null,
+    documentId: event.documentId,
+    detail: { ...detail, destination: "download" },
   });
 }
 

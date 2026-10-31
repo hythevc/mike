@@ -204,6 +204,59 @@ describe("the playbook.review job", () => {
     });
   });
 
+  it("asks which position each clause met and stores it as the rule allows", async () => {
+    const { db, tables } = database([book()]);
+    tables.playbook_runs.push(
+      runRow({
+        content_json: {
+          ...blankPlaybookContent("Guide"),
+          rules: [
+            {
+              id: "cap",
+              name: "Liability cap",
+              concept: "A cap on liability.",
+              standard: { name: "Standard", criteria: "Capped at fees.", sampleClauses: [] },
+              fallbacks: [],
+            },
+            { id: "law", name: "Governing law", concept: "The governing law." },
+          ],
+        },
+      }),
+    );
+    completeText.mockResolvedValue(
+      JSON.stringify({
+        summary: "Reviewed",
+        findings: [
+          {
+            ruleId: "cap",
+            ruleName: "Liability cap",
+            status: "acceptable",
+            matchedPosition: "standard",
+            analysis: "Capped at fees.",
+          },
+          {
+            ruleId: "law",
+            ruleName: "Governing law",
+            status: "acceptable",
+            matchedPosition: "standard",
+            analysis: "New York law.",
+          },
+        ],
+      }),
+    );
+
+    await handlePlaybookReview(db, job("playbook.review", reviewPayload));
+
+    expect(completeText.mock.lastCall?.[0].user).toContain(
+      '"matchedPosition":"standard|fallback|none"',
+    );
+    expect(tables.playbook_runs[0].findings_json).toEqual([
+      expect.objectContaining({ ruleId: "cap", matchedPosition: "standard" }),
+      // The rule defines no standard position, so the claim is discarded.
+      expect.objectContaining({ ruleId: "law", matchedPosition: "none" }),
+    ]);
+  });
+
   it("records the completed review in the audit log with its outcome counts", async () => {
     const { db, tables } = database([book()]);
     tables.playbook_runs.push(runRow({ document_id: "doc-1" }));

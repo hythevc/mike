@@ -25,6 +25,12 @@ import {
   listPlaybooks,
   reviewDocumentWithPlaybook,
   updatePlaybook,
+  getPlaybookRunDecisions,
+  recordPlaybookDecision,
+  clearPlaybookDecision,
+  acceptMatchingPlaybookFindings,
+  listPlaybookEscalationMembers,
+  exportPlaybookDecisionRecord,
   type PlaybookContent,
 } from "./mikeApi";
 
@@ -520,5 +526,103 @@ describe("Playbook supplementary documents", () => {
       uploadPlaybookSource(id, new File(["x"], "Policy.pdf")),
     ).rejects.toThrow("The document could not be uploaded");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Playbook decisions", () => {
+  const run = "/api/playbooks/runs/run%2F1";
+
+  it("reads, records, clears and bulk-accepts through the run's routes", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ runId: "run/1", project: null, decisions: [] }))
+      .mockResolvedValueOnce(json({ findingId: "f 1", decision: "overridden" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(json({ runId: "run/1", project: null, decisions: [] }))
+      .mockResolvedValueOnce(json([]));
+
+    await getPlaybookRunDecisions("run/1");
+    await recordPlaybookDecision("run/1", "f 1", {
+      decision: "overridden",
+      note: "Agreed with the client.",
+    });
+    await clearPlaybookDecision("run/1", "f 1");
+    await acceptMatchingPlaybookFindings("run/1", ["f-2", "f-3"]);
+    await listPlaybookEscalationMembers("run/1");
+
+    const calls = fetchMock.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      method: (init as RequestInit | undefined)?.method ?? "GET",
+      body: (init as RequestInit | undefined)?.body
+        ? JSON.parse(String((init as RequestInit).body))
+        : undefined,
+    }));
+    expect(calls).toEqual([
+      { url: `${run}/decisions`, method: "GET", body: undefined },
+      {
+        url: `${run}/decisions/f%201`,
+        method: "PUT",
+        body: { decision: "overridden", note: "Agreed with the client." },
+      },
+      { url: `${run}/decisions/f%201`, method: "DELETE", body: undefined },
+      {
+        url: `${run}/decisions/bulk-accept`,
+        method: "POST",
+        body: { findingIds: ["f-2", "f-3"] },
+      },
+      { url: `${run}/escalation-members`, method: "GET", body: undefined },
+    ]);
+  });
+
+  it("reports a decision record saved to the project", async () => {
+    const saved = {
+      documentId: "d-1",
+      projectId: "p-1",
+      projectName: "Acme matter",
+      filename: "Supply agreement - decision record.docx",
+    };
+    fetchMock.mockResolvedValueOnce(json({ saved }, 201));
+
+    await expect(
+      exportPlaybookDecisionRecord("run/1", { saveToProject: true }),
+    ).resolves.toEqual({ kind: "saved", saved });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${run}/decision-record`);
+    expect(init.method).toBe("POST");
+    // The server saves to the project only when asked to.
+    expect(JSON.parse(String(init.body))).toEqual({ destination: "project" });
+  });
+
+  it("hands back a decision record to download, named as the server named it", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response("PK", {
+        status: 200,
+        headers: {
+          "content-type":
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "content-disposition":
+            "attachment; filename=\"Vertrag - decision record.docx\"; filename*=UTF-8''Vertr%C3%A4ge%20-%20decision%20record.docx",
+        },
+      }),
+    );
+
+    const result = await exportPlaybookDecisionRecord("run/1", {
+      saveToProject: false,
+    });
+
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)),
+    ).toEqual({ destination: "download" });
+    expect(result.kind).toBe("download");
+    if (result.kind === "download") {
+      expect(result.filename).toBe("Vertr\u00e4ge - decision record.docx");
+      expect(await result.blob.text()).toBe("PK");
+    }
+  });
+
+  it("raises the server's refusal instead of downloading it", async () => {
+    fetchMock.mockResolvedValueOnce(json({ detail: "Run not found." }, 404));
+    await expect(
+      exportPlaybookDecisionRecord("run/1", { saveToProject: false }),
+    ).rejects.toThrow("Run not found.");
   });
 });

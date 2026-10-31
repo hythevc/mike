@@ -3,13 +3,11 @@
 import {
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { Eye, Loader2, Plus, X } from "lucide-react";
-import { EditCard } from "@/app/components/assistant/EditCard";
 import { FileTypeIcon } from "@/app/components/shared/FileTypeIcon";
 import type { EditAnnotation } from "@/app/components/shared/types";
 import { docxRevisionElements } from "@/app/components/shared/views/docxRevisionElements";
@@ -17,10 +15,7 @@ import { DocxView } from "@/app/components/shared/views/DocxView";
 import { PdfView } from "@/app/components/shared/views/PdfView";
 import { SkeletonLine } from "@/app/components/shared/TablePrimitive";
 import { EmptyState } from "@/app/components/ui/empty-state";
-import {
-  EDITOR_SURFACE_CLASS,
-  LIQUID_GLASS_FLAT_CLASS,
-} from "@/app/components/ui/liquid-surface";
+import { EDITOR_SURFACE_CLASS } from "@/app/components/ui/liquid-surface";
 import {
   listPlaybookRuns,
   type PlaybookFinding,
@@ -31,13 +26,23 @@ import {
   notifyPlaybookRunsChanged,
   setViewedPlaybookRun,
 } from "@/app/lib/playbookRunActivity";
-import { diffWords } from "@/app/lib/wordDiff";
 import { modelDisplayName } from "@/shared/lib/modelCatalog";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { TextButtonUI } from "@/shared/ui/TextButtonUI";
-import { TextSlabUI } from "@/shared/ui/TextSlabUI";
 import { ModalSegmentedToggle } from "@/app/components/modals/ModalSegmentedToggle";
+import {
+  FindingDecisionCard,
+  type FindingDecisionHandlers,
+  type FindingEditHandlers,
+} from "./FindingDecisionCard";
+import { DECISION_TEXT } from "./decisionLabels";
 import { PlaybookPanels } from "./PlaybookPanels";
+import { RunDecisionToolbar } from "./RunDecisionToolbar";
+import {
+  ISSUE_STATUSES,
+  useRunDecisions,
+  type RunDecisions,
+} from "./useRunDecisions";
 import {
   PLAYBOOK_PANE_BODY_CLASS,
   PLAYBOOK_PANE_EMPTY_CLASS,
@@ -47,24 +52,6 @@ import {
   PLAYBOOK_SIDE_LIST_CLASS,
   PLAYBOOK_SIDE_TITLE_CLASS,
 } from "./playbookPaneStyles";
-
-const STATUS_LABEL: Record<string, string> = {
-  unacceptable: "Unacceptable",
-  missing_required: "Missing",
-  needs_review: "Needs review",
-  acceptable: "Acceptable",
-  not_applicable: "Not applicable",
-  outside_scope: "Outside scope",
-};
-
-const STATUS_TONE: Record<string, string> = {
-  unacceptable: "text-red-600",
-  missing_required: "text-red-600",
-  needs_review: "text-amber-700",
-  acceptable: "text-green-700",
-  not_applicable: "text-gray-500",
-  outside_scope: "text-gray-500",
-};
 
 // Findings grouped from most to least urgent; the dots match the playbook's
 // position colours.
@@ -541,12 +528,6 @@ export function PlaybookRuns({
   );
 }
 
-type EditHandlers = {
-  resolved: Record<string, "accepted" | "rejected">;
-  onViewEdit: (annotation: EditAnnotation) => void;
-  onEditResolved: (editId: string, status: "accepted" | "rejected") => void;
-};
-
 /** What was reviewed, how, and when: at the top of a run's results. */
 function RunDetails({ run }: { run: PlaybookRun }) {
   const headingId = useId();
@@ -601,13 +582,6 @@ function RunDetails({ run }: { run: PlaybookRun }) {
   );
 }
 
-/** What an issues-only review reports, and what the issues view shows. */
-const ISSUE_STATUSES = new Set<PlaybookFinding["status"]>([
-  "unacceptable",
-  "missing_required",
-  "needs_review",
-]);
-
 function RunResults({
   run,
   issuesOnly,
@@ -618,9 +592,14 @@ function RunResults({
   /** Hides what passed or did not apply; nothing is removed from the run. */
   issuesOnly: boolean;
   onIssuesOnlyChange: (issuesOnly: boolean) => void;
-} & EditHandlers) {
+} & FindingEditHandlers) {
   const summaryId = useId();
   const findingsId = useId();
+  // A finished run's findings are decided by the reviewer, one by one or,
+  // for those matching the standard position, together.
+  const decidable =
+    run.status === "completed" && !run.error && run.findings.length > 0;
+  const decisions = useRunDecisions(decidable ? run.id : null);
   const settings = <RunDetails run={run} />;
   if (run.error)
     return (
@@ -647,6 +626,9 @@ function RunResults({
   return (
     <div className="space-y-4">
       {settings}
+      {run.status === "completed" && (
+        <p className="text-xs text-gray-600">{DECISION_TEXT.aiDraftNotice}</p>
+      )}
       {run.summary && (
         <section aria-labelledby={summaryId} className="space-y-1.5">
           <h3 id={summaryId} className="text-sm font-medium text-gray-900">
@@ -684,6 +666,7 @@ function RunResults({
             </div>
           )}
         </div>
+        {decidable && <RunDecisionToolbar run={run} decisions={decisions} />}
         {groups.length === 0 && run.status === "completed" && (
           <p className="text-sm text-gray-500">
             {filtering || run.reviewScope === "issues"
@@ -692,7 +675,12 @@ function RunResults({
           </p>
         )}
         {groups.map((group) => (
-          <FindingGroup key={group.title} {...group} {...edits} />
+          <FindingGroup
+            key={group.title}
+            {...group}
+            {...edits}
+            decisions={decisions}
+          />
         ))}
       </section>
     </div>
@@ -703,13 +691,22 @@ function FindingGroup({
   title,
   dot,
   findings,
+  decisions,
   ...edits
 }: {
   title: string;
   dot: string;
   findings: PlaybookFinding[];
-} & EditHandlers) {
+  decisions: RunDecisions;
+} & FindingEditHandlers) {
   const headingId = useId();
+  const handlers: FindingDecisionHandlers = {
+    decisionsStatus: decisions.status,
+    canEscalate: decisions.project !== null,
+    onDecide: decisions.decide,
+    onClear: decisions.clear,
+    loadMembers: decisions.loadMembers,
+  };
   return (
     <section
       aria-labelledby={headingId}
@@ -727,127 +724,14 @@ function FindingGroup({
         <span className="font-normal text-gray-500">{findings.length}</span>
       </h4>
       {findings.map((finding) => (
-        <FindingCard key={finding.id} finding={finding} {...edits} />
+        <FindingDecisionCard
+          key={finding.id}
+          finding={finding}
+          decision={decisions.byFinding.get(finding.id)}
+          {...edits}
+          {...handlers}
+        />
       ))}
     </section>
-  );
-}
-
-/** A labelled part of a finding, so it is clear what each block of text is. */
-function FindingPart({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-w-0 space-y-1">
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      {children}
-    </div>
-  );
-}
-
-/** The contract language with the recommended edits marked in place. */
-function Redline({ before, after }: { before: string; after: string }) {
-  const segments = useMemo(() => diffWords(before, after), [before, after]);
-  return (
-    <p className="whitespace-pre-wrap rounded-lg bg-gray-100 px-3 py-2 text-xs leading-relaxed text-gray-800 [overflow-wrap:anywhere]">
-      {segments.map((segment, index) =>
-        segment.type === "removed" ? (
-          <del
-            key={index}
-            className="rounded-sm bg-red-50 text-red-700 decoration-red-400"
-          >
-            <span className="sr-only">Removed: </span>
-            {segment.text}
-          </del>
-        ) : segment.type === "added" ? (
-          <ins
-            key={index}
-            className="rounded-sm bg-emerald-50 text-emerald-700 no-underline"
-          >
-            <span className="sr-only">Added: </span>
-            {segment.text}
-          </ins>
-        ) : (
-          <span key={index}>{segment.text}</span>
-        ),
-      )}
-    </p>
-  );
-}
-
-function FindingCard({
-  finding,
-  resolved,
-  onViewEdit,
-  onEditResolved,
-}: { finding: PlaybookFinding } & EditHandlers) {
-  const missing = finding.status === "missing_required";
-  return (
-    <article
-      className={`min-w-0 space-y-3 rounded-xl p-3 md:p-4 ${LIQUID_GLASS_FLAT_CLASS}`}
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h4 className="min-w-0 text-sm font-medium text-gray-900 [overflow-wrap:anywhere]">
-          {finding.ruleName}
-        </h4>
-        <span className={`shrink-0 text-xs ${STATUS_TONE[finding.status]}`}>
-          {STATUS_LABEL[finding.status] ?? finding.status}
-        </span>
-      </div>
-      {finding.location && (
-        <FindingPart label="Where">
-          <p className="text-sm text-gray-700 [overflow-wrap:anywhere]">
-            {finding.location}
-          </p>
-        </FindingPart>
-      )}
-      {finding.analysis && (
-        <FindingPart label="Assessment">
-          <p className="text-sm leading-relaxed text-gray-700">
-            {finding.analysis}
-          </p>
-        </FindingPart>
-      )}
-      {/* With a suggestion, the diff shows the contract language too. */}
-      {finding.quote && !finding.suggestedText && (
-        <FindingPart label="Contract language">
-          <TextSlabUI className="text-xs text-gray-600">
-            <blockquote>{finding.quote}</blockquote>
-          </TextSlabUI>
-        </FindingPart>
-      )}
-      {finding.edit ? (
-        // The change is in the document as a tracked change: decide it here.
-        <FindingPart
-          label={missing ? "Recommended clause to add" : "Recommended change"}
-        >
-          <EditCard
-            annotation={finding.edit}
-            resolvedStatus={resolved[finding.edit.edit_id]}
-            onViewClick={onViewEdit}
-            onResolved={({ editId, status }) => onEditResolved(editId, status)}
-          />
-        </FindingPart>
-      ) : (
-        finding.suggestedText && (
-          <FindingPart
-            label={
-              missing || !finding.quote
-                ? "Recommended clause to add"
-                : "Recommended changes"
-            }
-          >
-            <Redline
-              before={missing ? "" : finding.quote}
-              after={finding.suggestedText}
-            />
-          </FindingPart>
-        )
-      )}
-    </article>
   );
 }

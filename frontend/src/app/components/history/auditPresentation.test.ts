@@ -124,6 +124,77 @@ describe("audit event presentation", () => {
     );
   });
 
+  it("names what a playbook decision row decided from its codes alone", () => {
+    const decided = {
+      ...event,
+      action: "playbook.decision",
+      title: null,
+      surface: "playbooks",
+      detail: {
+        playbook_id: "pb-1",
+        run_id: "run-1",
+        finding_id: "f-1",
+        decision: "overridden",
+        method: "single",
+      },
+    };
+    expect(auditAction(decided)).toBe("Finding overridden");
+    expect(auditSubject(decided)).toMatchObject({ type: "Playbook run", name: "-" });
+    for (const [decision, label] of [
+      ["accepted", "Finding accepted"],
+      ["escalated", "Finding escalated"],
+      ["cleared", "Decision cleared"],
+    ])
+      expect(
+        auditAction({ ...decided, detail: { ...decided.detail, decision } }),
+      ).toBe(label);
+    expect(
+      auditAction({
+        ...decided,
+        detail: {
+          finding_ids: ["f-1", "f-2"],
+          count: 2,
+          decision: "accepted",
+          method: "bulk",
+        },
+      }),
+    ).toBe("Matching findings accepted");
+    expect(auditAction({ ...decided, detail: {} })).toBe(
+      "Playbook decision recorded",
+    );
+  });
+
+  it("names an exported decision record from its ids alone", () => {
+    const downloaded = {
+      ...event,
+      action: "playbook.run.exported",
+      title: null,
+      surface: "playbooks",
+      detail: { playbook_id: "pb-1", run_id: "run-1", destination: "download" },
+    };
+    expect(auditAction(downloaded)).toBe("Decision record downloaded");
+    expect(auditSubject(downloaded)).toMatchObject({
+      type: "Playbook run",
+      name: "-",
+      context: "Playbooks",
+    });
+    // Saved to a project, it is a generated document there.
+    const saved = {
+      ...event,
+      action: "document.generated",
+      title: null,
+      surface: "playbooks",
+      project_id: "p-1",
+      detail: { playbook_id: "pb-1", run_id: "run-1" },
+    };
+    expect(auditAction(saved)).toBe("Document generated");
+    expect(auditSubject(saved)).toMatchObject({ type: "Document", name: "-" });
+    expect(auditDestination(saved)).toEqual({
+      href: "/projects/p-1",
+      label: "Open project",
+    });
+  });
+
   it("keeps failed actions from reading as successful changes", () => {
     const failed = { ...event, action: "document.uploaded", status: "failed" };
     expect(auditAction(failed)).toBe("Document upload");

@@ -43,6 +43,7 @@ export function database(
     let payload: Row = {};
     let upserts: Row[] = [];
     let conflict: string[] = [];
+    let ignoreDuplicates = false;
     const settle = () => {
       let result = (tables[table] ?? []).filter((row) =>
         predicates.every((test) => test(row)),
@@ -60,14 +61,24 @@ export function database(
             (row) => !result.includes(row),
           );
         if (op === "upsert") {
+          // The rows written: with ignoreDuplicates a conflicting row is
+          // left alone and not returned, as ON CONFLICT DO NOTHING behaves.
+          const written: Row[] = [];
           for (const value of upserts) {
             const existing = (tables[table] ??= []).find((row) =>
               conflict.every((key) => row[key] === value[key]),
             );
-            if (existing) Object.assign(existing, value);
-            else tables[table].push({ id: `${table}-${tables[table].length}`, ...value });
+            if (existing) {
+              if (ignoreDuplicates) continue;
+              Object.assign(existing, value);
+              written.push(existing);
+            } else {
+              const row = { id: `${table}-${tables[table].length}`, ...value };
+              tables[table].push(row);
+              written.push(row);
+            }
           }
-          result = upserts;
+          result = written;
         }
       }
       return { data: result, error: null };
@@ -113,11 +124,15 @@ export function database(
         op = "delete";
         return query;
       },
-      upsert: (values: Row[], options: { onConflict: string }) => {
+      upsert: (
+        values: Row | Row[],
+        options: { onConflict: string; ignoreDuplicates?: boolean },
+      ) => {
         op = "upsert";
-        upserts = values;
-        payload = { rows: values.length };
+        upserts = Array.isArray(values) ? values : [values];
+        payload = { rows: upserts.length };
         conflict = options.onConflict.split(",");
+        ignoreDuplicates = options.ignoreDuplicates === true;
         return query;
       },
       single: async () => ({

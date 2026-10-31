@@ -195,6 +195,23 @@ export const editablePlaybookSchema = playbookContentShape.extend({
     .default([]),
 });
 
+/** Which of a rule's positions the reviewed clause met. */
+export const PLAYBOOK_MATCHED_POSITIONS = ["standard", "fallback", "none"] as const;
+export type PlaybookMatchedPosition =
+  (typeof PLAYBOOK_MATCHED_POSITIONS)[number];
+
+/**
+ * A stored or model-written matched position. Anything that is not standard
+ * or fallback, including a run recorded before findings had one, reads as
+ * none.
+ */
+export function playbookMatchedPosition(value: unknown): PlaybookMatchedPosition {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized === "standard" || normalized === "fallback"
+    ? normalized
+    : "none";
+}
+
 const findingSchema = z.object({
   topicId: z.string().trim().max(100).nullable().default(null),
   ruleId: z.string().trim().max(100).nullable().default(null),
@@ -207,6 +224,17 @@ const findingSchema = z.object({
     "missing_required",
     "outside_scope",
   ]),
+  /**
+   * "acceptable" covers a clause that met the standard position and one that
+   * met only a fallback, so the finding says which. A missing or unknown
+   * value reads as none rather than failing the review.
+   */
+  matchedPosition: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.enum(PLAYBOOK_MATCHED_POSITIONS))
+    .catch("none"),
   quote: z.string().trim().max(30_000).default(""),
   location: z.string().trim().max(500).default(""),
   analysis: z.string().trim().min(1).max(20_000),
@@ -1984,12 +2012,12 @@ function reviewPrompt(
   sources: PlaybookSourceRow[] = [],
   scope: "full" | "issues" = "full",
 ): string {
-  return `Review the full contract against the playbook. Apply unacceptable positions first. In strict mode, fallback matches still need review. In permissive mode, a fallback may be acceptable but explain which fallback applies. Flag a missing required rule as missing_required. Use not_applicable only when an optional concept is absent. Quote exact contract text so Word can locate it. suggestedText must be a complete replacement for quote, or the complete clause to insert for missing_required. For missing_required, set insertAfter to the exact final words (up to 200 characters) of the existing clause the new clause should follow, or leave it empty if no clause fits. Do not suggest an edit for acceptable or not_applicable findings. Do not invent contract language or findings.
+  return `Review the full contract against the playbook. Apply unacceptable positions first. In strict mode, fallback matches still need review. In permissive mode, a fallback may be acceptable but explain which fallback applies. Flag a missing required rule as missing_required. Use not_applicable only when an optional concept is absent. Quote exact contract text so Word can locate it. suggestedText must be a complete replacement for quote, or the complete clause to insert for missing_required. For missing_required, set insertAfter to the exact final words (up to 200 characters) of the existing clause the new clause should follow, or leave it empty if no clause fits. Do not suggest an edit for acceptable or not_applicable findings. Do not invent contract language or findings. Set matchedPosition to standard when the clause meets the rule's standard position, to fallback when it meets a fallback position but not the standard, and to none in every other case, including unacceptable, missing_required, not_applicable and outside_scope findings.
 
 ${instructions?.trim() ? `ADDITIONAL REVIEW INSTRUCTIONS:\n${instructions.trim().slice(0, 8_000)}\n` : ""}
 
 Return JSON only:
-{"summary":"","findings":[{"topicId":"topic-1|null","ruleId":"topic-1-rule-1|null","ruleName":"","status":"not_applicable|acceptable|needs_review|unacceptable|missing_required|outside_scope","quote":"exact contract text or empty when missing","location":"section or heading","analysis":"","suggestedText":"","insertAfter":"exact contract text, only for missing_required"}]}
+{"summary":"","findings":[{"topicId":"topic-1|null","ruleId":"topic-1-rule-1|null","ruleName":"","status":"not_applicable|acceptable|needs_review|unacceptable|missing_required|outside_scope","matchedPosition":"standard|fallback|none","quote":"exact contract text or empty when missing","location":"section or heading","analysis":"","suggestedText":"","insertAfter":"exact contract text, only for missing_required"}]}
 
 REVIEW MODE: ${mode}
 ${scope === "issues" ? "REVIEW SCOPE: issues only. Report only rules whose status is unacceptable, missing_required, or needs_review; leave acceptable, not_applicable, and outside_scope rules out of findings, and summarise the issues.\n" : ""}${supplementaryDocumentList(sources)}PLAYBOOK:
@@ -2021,17 +2049,48 @@ function actualDocumentQuote(
   }
 }
 
+/** A finding as the model returned it; older callers omit matchedPosition. */
+type ReviewedFinding = Omit<z.infer<typeof findingSchema>, "matchedPosition"> & {
+  matchedPosition?: unknown;
+};
+
+/**
+ * The position a finding may claim. Only an acceptable or needs-review
+ * clause met a position, and only one its rule defines: a standard match
+ * claimed for a rule without a standard position is discarded, so it can
+ * never be accepted together with the findings that really match.
+ */
+function matchedPositionFor(
+  finding: ReviewedFinding,
+  rule: { hasStandard: boolean; hasFallbacks: boolean },
+): PlaybookMatchedPosition {
+  if (finding.status !== "acceptable" && finding.status !== "needs_review")
+    return "none";
+  const position = playbookMatchedPosition(finding.matchedPosition);
+  if (position === "standard" && !rule.hasStandard) return "none";
+  if (position === "fallback" && !rule.hasFallbacks) return "none";
+  return position;
+}
+
 export function normalizeFindings(
   content: PlaybookContent,
   documentText: string,
-  findings: z.infer<typeof findingSchema>[],
+  findings: ReviewedFinding[],
   /**
    * A full review flags every rule the model skipped. An issues-only review
    * leaves acceptable rules out on purpose, so they must not be flagged.
    */
   options: { flagMissingRules?: boolean } = {},
 ): PlaybookFinding[] {
-  const rules = new Map<string, { topicId: string | null; name: string }>();
+  const rules = new Map<
+    string,
+    {
+      topicId: string | null;
+      name: string;
+      hasStandard: boolean;
+      hasFallbacks: boolean;
+    }
+  >();
   // The prompt allows a null ruleId, and models commonly identify a rule by
   // name instead. Without this index that answer would be discarded and the
   // rule back-filled as "the model did not return a result" — the opposite of
@@ -2039,7 +2098,14 @@ export function normalizeFindings(
   const ruleIdByName = new Map<string, string>();
   for (const topic of [{ id: null, rules: content.rules }, ...content.topics]) {
     for (const rule of topic.rules) {
-      rules.set(rule.id!, { topicId: topic.id ?? null, name: rule.name });
+      rules.set(rule.id!, {
+        topicId: topic.id ?? null,
+        name: rule.name,
+        // A run's stored snapshot is read as written, so a rule saved without
+        // positions has neither field.
+        hasStandard: !!rule.standard,
+        hasFallbacks: (rule.fallbacks?.length ?? 0) > 0,
+      });
       const key = rule.name.trim().toLowerCase();
       // Ambiguous names must not be guessed at.
       ruleIdByName.set(key, ruleIdByName.has(key) ? "" : rule.id!);
@@ -2054,6 +2120,8 @@ export function normalizeFindings(
         id: crypto.randomUUID(),
         topicId: null,
         ruleId: null,
+        // Outside every rule, so it met none of their positions.
+        matchedPosition: "none",
         quote: actualDocumentQuote(documentText, finding.quote),
         insertAfter: actualDocumentQuote(documentText, finding.insertAfter),
       });
@@ -2072,6 +2140,7 @@ export function normalizeFindings(
       topicId: rule.topicId,
       ruleId,
       ruleName: rule.name,
+      matchedPosition: matchedPositionFor(finding, rule),
       quote: actualDocumentQuote(documentText, finding.quote),
       insertAfter: actualDocumentQuote(documentText, finding.insertAfter),
     });
@@ -2084,6 +2153,7 @@ export function normalizeFindings(
       ruleId,
       ruleName: rule.name,
       status: "needs_review",
+      matchedPosition: "none",
       quote: "",
       location: "",
       suggestedText: "",
@@ -2713,6 +2783,29 @@ async function withCurrentEditStatus<
   }));
 }
 
+/**
+ * A run's stored findings as readers see them. Every finding has an id,
+ * which is what a decision is recorded against, and a matched position: a
+ * run recorded before findings had one reads as none.
+ */
+export function storedPlaybookFindings(value: unknown): PlaybookFinding[] {
+  const list = Array.isArray(value) ? value : parseJson(value);
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(
+      (finding): finding is Record<string, unknown> =>
+        !!finding && typeof finding === "object",
+    )
+    .map((finding, index) => ({
+      ...(finding as PlaybookFinding),
+      id:
+        typeof finding.id === "string" && finding.id
+          ? finding.id
+          : `finding-${index + 1}`,
+      matchedPosition: playbookMatchedPosition(finding.matchedPosition),
+    }));
+}
+
 function publicRun(
   row: Record<string, unknown>,
   interrupted: ReadonlySet<string>,
@@ -2734,9 +2827,7 @@ function publicRun(
       | "issues",
     ...runState(row, interrupted),
     summary: row.summary ? String(row.summary) : null,
-    findings: (Array.isArray(row.findings_json)
-      ? row.findings_json
-      : (parseJson(row.findings_json) ?? [])) as PlaybookFinding[],
+    findings: storedPlaybookFindings(row.findings_json),
     startedAt: String(row.started_at),
     completedAt: row.completed_at ? String(row.completed_at) : null,
   };
