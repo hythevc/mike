@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@sentry/nextjs", () => ({
     isEnabled: () => state.enabled,
+    init: vi.fn(),
     captureException: vi.fn(() => "exc-1"),
     captureMessage: vi.fn(() => "msg-1"),
     captureEvent: vi.fn(() => "evt-1"),
@@ -527,6 +528,15 @@ describe("initServerErrorReporting", () => {
         expect(init).toHaveBeenCalledOnce();
         expect(init.mock.calls[0]?.[0]).toMatchObject({ dsn, enabled: true, beforeSend: scrubEvent });
     });
+
+    it("uses the SDK's own init by default", () => {
+        expect(initServerErrorReporting("edge", {} as unknown as NodeJS.ProcessEnv)).toBe(false);
+        expect(Sentry.init).not.toHaveBeenCalled();
+        expect(
+            initServerErrorReporting("edge", { SENTRY_DSN: "https://k@o1.ingest.sentry.io/3" } as unknown as NodeJS.ProcessEnv),
+        ).toBe(true);
+        expect(Sentry.init).toHaveBeenCalledOnce();
+    });
 });
 
 describe("startBrowserErrorReporting", () => {
@@ -584,6 +594,12 @@ describe("startBrowserErrorReporting", () => {
         // Synchronously: errors thrown during hydration are covered.
         expect(init).toHaveBeenCalledOnce();
         expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("starts the SDK's own client by default", async () => {
+        await expect(startBrowserErrorReporting({ dsn: "https://k@o1.ingest.sentry.io/2" })).resolves.toBe(true);
+        expect(Sentry.init).toHaveBeenCalledOnce();
+        expect(vi.mocked(Sentry.init).mock.calls[0]?.[0]).toMatchObject({ tunnel: "/monitoring" });
     });
 
     it("asks the server when the baked DSN is switched off at build", async () => {
