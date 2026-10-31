@@ -1,0 +1,16 @@
+{
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-only. Legacy-brand hits in backend/src, written by `node scripts/brand-sweep.mjs --write-baselines`. CI fails when a count rises above this file; lower it in the change that removes hits.",
+  "app": "backend",
+  "roots": [
+    "backend/src"
+  ],
+  "counts": {
+    "supportAddress": 0,
+    "domain": 0,
+    "ossName": 1,
+    "sentryOrg": 0,
+    "fileName": 8,
+    "name": 80
+  },
+  "total": 89
+}

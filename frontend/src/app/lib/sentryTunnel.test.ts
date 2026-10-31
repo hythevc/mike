@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { MIKE_SENTRY_DSN } from "@/shared/lib/sentryEvent";
 import { rewriteEnvelope, tunnelDecision } from "./sentryTunnel";
 
 const encoder = new TextEncoder();
@@ -44,26 +43,36 @@ describe("tunnelDecision", () => {
         });
     });
 
-    it("forwards to the built-in Mike project otherwise, with runtime tags", () => {
-        const decision = tunnelDecision({
-            SENTRY_ENVIRONMENT: "production",
-            SENTRY_INSTALL: "official",
-        } as unknown as NodeJS.ProcessEnv);
-        expect(decision).toMatchObject({
+    it("forwards nothing when no DSN is configured: there is no built-in destination", () => {
+        for (const env of [
+            {},
+            { SENTRY_ENVIRONMENT: "production", SENTRY_INSTALL: "official" },
+            { SENTRY_DISABLED: "false", SENTRY_DSN: "", NEXT_PUBLIC_SENTRY_DSN: "  " },
+        ]) {
+            expect(tunnelDecision(env as unknown as NodeJS.ProcessEnv)).toEqual({ kind: "drop" });
+        }
+    });
+
+    it("carries the runtime environment and install tags to the operator's project", () => {
+        expect(
+            tunnelDecision({
+                SENTRY_DSN: OWN_DSN,
+                SENTRY_ENVIRONMENT: "production",
+                SENTRY_INSTALL: "official",
+            } as unknown as NodeJS.ProcessEnv),
+        ).toEqual({
             kind: "forward",
-            dsn: MIKE_SENTRY_DSN.frontend,
+            url: "https://o777.ingest.us.sentry.io/api/4242/envelope/",
+            dsn: OWN_DSN,
             environment: "production",
             install: "official",
         });
-        expect((decision as { url: string }).url).toMatch(
-            /^https:\/\/o\d+\.ingest\.us\.sentry\.io\/api\/\d+\/envelope\/$/,
-        );
-        expect(tunnelDecision({ SENTRY_INSTALL: "anything-else" } as unknown as NodeJS.ProcessEnv)).toMatchObject({
-            install: "community",
-        });
+        expect(
+            tunnelDecision({ SENTRY_DSN: OWN_DSN, SENTRY_INSTALL: "anything-else" } as unknown as NodeJS.ProcessEnv),
+        ).toMatchObject({ install: "community" });
     });
 
-    it("falls back to the DSN baked at build before the built-in one", () => {
+    it("uses the DSN baked at build when no runtime DSN is set", () => {
         expect(
             tunnelDecision({ NEXT_PUBLIC_SENTRY_DSN: OWN_DSN } as unknown as NodeJS.ProcessEnv),
         ).toMatchObject({ kind: "forward", dsn: OWN_DSN });

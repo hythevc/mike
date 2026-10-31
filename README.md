@@ -72,13 +72,16 @@ authentication behavior, Ollama setup, and first-run guidance.
 
 ### Telemetry
 
-Mike sends scrubbed error reports (no document content, user identities, or
-request data) to the project's Sentry by default. Set `SENTRY_DISABLED=true` to
-opt out, or set `SENTRY_DSN` and `FRONTEND_SENTRY_DSN` to use your own. Both
-take effect at runtime for the published images as well, because browser
-reports travel through the Next server. See the
-[observability guide](docs/observability.md) for the exact policy, per-runtime
-variables, and the [Sentry data audit](docs/sentry-data-audit.md).
+Error reporting is off by default: no runtime has a built-in destination, no
+Sentry client is created, and nothing is sent until an operator configures a
+DSN. To report to your own Sentry project, set `SENTRY_DSN` (backend) and
+`FRONTEND_SENTRY_DSN` (web app); both take effect at runtime for the
+published images as well, because browser reports travel through the Next
+server. Reports are scrubbed: no document content, user identities, or
+request data. `SENTRY_DISABLED=true` keeps reporting off even when a DSN is
+set. See the [observability guide](docs/observability.md) for the exact
+policy, per-runtime variables, and the
+[Sentry data audit](docs/sentry-data-audit.md).
 
 ## Repository
 

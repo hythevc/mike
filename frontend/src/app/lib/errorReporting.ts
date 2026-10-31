@@ -2,13 +2,14 @@
  * Error reporting for the web app: a thin, testable layer over the Sentry
  * SDK. Application code calls these helpers instead of `@sentry/nextjs`
  * directly so the PII policy (see `@/shared/lib/sentryEvent`) and the
- * explicit opt-out rule live in one place.
+ * destination rule live in one place. Reporting is off unless the
+ * deployment configures a DSN: without one, no Sentry client is created in
+ * the browser or on the Next server, and the tunnel forwards nothing.
  */
 
 import * as Sentry from "@sentry/nextjs";
 import { privacyBoundaryIntegration, type Operation } from "@/shared/lib/sentryPrivacy";
 import {
-    MIKE_SENTRY_DSN,
     createEventScrubber,
     installKind,
     normalizeApiPath,
@@ -310,11 +311,20 @@ export function setReportingUser(user: { id: string } | null): void {
 }
 
 /**
- * Browser SDK options. `NEXT_PUBLIC_*` values are inlined at build time, so
- * the caller (instrumentation-client.ts) reads them literally and passes
- * them in. Reporting policy and destination belong to the server tunnel.
+ * The DSN the browser SDK is started with. The SDK will not start without a
+ * syntactically valid DSN even when a tunnel is set, but with a tunnel it
+ * never sends to the DSN's host: every envelope goes to /monitoring, which
+ * overwrites the envelope's DSN with the deployment's own. The reserved
+ * `.invalid` host (RFC 2606) can never resolve, so this placeholder cannot
+ * deliver anything anywhere by itself.
  */
-export function browserSentryOptions(env: {
+export const BROWSER_PLACEHOLDER_DSN = "https://browser@tunnel.invalid/1";
+
+export type BrowserReportingEnv = {
+    /** NEXT_PUBLIC_SENTRY_DSN as baked into the bundle at build time. */
+    dsn?: string;
+    /** NEXT_PUBLIC_SENTRY_DISABLED as baked into the bundle at build time. */
+    disabled?: string;
     install?: string;
     environment?: string;
     release?: string;
@@ -322,19 +332,24 @@ export function browserSentryOptions(env: {
     gitSha?: string;
     tracesSampleRate?: string;
     nodeEnv?: string;
-}): Sentry.BrowserOptions {
+};
+
+/**
+ * Browser SDK options. `NEXT_PUBLIC_*` values are inlined at build time, so
+ * the caller (instrumentation-client.ts) reads them literally and passes
+ * them in. Whether the SDK starts at all is decided by
+ * startBrowserErrorReporting; the destination belongs to the server tunnel.
+ */
+export function browserSentryOptions(env: BrowserReportingEnv): Sentry.BrowserOptions {
     return {
-        // The SDK requires a valid DSN even with a tunnel. This placeholder
-        // never chooses the destination: /monitoring rewrites it. Always
-        // initialize so a runtime override can enable a baked-off image.
-        dsn: MIKE_SENTRY_DSN.frontend,
+        dsn: BROWSER_PLACEHOLDER_DSN,
         enabled: true,
         environment: env.environment?.trim() || "self-hosted",
         release: releaseName(env.release, env.version, env.gitSha),
         // Every browser envelope goes through the Next server (see
         // app/monitoring/route.ts), which applies the deployment's runtime
         // opt-out and DSN before forwarding. The placeholder DSN above is only
-        // what the SDK needs to be enabled; the server decides where it goes.
+        // what the SDK needs to start; the server decides where it goes.
         tunnel: SENTRY_TUNNEL_PATH,
         tracesSampleRate: parseSampleRate(env.tracesSampleRate, 0),
         // Session replay is deliberately NOT enabled: it would record
@@ -367,10 +382,62 @@ export function browserSentryOptions(env: {
     };
 }
 
+/**
+ * Start browser error reporting, or decide not to. No Sentry client is
+ * created unless the deployment configured a DSN:
+ *
+ *   - a DSN baked into the bundle (NEXT_PUBLIC_SENTRY_DSN, not switched off
+ *     by NEXT_PUBLIC_SENTRY_DISABLED) starts the SDK at once, so errors
+ *     thrown during hydration are covered; the tunnel still applies the
+ *     runtime opt-out and destination to every envelope;
+ *   - otherwise only the Next server knows whether SENTRY_DSN is set at
+ *     runtime, so the page asks GET /monitoring once and starts the SDK only
+ *     when the answer names a destination. Errors thrown before the answer
+ *     arrives are not reported.
+ *
+ * Resolves to whether a client was created. Never rejects: a failed check
+ * leaves reporting off.
+ */
+export async function startBrowserErrorReporting(
+    env: BrowserReportingEnv,
+    deps: {
+        init?: (options: Sentry.BrowserOptions) => unknown;
+        fetch?: typeof fetch;
+    } = {},
+): Promise<boolean> {
+    const baked = resolveDsn({ disabled: env.disabled, dsn: env.dsn }).source === "env";
+    if (!baked && !(await serverHasDestination(deps.fetch ?? globalThis.fetch))) {
+        return false;
+    }
+    (deps.init ?? Sentry.init)(browserSentryOptions(env));
+    return true;
+}
+
+/** GET /monitoring names the rule in force; only these two send anything. */
+async function serverHasDestination(fetchImpl: typeof fetch | undefined): Promise<boolean> {
+    if (typeof fetchImpl !== "function") return false;
+    try {
+        const response = await fetchImpl(SENTRY_TUNNEL_PATH, {
+            cache: "no-store",
+            // Same-origin cookies, so a deployment behind access protection
+            // can answer; the route itself reads none.
+            credentials: "same-origin",
+        });
+        if (!response.ok) return false;
+        const body: unknown = await response.json();
+        const reports =
+            body && typeof body === "object" ? (body as { reports?: unknown }).reports : undefined;
+        return reports === "runtime" || reports === "build";
+    } catch {
+        return false;
+    }
+}
+
 export type ReportingDestination = {
     /** Empty when reporting is off. */
     dsn: string;
-    source: "disabled" | "runtime" | "build" | "default";
+    /** "none": no DSN is configured anywhere, so nothing is reported. */
+    source: "disabled" | "runtime" | "build" | "none";
     /** For `source: "disabled"`: which variable switched reporting off. */
     disabledBy?: "runtime" | "build";
     /** Runtime overrides for every report; absent means "as built". */
@@ -389,7 +456,7 @@ export type ReportingDestination = {
  *   SENTRY_DSN                    the deployment's project (FRONTEND_SENTRY_DSN in compose)
  *   NEXT_PUBLIC_SENTRY_DSN        the project baked in at image build, for images
  *                                 built with a DSN and run without the runtime one
- *   otherwise                     the built-in Mike project (community default)
+ *   otherwise                     off: there is no built-in destination
  *
  * The result is printed at boot (sentry.server.config.ts) and answered by
  * GET /monitoring, so an operator can see which rule applied.
@@ -409,7 +476,6 @@ export function reportingDestination(env: NodeJS.ProcessEnv): ReportingDestinati
     const resolved = resolveDsn({
         disabled: runtimeDisabled || env.NEXT_PUBLIC_SENTRY_DISABLED?.trim(),
         dsn: runtimeDsn || buildDsn,
-        fallback: MIKE_SENTRY_DSN.frontend,
     });
     if (resolved.source === "disabled") {
         return {
@@ -422,7 +488,7 @@ export function reportingDestination(env: NodeJS.ProcessEnv): ReportingDestinati
     if (resolved.source === "env") {
         return { dsn: resolved.dsn, source: runtimeDsn ? "runtime" : "build", ...overrides };
     }
-    return { dsn: resolved.dsn, source: "default", ...overrides };
+    return { dsn: "", source: "none", ...overrides };
 }
 
 /** One line for the boot log: which rule applied, never the DSN's key. */
@@ -443,9 +509,25 @@ export function describeReportingDestination(destination: ReportingDestination):
             return `[sentry] web app reports → SENTRY_DSN project ${project} (runtime), browser included`;
         case "build":
             return `[sentry] web app reports → NEXT_PUBLIC_SENTRY_DSN project ${project} (baked at build; set SENTRY_DSN to change it at runtime), browser included`;
-        default:
-            return "[sentry] web app reports → Mike project Sentry (community default), browser included. Opt out with SENTRY_DISABLED=true or point SENTRY_DSN at your own project.";
+        case "none":
+            return "[sentry] web app reports: off (no DSN configured; set SENTRY_DSN to report to your own Sentry), browser included";
     }
+}
+
+/**
+ * Start the Next server's (or edge runtime's) Sentry client when, and only
+ * when, the deployment configured a destination. Returns whether a client
+ * was created; without a DSN `init` is never called, so no client exists.
+ */
+export function initServerErrorReporting(
+    runtime: "server" | "edge",
+    env: NodeJS.ProcessEnv,
+    init: (options: Sentry.NodeOptions) => unknown = Sentry.init,
+): boolean {
+    const options = serverSentryOptions(runtime, env);
+    if (!options.enabled) return false;
+    init(options);
+    return true;
 }
 
 /** Server / edge SDK options; env is read at runtime on the Next server. */

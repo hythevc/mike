@@ -250,44 +250,28 @@ export function redactShaped(value: unknown, depth = 0): unknown {
     return value;
 }
 
-/**
-  * The Mike project's own Sentry projects. A DSN is a write-only address:
-  * it lets an SDK post events and nothing else, so it is public by design
-  * (it ships in every browser bundle). Community installs report here by
-  * default so the project learns what forks run into; the opt-out and the
-  * override are one variable each (see resolveDsn).
-  */
-export const MIKE_SENTRY_DSN = {
-    backend:
-        "https://7d685d2a4e6a4bfd5991b320c0043d23@o4512288166510592.ingest.us.sentry.io/4512288204718080",
-    frontend:
-        "https://1d40513ce9978d4fbd4deeeeff23817a@o4512288166510592.ingest.us.sentry.io/4512288207798272",
-    wordAddin:
-        "https://98e6cb43234267619a432a58c0ad71f9@o4512288166510592.ingest.us.sentry.io/4512288210812928",
-} as const;
-
 export type DsnResolution = {
     dsn: string;
-    /** Where the DSN came from; "default" means the Mike project's Sentry. */
-    source: "disabled" | "env" | "default";
+    /** Where the DSN came from; "none" means no DSN is configured, so nothing is sent. */
+    source: "disabled" | "env" | "none";
 };
 
 /**
   * Off if the runtime's *_SENTRY_DISABLED is "true"; the runtime's own DSN
-  * when one is set (a self-hoster's own Sentry); otherwise the built-in Mike
-  * project DSN. Test processes are guarded separately by the caller.
+  * when an operator set one; otherwise off. No DSN is built in, so an install
+  * reports nowhere until its operator chooses a destination. Test processes
+  * are guarded separately by the caller.
   */
 export function resolveDsn(input: {
     disabled?: string;
     dsn?: string;
-    fallback: string;
 }): DsnResolution {
     if (input.disabled?.trim().toLowerCase() === "true") {
         return { dsn: "", source: "disabled" };
     }
     const explicit = input.dsn?.trim();
     if (explicit) return { dsn: explicit, source: "env" };
-    return { dsn: input.fallback, source: "default" };
+    return { dsn: "", source: "none" };
 }
 
 export type InstallKind = "official" | "community";
@@ -391,11 +375,11 @@ function mapStringLeaves(
 }
 
 /**
-  * COMMUNITY INSTALLS: a fork or self-hosted Mike reporting to the Mike
-  * project's Sentry sends only what our own code owns and what is too broad
-  * to identify anyone. Removed: the machine name, the user id, request
-  * headers and host, every breadcrumb, device / app / locale contexts, local
-  * variables, and any absolute filesystem path (in frames, messages, extras).
+  * COMMUNITY INSTALLS: every install that has not set SENTRY_INSTALL=official
+  * sends only what our own code owns and what is too broad to identify
+  * anyone. Removed: the machine name, the user id, request headers and host,
+  * every breadcrumb, device / app / locale contexts, local variables, and any
+  * absolute filesystem path (in frames, messages, extras).
   * Kept: repo-relative code locations with their source lines, our own tags
   * and ids, the route pattern, OS / runtime / browser name and version,
   * environment and release.

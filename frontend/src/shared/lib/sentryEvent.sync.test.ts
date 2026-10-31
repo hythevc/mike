@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { diagnosticRoute } from "./sentryPrivacy";
@@ -39,25 +39,37 @@ describe("shared-redaction block", () => {
 });
 
 /**
- * The default DSNs are the same table in both files, so every runtime of a
- * community install reports to the same Sentry organisation. Each runtime's
- * own tests only compare it with its own table; this is the drift check.
+ * Reporting is off until an operator configures a DSN, so no runtime may
+ * carry a destination of its own: a hosted Sentry ingest address in
+ * production code (backend, web app or add-in) would be exactly the
+ * built-in fallback this rule removed. Test fixtures may use one.
  */
-function dsnTable(file: string): string {
-    const match = readFileSync(file, "utf8").match(
-        /export const MIKE_SENTRY_DSN = \{[\s\S]*?\}(?: as const)?;/,
-    );
-    if (!match) throw new Error(`no MIKE_SENTRY_DSN table in ${file}`);
-    return match[0]
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .join("\n");
+const REPO = path.resolve(__dirname, "../../../..");
+const RUNTIME_SOURCES = ["backend/src", "frontend/src", "word-addin/src"];
+const isTestOnly = (file: string) =>
+    /\.(test|spec|stories)\.[cm]?[jt]sx?$/.test(file) || /(^|\/)__tests__\//.test(file);
+const BUILT_IN_DESTINATION = /ingest(?:\.[a-z]{2})?\.sentry\.io/i;
+
+function productionFiles(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) {
+            if (entry.name !== "node_modules") out.push(...productionFiles(rel));
+        } else if (/\.[cm]?[jt]sx?$/.test(entry.name) && !isTestOnly(rel)) {
+            out.push(rel);
+        }
+    }
+    return out;
 }
 
-it("keeps the default DSN table identical in the backend and the shared scrubber", () => {
-    expect(dsnTable(BACKEND)).toBe(dsnTable(SHARED));
-    expect(dsnTable(SHARED)).toMatch(/backend:\s*"https:\/\/[0-9a-f]+@o\d+\.ingest/);
+it("ships no built-in Sentry destination in any runtime's production code", () => {
+    const files = RUNTIME_SOURCES.flatMap(productionFiles);
+    expect(files.length).toBeGreaterThan(500);
+    const offenders = files.filter((file) =>
+        BUILT_IN_DESTINATION.test(readFileSync(path.join(REPO, file), "utf8")),
+    );
+    expect(offenders).toEqual([]);
 });
 
 

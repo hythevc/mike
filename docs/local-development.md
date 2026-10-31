@@ -208,12 +208,12 @@ data flows. See [Safe local testing](safe-local-testing.md) for guidance.
 
 ## Error tracking locally
 
-Error reporting is enabled by default using Mike's community Sentry project.
-Set `SENTRY_DISABLED=true` to opt out on the backend, and use
-`NEXT_PUBLIC_SENTRY_DISABLED=true` or `REACT_APP_SENTRY_DISABLED=true` for the
-web app or Word add-in. To watch events locally instead, run
-`node scripts/sentry-sink.mjs` and point each runtime's DSN at it; see
-[observability.md](observability.md).
+Error reporting is off by default: nothing is sent until a runtime has a
+DSN. To watch events locally, run `node scripts/sentry-sink.mjs` and point
+each runtime's DSN at it; see [observability.md](observability.md).
+`SENTRY_DISABLED=true` (backend and Next server),
+`NEXT_PUBLIC_SENTRY_DISABLED=true` or `REACT_APP_SENTRY_DISABLED=true` keep
+a runtime off even when a DSN is set.
 
 ## Running application code without Docker
 

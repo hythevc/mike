@@ -1,5 +1,5 @@
-// Next.js edge runtime (middleware/proxy, if any is ever added).
-import * as Sentry from "@sentry/nextjs";
-import { serverSentryOptions } from "@/app/lib/errorReporting";
+// Next.js edge runtime (middleware/proxy, if any is ever added). Without a
+// configured DSN no Sentry client is created at all.
+import { initServerErrorReporting } from "@/app/lib/errorReporting";
 
-Sentry.init(serverSentryOptions("edge", process.env));
+initServerErrorReporting("edge", process.env);

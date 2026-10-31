@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@sentry/nextjs", () => ({
     isEnabled: () => state.enabled,
+    init: vi.fn(),
     captureException: vi.fn(() => "exc-1"),
     captureMessage: vi.fn(() => "msg-1"),
     captureEvent: vi.fn(() => "evt-1"),
@@ -37,8 +38,10 @@ vi.mock("@sentry/nextjs", () => ({
 import * as Sentry from "@sentry/nextjs";
 import {
     API_UNREACHABLE_WINDOW_MS,
+    BROWSER_PLACEHOLDER_DSN,
     browserSentryOptions,
     describeReportingDestination,
+    initServerErrorReporting,
     isReported,
     markErrorHandled,
     reportApiFailure,
@@ -49,9 +52,9 @@ import {
     scrubEvent,
     serverSentryOptions,
     setReportingUser,
+    startBrowserErrorReporting,
     trackPendingRequest,
 } from "./errorReporting";
-import { MIKE_SENTRY_DSN } from "@/shared/lib/sentryEvent";
 import { diagnosticEvent } from "@/shared/lib/sentryPrivacy";
 import { MikeApiError, downloadDocumentsZip, updateWorkflow } from "./mikeApi";
 import { notifyError } from "./userFacingError";
@@ -270,10 +273,12 @@ describe("setReportingUser", () => {
 });
 
 describe("browserSentryOptions", () => {
-    it("is ON BY DEFAULT with the Mike project DSN and never turns on PII or replay", () => {
+    it("starts through the tunnel with a placeholder DSN and never turns on PII or replay", () => {
         const options = browserSentryOptions({ nodeEnv: "test" });
         expect(options.enabled).toBe(true);
-        expect(options.dsn).toBe(MIKE_SENTRY_DSN.frontend);
+        // The placeholder cannot deliver anything itself: .invalid never resolves.
+        expect(options.dsn).toBe(BROWSER_PLACEHOLDER_DSN);
+        expect(new URL(BROWSER_PLACEHOLDER_DSN).hostname).toMatch(/\.invalid$/);
         expect(options.environment).toBe("self-hosted");
         expect(options.release).toBe("mike@0.0.0");
         expect(options.dataCollection).toEqual({
@@ -304,7 +309,7 @@ describe("browserSentryOptions", () => {
             tracesSampleRate: "0.25",
         });
         expect(options.enabled).toBe(true);
-        expect(options.dsn).toBe(MIKE_SENTRY_DSN.frontend);
+        expect(options.dsn).toBe(BROWSER_PLACEHOLDER_DSN);
         expect(options.environment).toBe("staging");
         expect(options.release).toBe("mike@1.0.0");
         expect(options.tracesSampleRate).toBe(0.25);
@@ -378,7 +383,7 @@ describe("reportingDestination", () => {
         } as NodeJS.ProcessEnv)).toMatchObject({ source: "runtime", dsn: own });
     });
 
-    it("is one rule for server and browser: disabled, runtime, build, default", () => {
+    it("is one rule for server and browser: disabled, runtime, build, none", () => {
         expect(reportingDestination({ SENTRY_DISABLED: "true", SENTRY_DSN: own } as unknown as NodeJS.ProcessEnv)).toEqual({
             dsn: "",
             source: "disabled",
@@ -393,9 +398,14 @@ describe("reportingDestination", () => {
             source: "build",
         });
         expect(reportingDestination({} as unknown as NodeJS.ProcessEnv)).toEqual({
-            dsn: MIKE_SENTRY_DSN.frontend,
-            source: "default",
+            dsn: "",
+            source: "none",
         });
+        // An explicit runtime "false" re-enables nothing by itself: there is
+        // still no destination without a DSN.
+        expect(
+            reportingDestination({ SENTRY_DISABLED: "false", SENTRY_DSN: " " } as unknown as NodeJS.ProcessEnv),
+        ).toEqual({ dsn: "", source: "none" });
     });
 
     it("carries the runtime environment and install overrides", () => {
@@ -438,7 +448,9 @@ describe("reportingDestination", () => {
             "baked at build",
         );
         expect(describeReportingDestination(reportingDestination({ SENTRY_DISABLED: "true" } as unknown as NodeJS.ProcessEnv))).toContain("off");
-        expect(describeReportingDestination(reportingDestination({} as unknown as NodeJS.ProcessEnv))).toContain("community default");
+        const none = describeReportingDestination(reportingDestination({} as unknown as NodeJS.ProcessEnv));
+        expect(none).toContain("off (no DSN configured");
+        expect(none).not.toContain("→");
     });
 
     it("drives the Next server's own SDK, so a baked DSN is honoured there too", () => {
@@ -467,13 +479,13 @@ describe("serverSentryOptions", () => {
         expect(options.beforeSend).toBe(scrubEvent);
     });
 
-    it("is ON BY DEFAULT without config, off with SENTRY_DISABLED, official only when marked", () => {
+    it("is OFF BY DEFAULT without config, off with SENTRY_DISABLED, official only when marked", () => {
         const options = serverSentryOptions(
             "server",
             {} as unknown as NodeJS.ProcessEnv,
         );
-        expect(options.enabled).toBe(true);
-        expect(options.dsn).toBe(MIKE_SENTRY_DSN.frontend);
+        expect(options.enabled).toBe(false);
+        expect(options.dsn).toBeUndefined();
         expect(options.release).toBe("mike@0.0.0");
         expect(options.environment).toBe("self-hosted");
         const withNodeEnv = serverSentryOptions("server", {
@@ -488,6 +500,116 @@ describe("serverSentryOptions", () => {
             SENTRY_INSTALL: "official",
         } as unknown as NodeJS.ProcessEnv);
         expect((official.initialScope as { tags: { install: string } }).tags.install).toBe("official");
+    });
+});
+
+describe("initServerErrorReporting", () => {
+    it("creates no client on the server or the edge without a configured DSN", () => {
+        const init = vi.fn();
+        for (const runtime of ["server", "edge"] as const) {
+            for (const env of [
+                {},
+                { NODE_ENV: "production" },
+                { SENTRY_DISABLED: "false", SENTRY_DSN: "", NEXT_PUBLIC_SENTRY_DSN: "  " },
+                { SENTRY_DISABLED: "true", SENTRY_DSN: "https://k@o1.ingest.sentry.io/1" },
+            ]) {
+                expect(initServerErrorReporting(runtime, env as unknown as NodeJS.ProcessEnv, init)).toBe(false);
+            }
+        }
+        expect(init).not.toHaveBeenCalled();
+    });
+
+    it("starts the client with the operator's DSN when one is configured", () => {
+        const init = vi.fn();
+        const dsn = "https://k@o1.ingest.sentry.io/3";
+        expect(
+            initServerErrorReporting("server", { SENTRY_DSN: dsn } as unknown as NodeJS.ProcessEnv, init),
+        ).toBe(true);
+        expect(init).toHaveBeenCalledOnce();
+        expect(init.mock.calls[0]?.[0]).toMatchObject({ dsn, enabled: true, beforeSend: scrubEvent });
+    });
+
+    it("uses the SDK's own init by default", () => {
+        expect(initServerErrorReporting("edge", {} as unknown as NodeJS.ProcessEnv)).toBe(false);
+        expect(Sentry.init).not.toHaveBeenCalled();
+        expect(
+            initServerErrorReporting("edge", { SENTRY_DSN: "https://k@o1.ingest.sentry.io/3" } as unknown as NodeJS.ProcessEnv),
+        ).toBe(true);
+        expect(Sentry.init).toHaveBeenCalledOnce();
+    });
+});
+
+describe("startBrowserErrorReporting", () => {
+    function answer(body: unknown, status = 200) {
+        return vi.fn(async () => new Response(JSON.stringify(body), { status }));
+    }
+
+    it("creates no browser client when the deployment configured no DSN", async () => {
+        const init = vi.fn();
+        const fetch = answer({ reports: "none", see: "docs/observability.md#configuration" });
+        await expect(startBrowserErrorReporting({}, { init, fetch })).resolves.toBe(false);
+        expect(fetch).toHaveBeenCalledWith("/monitoring", { cache: "no-store", credentials: "same-origin" });
+        expect(init).not.toHaveBeenCalled();
+    });
+
+    it("creates no client when reporting is switched off or the check fails", async () => {
+        const init = vi.fn();
+        for (const fetch of [
+            answer({ reports: "disabled", disabledBy: "runtime" }),
+            answer({ reports: "runtime" }, 500),
+            answer("not an object"),
+            answer(null),
+            vi.fn(async () => new Response("<html>", { status: 200 })),
+            vi.fn(async () => {
+                throw new TypeError("Failed to fetch");
+            }),
+        ]) {
+            await expect(startBrowserErrorReporting({ disabled: "true", dsn: "" }, { init, fetch })).resolves.toBe(false);
+        }
+        // No fetch at all (an old browser or a test environment).
+        vi.stubGlobal("fetch", undefined);
+        await expect(startBrowserErrorReporting({}, { init })).resolves.toBe(false);
+        expect(init).not.toHaveBeenCalled();
+    });
+
+    it("starts through the tunnel when the server has a runtime or baked destination", async () => {
+        for (const reports of ["runtime", "build"]) {
+            const init = vi.fn();
+            await expect(
+                startBrowserErrorReporting({ environment: "staging" }, { init, fetch: answer({ reports }) }),
+            ).resolves.toBe(true);
+            expect(init).toHaveBeenCalledOnce();
+            expect(init.mock.calls[0]?.[0]).toMatchObject({
+                dsn: BROWSER_PLACEHOLDER_DSN,
+                tunnel: "/monitoring",
+                environment: "staging",
+            });
+        }
+    });
+
+    it("starts at once, without asking, when a DSN is baked into the bundle", () => {
+        const init = vi.fn();
+        const fetch = answer({ reports: "none" });
+        void startBrowserErrorReporting({ dsn: "https://k@o1.ingest.sentry.io/2" }, { init, fetch });
+        // Synchronously: errors thrown during hydration are covered.
+        expect(init).toHaveBeenCalledOnce();
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("starts the SDK's own client by default", async () => {
+        await expect(startBrowserErrorReporting({ dsn: "https://k@o1.ingest.sentry.io/2" })).resolves.toBe(true);
+        expect(Sentry.init).toHaveBeenCalledOnce();
+        expect(vi.mocked(Sentry.init).mock.calls[0]?.[0]).toMatchObject({ tunnel: "/monitoring" });
+    });
+
+    it("asks the server when the baked DSN is switched off at build", async () => {
+        const init = vi.fn();
+        const fetch = answer({ reports: "disabled", disabledBy: "build" });
+        await expect(
+            startBrowserErrorReporting({ dsn: "https://k@o1.ingest.sentry.io/2", disabled: "true" }, { init, fetch }),
+        ).resolves.toBe(false);
+        expect(fetch).toHaveBeenCalledOnce();
+        expect(init).not.toHaveBeenCalled();
     });
 });
 

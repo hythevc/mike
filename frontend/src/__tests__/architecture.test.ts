@@ -20,6 +20,9 @@
 //   3. The build program excludes test-only files and nothing else. Every
 //      other file tsconfig.json sees must still be in the build, so an
 //      exclude pattern cannot quietly drop production code from type-checking.
+//   4. Brand values come from `src/shared/brand.generated.ts`, never from
+//      `packages/brand`, which the image does not contain: no file in the
+//      build program and no `paths` alias refers to it.
 //
 // Test files may import shared fixtures and add-in sources from outside
 // `frontend/`; rule 3 is what keeps them out of the image. The faithful check
@@ -161,5 +164,24 @@ describe("frontend build boundaries", () => {
 
         const testsInBuild = build.fileNames.map(relToFrontend).filter(isTestOnly);
         expect(testsInBuild, "tsconfig.build.json must exclude every test-only file").toEqual([]);
+    });
+
+    it("rule 4: production code never reads packages/brand at runtime", () => {
+        // scripts/brand/generate.mjs writes brand.json into
+        // src/shared/brand.generated.ts. Comments may still name the source.
+        const withoutComments = (text: string) =>
+            text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+        const brandSource = /packages\/brand\b|\bbrand(?:\.schema)?\.json\b/;
+        const offenders = build.fileNames
+            .filter((file) => brandSource.test(withoutComments(readFileSync(file, "utf8"))))
+            .map(relToFrontend);
+        for (const [alias, targets] of Object.entries(build.options.paths ?? {})) {
+            if (targets.some((target) => brandSource.test(target))) offenders.push(`paths: ${alias}`);
+        }
+        expect(
+            offenders,
+            "Import the generated module (@/shared/brand.generated) instead of packages/brand.",
+        ).toEqual([]);
+        expect(build.fileNames.map(relToFrontend)).toContain("src/shared/brand.generated.ts");
     });
 });

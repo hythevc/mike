@@ -1,0 +1,42 @@
+{
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-only. The single source of the product's name, addresses, legal documents and marks. After editing, run `node scripts/brand/generate.mjs` (see README.md). Bracketed and example.com values are placeholders.",
+  "$schema": "./brand.schema.json",
+  "productName": "Glossa",
+  "legalEntityName": "[Company legal name]",
+  "appUrl": "https://app.example.com",
+  "marketingUrl": "https://example.com",
+  "supportEmail": "support@example.com",
+  "securityEmail": "security@example.com",
+  "docsUrl": "https://example.com/docs",
+  "changelogUrl": "https://example.com/changelog",
+  "sourceRepositoryUrl": "https://github.com/hythevc/mike",
+  "upstreamAttribution": {
+    "projectName": "Mike",
+    "author": "Open-Legal-Products",
+    "url": "https://github.com/Open-Legal-Products/mike",
+    "license": "AGPL-3.0-only",
+    "notice": "Based on Mike by Open-Legal-Products, licensed under the GNU Affero General Public License v3.0 only."
+  },
+  "legalDocuments": {
+    "terms": { "url": "/legal/terms", "version": "0.1.0", "status": "draft" },
+    "privacy": { "url": "/legal/privacy", "version": "0.1.0", "status": "draft" },
+    "dpa": { "url": "/legal/dpa", "version": "0.1.0", "status": "draft" },
+    "subprocessors": { "url": "/legal/subprocessors", "version": "0.1.0", "status": "draft" },
+    "aup": { "url": "/legal/aup", "version": "0.1.0", "status": "draft" },
+    "aiTransparency": { "url": "/legal/ai-transparency", "version": "0.1.0", "status": "draft" },
+    "accessibility": { "url": "/legal/accessibility", "version": "0.1.0", "status": "draft" },
+    "cookies": { "url": "/legal/cookies", "version": "0.1.0", "status": "draft" },
+    "security": { "url": "/security", "version": "0.1.0", "status": "draft" }
+  },
+  "assets": {
+    "glyph": "/brand/glyph.svg",
+    "wordmark": "/brand/wordmark.svg",
+    "favicon": "/brand/favicon.ico",
+    "ogImage": "/brand/og-image.png"
+  },
+  "palette": {
+    "primary": "#1F3A5F",
+    "onPrimary": "#FFFFFF"
+  },
+  "displayFace": "inter"
+}

@@ -55,7 +55,6 @@ vi.mock("@sentry/node", () => ({
 import * as Sentry from "@sentry/node";
 import {
   bestEffort,
-  MIKE_SENTRY_DSN,
   flushSentry,
   initSentry,
   markStage,
@@ -91,11 +90,11 @@ afterEach(() => {
 });
 
 describe("sentryConfiguration", () => {
-  it("is ON BY DEFAULT: the Mike project DSN, a community install, environment self-hosted", () => {
+  it("is OFF BY DEFAULT: no DSN, no destination, a community install, environment self-hosted", () => {
     const config = sentryConfiguration({ NODE_ENV: "production" } as NodeJS.ProcessEnv);
-    expect(config.enabled).toBe(true);
-    expect(config.dsn).toBe(MIKE_SENTRY_DSN.backend);
-    expect(config.dsnSource).toBe("default");
+    expect(config.enabled).toBe(false);
+    expect(config.dsn).toBe("");
+    expect(config.dsnSource).toBe("none");
     expect(config.install).toBe("community");
     // NODE_ENV no longer leaks into the environment tag: a fork's
     // "production" is not ours.
@@ -237,6 +236,27 @@ describe("initSentry", () => {
     expect(initSentry("api", { NODE_ENV: "test" } as NodeJS.ProcessEnv)).toBe(false);
     expect(isSentryEnabled()).toBe(false);
     expect(Sentry.init).not.toHaveBeenCalled();
+  });
+
+  it("creates no client in production without an operator DSN, and says why", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    for (const env of [
+      { NODE_ENV: "production" },
+      // Allowed to report in tests, but still nowhere to report to.
+      { ...quietEnv, SENTRY_DSN: "   ", MIKE_BUILD_SENTRY_DSN: "" },
+      { NODE_ENV: "production", SENTRY_DISABLED: "false" },
+    ]) {
+      expect(initSentry("api", env as NodeJS.ProcessEnv)).toBe(false);
+    }
+    expect(isSentryEnabled()).toBe(false);
+    expect(Sentry.init).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("[sentry] disabled for api (no SENTRY_DSN configured)");
+    // Nothing is captured either: every reporter is a no-op without a client.
+    expect(reportError(new Error("x"))).toBeNull();
+    expect(reportMessage("y")).toBeNull();
+    expect(Sentry.captureException).not.toHaveBeenCalled();
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 
   it("initialises once with PII off, body capture off, and the console bridge on", () => {
@@ -877,14 +897,13 @@ describe("operation and stage trail", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     initSentry("api", {
       ...dsnEnv,
-      SENTRY_DSN: undefined,
       MIKE_VERSION: "2.1.0",
       GIT_SHA: "0123456789abcdef0123",
     } as NodeJS.ProcessEnv);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("release mike@2.1.0+0123456789ab"));
     expect(warn).not.toHaveBeenCalled();
     resetSentryForTests();
-    initSentry("api", { ...dsnEnv, SENTRY_DSN: undefined, NODE_ENV: "production" } as NodeJS.ProcessEnv);
+    initSentry("api", { ...dsnEnv, NODE_ENV: "production" } as NodeJS.ProcessEnv);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("release mike@0.0.0"));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("unversioned release"));
   });

@@ -28,6 +28,9 @@
 //      Transports live in `lib/storage/` and are imported by nothing else,
 //      and only the S3 adapter talks to the AWS SDK, so a fork can swap the
 //      backend with `setStorageAdapter()` without any call site bypassing it.
+//  10. Brand values come from `lib/brand.generated.ts`, never from
+//      `packages/brand`: the image and the desktop stack ship `backend/`
+//      (the desktop stack only `dist/`) without `packages/`.
 //
 // Each rule has an explicit allowlist. Adding to an allowlist is a reviewable
 // decision with a comment explaining why; silently widening one is not.
@@ -78,6 +81,16 @@ function importsOf(file: string): string[] {
   }
   return specs;
 }
+
+/** The text without block and line comments (URLs such as `https://` survive). */
+function withoutComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+}
+
+/** A runtime path to the brand source rather than the generated module. */
+const BRAND_SOURCE = /packages\/brand\b|\bbrand(?:\.schema)?\.json\b/;
 
 const moduleOf = (file: string): string | null => {
   const m = /^modules\/([^/]+)\//.exec(file);
@@ -212,6 +225,17 @@ describe("backend architecture", () => {
       (directWrite.test(read(file)) || lifecycleRpc.test(read(file))),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it("rule 10: production code never reads packages/brand at runtime", () => {
+    // scripts/brand/generate.mjs writes brand.json into lib/brand.generated.ts.
+    // A path to packages/brand or brand.json works on a checkout and fails in
+    // every deployed build. Comments may still name the source file.
+    const offenders = PRODUCTION_FILES.filter((file) =>
+      BRAND_SOURCE.test(withoutComments(read(file))),
+    );
+    expect(offenders).toEqual([]);
+    expect(PRODUCTION_FILES).toContain("lib/brand.generated.ts");
   });
 
   it("rule 9: object storage is reached only through lib/storage.ts", () => {

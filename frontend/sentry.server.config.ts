@@ -1,12 +1,12 @@
 // Next.js Node runtime. SENTRY_DSN is read at container start, not build.
-import * as Sentry from "@sentry/nextjs";
+// Without a configured DSN no Sentry client is created at all.
 import {
     describeReportingDestination,
+    initServerErrorReporting,
     reportingDestination,
-    serverSentryOptions,
 } from "@/app/lib/errorReporting";
 
-Sentry.init(serverSentryOptions("server", process.env));
+initServerErrorReporting("server", process.env);
 
 // Say once where this deployment's reports go (server and browser alike), so
 // the answer is in the container log rather than inferred from the bundle.

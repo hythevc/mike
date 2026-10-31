@@ -3,9 +3,11 @@
 //
 // Design rules, in priority order:
 //
-//   1. ON BY DEFAULT for community installs; SENTRY_DISABLED=true opts out.
-//      An explicit DSN overrides Mike's project. Test processes stay disabled
-//      unless SENTRY_ALLOW_IN_TESTS=true is explicitly set.
+//   1. OFF BY DEFAULT. No client is created and nothing is sent until an
+//      operator configures a DSN (SENTRY_DSN, or MIKE_BUILD_SENTRY_DSN baked
+//      into the image); SENTRY_DISABLED=true keeps reporting off even then.
+//      Test processes stay disabled unless SENTRY_ALLOW_IN_TESTS=true is
+//      explicitly set.
 //   2. NEVER LEAK DOCUMENT CONTENT OR CREDENTIALS. This is a legal platform:
 //      request bodies carry privileged documents and chat transcripts, and
 //      headers carry session cookies. `beforeSend` strips request bodies,
@@ -283,44 +285,28 @@ export function redactShaped(value: unknown, depth = 0): unknown {
   return value;
 }
 
-/**
- * The Mike project's own Sentry projects. A DSN is a write-only address:
- * it lets an SDK post events and nothing else, so it is public by design
- * (it ships in every browser bundle). Community installs report here by
- * default so the project learns what forks run into; the opt-out and the
- * override are one variable each (see resolveDsn).
- */
-export const MIKE_SENTRY_DSN = {
-  backend:
-    "https://7d685d2a4e6a4bfd5991b320c0043d23@o4512288166510592.ingest.us.sentry.io/4512288204718080",
-  frontend:
-    "https://1d40513ce9978d4fbd4deeeeff23817a@o4512288166510592.ingest.us.sentry.io/4512288207798272",
-  wordAddin:
-    "https://98e6cb43234267619a432a58c0ad71f9@o4512288166510592.ingest.us.sentry.io/4512288210812928",
-} as const;
-
 export type DsnResolution = {
   dsn: string;
-  /** Where the DSN came from; "default" means the Mike project's Sentry. */
-  source: "disabled" | "env" | "default";
+  /** Where the DSN came from; "none" means no DSN is configured, so nothing is sent. */
+  source: "disabled" | "env" | "none";
 };
 
 /**
  * Off if the runtime's *_SENTRY_DISABLED is "true"; the runtime's own DSN
- * when one is set (a self-hoster's own Sentry); otherwise the built-in Mike
- * project DSN. Test processes are guarded separately by the caller.
+ * when an operator set one; otherwise off. No DSN is built in, so an install
+ * reports nowhere until its operator chooses a destination. Test processes
+ * are guarded separately by the caller.
  */
 export function resolveDsn(input: {
   disabled?: string;
   dsn?: string;
-  fallback: string;
 }): DsnResolution {
   if (input.disabled?.trim().toLowerCase() === "true") {
     return { dsn: "", source: "disabled" };
   }
   const explicit = input.dsn?.trim();
   if (explicit) return { dsn: explicit, source: "env" };
-  return { dsn: input.fallback, source: "default" };
+  return { dsn: "", source: "none" };
 }
 
 export type InstallKind = "official" | "community";
@@ -424,11 +410,11 @@ function mapStringLeaves(
 }
 
 /**
- * COMMUNITY INSTALLS: a fork or self-hosted Mike reporting to the Mike
- * project's Sentry sends only what our own code owns and what is too broad
- * to identify anyone. Removed: the machine name, the user id, request
- * headers and host, every breadcrumb, device / app / locale contexts, local
- * variables, and any absolute filesystem path (in frames, messages, extras).
+ * COMMUNITY INSTALLS: every install that has not set SENTRY_INSTALL=official
+ * sends only what our own code owns and what is too broad to identify
+ * anyone. Removed: the machine name, the user id, request headers and host,
+ * every breadcrumb, device / app / locale contexts, local variables, and any
+ * absolute filesystem path (in frames, messages, extras).
  * Kept: repo-relative code locations with their source lines, our own tags
  * and ids, the route pattern, OS / runtime / browser name and version,
  * environment and release.
@@ -584,13 +570,12 @@ function parseRate(raw: string | undefined, fallback: number): number {
 }
 
 export function sentryConfiguration(env: NodeJS.ProcessEnv = process.env) {
-  // ON BY DEFAULT: without SENTRY_DISABLED or a DSN of your own, errors go
-  // to the Mike project's Sentry as a community install (see the README's
-  // Telemetry section). Only Mike's own deployment sets SENTRY_INSTALL.
+  // OFF BY DEFAULT: nothing is reported until an operator sets a DSN of
+  // their own (see the README's Telemetry section). There is no built-in
+  // destination to fall back to.
   const resolved = resolveDsn({
     disabled: env.SENTRY_DISABLED?.trim() || env.MIKE_BUILD_SENTRY_DISABLED,
     dsn: env.SENTRY_DSN?.trim() || env.MIKE_BUILD_SENTRY_DSN,
-    fallback: MIKE_SENTRY_DSN.backend,
   });
   const dsn = resolved.dsn;
   // A test process must never report, even when a developer's backend/.env
@@ -865,11 +850,13 @@ export function initSentry(
   const config = sentryConfiguration(env);
   if (!config.enabled) {
     if (env.NODE_ENV !== "test") {
-      console.log(
-        `[sentry] disabled for ${role} (${
-          config.dsnSource === "disabled" ? "SENTRY_DISABLED=true" : "test process"
-        })`,
-      );
+      const reason =
+        config.dsnSource === "disabled"
+          ? "SENTRY_DISABLED=true"
+          : config.dsnSource === "none"
+            ? "no SENTRY_DSN configured"
+            : "test process";
+      console.log(`[sentry] disabled for ${role} (${reason})`);
     }
     return false;
   }
@@ -917,18 +904,10 @@ export function initSentry(
   });
   initialized = true;
   installProcessWarningReporter(env);
-  if (config.dsnSource === "default") {
-    console.log(
-      `[sentry] enabled for ${role} → Mike project Sentry (${config.install} install, ` +
-        `release ${config.release}). ` +
-        "Opt out with SENTRY_DISABLED=true or point SENTRY_DSN at your own project.",
-    );
-  } else {
-    console.log(
-      `[sentry] enabled for ${role} (environment ${config.environment}` +
-        `, release ${config.release})`,
-    );
-  }
+  console.log(
+    `[sentry] enabled for ${role} (environment ${config.environment}` +
+      `, release ${config.release})`,
+  );
   if (config.release.startsWith(`mike@${UNVERSIONED}`) && env.NODE_ENV === "production") {
     // An unversioned release cannot be told apart from any other local build;
     // the images get MIKE_VERSION and GIT_SHA as build args (docs/observability.md).
