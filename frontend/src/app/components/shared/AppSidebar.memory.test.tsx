@@ -85,8 +85,8 @@ describe("AppSidebar account dropdown", () => {
   it("shows the IDE navigation directly below Assistant", () => {
     render(<AppSidebar isOpen onToggle={vi.fn()} />);
 
-    const assistant = screen.getByRole("button", { name: "Assistant" });
-    const ide = screen.getByRole("button", { name: "IDE" });
+    const assistant = screen.getByRole("link", { name: "Assistant" });
+    const ide = screen.getByRole("link", { name: "IDE" });
 
     expect(assistant.parentElement?.nextElementSibling).toContainElement(ide);
   });

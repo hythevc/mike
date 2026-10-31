@@ -42,18 +42,13 @@ import { SidebarHeading } from "@/app/components/shared/SidebarHeading";
 import { SidebarLogo } from "@/app/components/shared/SidebarLogo";
 import { SidebarProjectItem } from "@/app/components/shared/SidebarProjectItem";
 import {
-    ChatSkeuoIcon,
-    IdeSkeuoIcon,
-    FolderSkeuoIcon,
-    LibrarySkeuoIcon,
     TabularReviewSkeuoIcon,
     TabularReviewCompleteIcon,
-    WorkflowSkeuoIcon,
-    PlaybookSkeuoIcon,
     OrganizationSkeuoIcon,
     SettingsSkeuoIcon,
     SignOutSkeuoIcon,
 } from "@/app/components/shared/AppSidebarSkeuoIcons";
+import { NAV_ITEMS, isNavItemCurrent } from "@/app/components/shared/navItems";
 import { listProjectsPage } from "@/app/lib/mikeApi";
 import { notifyError } from "@/app/lib/userFacingError";
 import { useAssignLatest } from "@/app/hooks/useLatestRef";
@@ -74,20 +69,6 @@ import {
 
 /** Where a workspace opens: the page the logo leads to. */
 const WORKSPACE_HOME = "/assistant";
-
-const NAV_ITEMS = [
-    { href: "/assistant", label: "Assistant", icon: ChatSkeuoIcon },
-    { href: "/ide", label: "IDE", icon: IdeSkeuoIcon },
-    { href: "/projects", label: "Projects", icon: FolderSkeuoIcon },
-    { href: "/library", label: "Library", icon: LibrarySkeuoIcon },
-    {
-        href: "/tabular-reviews",
-        label: "Tabular Review",
-        icon: TabularReviewSkeuoIcon,
-    },
-    { href: "/workflows", label: "Workflows", icon: WorkflowSkeuoIcon },
-    { href: "/playbooks", label: "Playbooks", icon: PlaybookSkeuoIcon },
-];
 
 const RECENT_PROJECT_PAGE_SIZE = 10;
 const RECENT_PROJECT_LIST_HEIGHT_CLASS = "h-44";
@@ -567,58 +548,67 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                     scrolls as one when the window is short, so the sidebar
                     never grows past the screen or slides under the footer. */}
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
-                    {/* Nav items */}
-                    <div className="pt-1.5">
-                        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-                            const isActive =
-                                href === "/assistant"
-                                    ? pathname === href
-                                    : href === "/projects"
-                                      ? pathname === href
-                                      : pathname === href ||
-                                        pathname.startsWith(href + "/");
-                            return (
-                                <div key={href} className="px-1.5 py-0.5">
-                                    <button
-                                        onClick={() => router.push(href)}
-                                        title={!isOpen ? label : ""}
-                                        className={cn(
-                                            "w-full h-8 flex items-center gap-2 px-2 py-2 rounded-md transition-colors text-left",
-                                            isActive
-                                                ? `${LIQUID_GLASS_SELECTED_CLASS} text-gray-900`
-                                                : `text-gray-700 ${LIQUID_GLASS_HOVER_CLASS}`,
-                                            !isOpen ? "hidden md:flex" : "flex",
-                                        )}
-                                    >
-                                        <Icon
-                                            className={`h-4 w-4 flex-shrink-0 ${
+                    {/* Primary navigation: real links, so they open in a new
+                        tab, show their address and announce the current page. */}
+                    <nav aria-label="Primary" className="pt-1.5">
+                        <ul>
+                            {NAV_ITEMS.map((item) => {
+                                const { href, label, icon: Icon } = item;
+                                const isActive = isNavItemCurrent(item, pathname);
+                                return (
+                                    <li key={href} className="px-1.5 py-0.5">
+                                        <Link
+                                            href={href}
+                                            aria-current={isActive ? "page" : undefined}
+                                            // Collapsed, the link shows only its
+                                            // icon, so the label names it.
+                                            aria-label={isOpen ? undefined : label}
+                                            title={isOpen ? undefined : label}
+                                            className={cn(
+                                                "w-full h-8 flex items-center gap-2 px-2 py-2 rounded-md transition-colors text-left",
                                                 isActive
-                                                    ? "text-gray-900"
-                                                    : "text-black"
-                                            }`}
-                                        />
-                                        {isOpen && (
-                                            <span
-                                                className={`text-sm font-medium ${
-                                                    shouldAnimate
-                                                        ? "sidebar-fade-in-2"
-                                                        : ""
+                                                    ? `${LIQUID_GLASS_SELECTED_CLASS} text-gray-900`
+                                                    : `text-gray-700 ${LIQUID_GLASS_HOVER_CLASS}`,
+                                                !isOpen ? "hidden md:flex" : "flex",
+                                            )}
+                                        >
+                                            <Icon
+                                                className={`h-4 w-4 flex-shrink-0 ${
+                                                    isActive
+                                                        ? "text-gray-900"
+                                                        : "text-black"
                                                 }`}
-                                            >
-                                                {label}
-                                            </span>
-                                        )}
-                                    </button>
-                                </div>
-                            );
-                        })}
-                    </div>
+                                            />
+                                            {isOpen && (
+                                                <span
+                                                    className={`text-sm font-medium ${
+                                                        shouldAnimate
+                                                            ? "sidebar-fade-in-2"
+                                                            : ""
+                                                    }`}
+                                                >
+                                                    {label}
+                                                </span>
+                                            )}
+                                        </Link>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </nav>
 
                     {isOpen && (
                         <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
                             {/* Recent Projects */}
                             <div>
                                 <button
+                                    type="button"
+                                    aria-expanded={!projectsCollapsed}
+                                    aria-controls={
+                                        projectsCollapsed
+                                            ? undefined
+                                            : "sidebar-recent-projects"
+                                    }
                                     onClick={() => setProjectsCollapsed((v) => !v)}
                                     className={`mb-2 flex w-full items-center justify-between rounded-md px-3.5 text-xs font-semibold text-gray-500 transition-colors hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40 ${
                                         shouldAnimate ? "sidebar-fade-in" : ""
@@ -633,6 +623,9 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                 </button>
                                 {!projectsCollapsed && (
                                     <div
+                                        id="sidebar-recent-projects"
+                                        role="region"
+                                        aria-label="Recent Projects"
                                         className={cn(
                                             anyRecentProjectExpanded
                                                 ? RECENT_PROJECT_LIST_EXPANDED_HEIGHT_CLASS
