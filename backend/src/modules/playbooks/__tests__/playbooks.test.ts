@@ -410,6 +410,73 @@ describe("review finding normalization", () => {
     ).toEqual(["rule-1", "liability-cap"]);
   });
 
+  it("keeps the position an acceptable or needs-review clause met", () => {
+    const [acceptable] = normalizeFindings(published, "", [
+      finding({ status: "acceptable", matchedPosition: "standard" }),
+    ]);
+    expect(acceptable).toMatchObject({ status: "acceptable", matchedPosition: "standard" });
+
+    const withFallback = playbookContentSchema.parse({
+      ...content(),
+      topics: [
+        {
+          ...content().topics[0],
+          rules: [
+            {
+              ...content().topics[0].rules[0],
+              fallbacks: [{ name: "Fallback", criteria: "Cap at twice the fees." }],
+            },
+          ],
+        },
+      ],
+    });
+    const [review] = normalizeFindings(withFallback, "", [
+      finding({ status: "needs_review", matchedPosition: "fallback" }),
+    ]);
+    expect(review).toMatchObject({ matchedPosition: "fallback" });
+  });
+
+  it("matches no position for a finding that did not meet one, or a position the rule lacks", () => {
+    for (const claimed of [
+      // Only acceptable and needs-review clauses met a position.
+      finding({ status: "unacceptable", matchedPosition: "standard" }),
+      finding({ status: "missing_required", matchedPosition: "standard" }),
+      finding({ status: "not_applicable", matchedPosition: "fallback" }),
+      // The rule has no fallback positions.
+      finding({ status: "acceptable", matchedPosition: "fallback" }),
+      // Omitted, as older callers and some models do.
+      finding({ status: "acceptable" }),
+    ]) {
+      const [normalized] = normalizeFindings(published, "", [claimed]);
+      expect(normalized.matchedPosition).toBe("none");
+    }
+    const noStandard = playbookContentSchema.parse({
+      ...content(),
+      topics: [
+        {
+          ...content().topics[0],
+          rules: [{ ...content().topics[0].rules[0], standard: null }],
+        },
+      ],
+    });
+    const [claimedStandard] = normalizeFindings(noStandard, "", [
+      finding({ status: "acceptable", matchedPosition: "standard" }),
+    ]);
+    expect(claimedStandard.matchedPosition).toBe("none");
+  });
+
+  it("back-fills and outside-scope findings match no position", () => {
+    const [outside, backfilled] = normalizeFindings(published, "", [
+      finding({
+        status: "outside_scope",
+        ruleName: "Unlisted clause",
+        matchedPosition: "standard",
+      }),
+    ]);
+    expect(outside).toMatchObject({ status: "outside_scope", matchedPosition: "none" });
+    expect(backfilled).toMatchObject({ status: "needs_review", matchedPosition: "none" });
+  });
+
   it("does not guess when two rules share a name", () => {
     const ambiguous = playbookContentSchema.parse({
       ...content(),

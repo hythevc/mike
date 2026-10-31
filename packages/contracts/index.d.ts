@@ -739,3 +739,53 @@ export interface AuditActorPage {
   users: AuditActor[];
   nextOffset: number | null;
 }
+
+/** Which of a playbook rule's positions a reviewed clause met. */
+export type PlaybookMatchedPosition = "standard" | "fallback" | "none";
+
+/** What a reviewer decided about one finding of a playbook review. */
+export type PlaybookFindingDecisionKind = "accepted" | "overridden" | "escalated";
+
+/**
+ * "bulk" when the finding was accepted together with the run's other
+ * acceptable findings that met the standard position.
+ */
+export type PlaybookFindingDecisionMethod = "single" | "bulk";
+
+/** A person named on a decision; null fields when their profile has none. */
+export interface PlaybookDecisionPerson {
+    userId: string;
+    displayName: string | null;
+    email: string | null;
+}
+
+/** A reviewer's decision on one finding of a playbook run. */
+export interface PlaybookFindingDecision {
+    /** The finding's id within its run. */
+    findingId: string;
+    decision: PlaybookFindingDecisionKind;
+    method: PlaybookFindingDecisionMethod;
+    /** Required for an override; optional otherwise. */
+    note: string | null;
+    /** For an escalation; null once that account is deleted. */
+    escalatedTo: PlaybookDecisionPerson | null;
+    /** Null once the reviewer's account is deleted. */
+    decidedBy: PlaybookDecisionPerson | null;
+    decidedAt: string;
+}
+
+/** A run's decisions, and the project its reviewed document is in, if any. */
+export interface PlaybookRunDecisions {
+    runId: string;
+    /** Escalation and saving the decision record need this project. */
+    project: { id: string; name: string; canAddDocuments: boolean } | null;
+    decisions: PlaybookFindingDecision[];
+}
+
+/** Where an exported decision record was saved. */
+export interface PlaybookDecisionRecordSaved {
+    documentId: string;
+    projectId: string;
+    projectName: string;
+    filename: string;
+}

@@ -42,6 +42,16 @@ export {
 export { removePlaybookObjects } from "./playbooks.reporting";
 
 export {
+  getPlaybookRunDecisions,
+  recordPlaybookFindingDecision,
+  clearPlaybookFindingDecision,
+  bulkAcceptPlaybookFindings,
+  listPlaybookEscalationMembers,
+} from "./playbooks.decisions";
+
+export { exportPlaybookDecisionRecord } from "./playbooks.summaryExport";
+
+export {
   queuePlaybookReview,
   queuePlaybookImport,
   handlePlaybookReview,
