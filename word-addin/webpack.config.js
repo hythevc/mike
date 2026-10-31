@@ -191,6 +191,9 @@ module.exports = async (_env, options) => {
         // The frontend's public icon set is canonical. Webpack imports those
         // same SVGs and emits content-hashed copies for the add-in bundle.
         "@icons": path.resolve(__dirname, "..", "frontend", "public", "icons"),
+        // The brand module generated from packages/brand/brand.json
+        // (scripts/brand/generate.mjs); the add-in never reads packages/.
+        "@mike/brand": frontendShared("brand.generated.ts"),
         "@mike/edit-card-ui": frontendSharedUi("EditCardUI.tsx"),
         "@mike/edit-cards-section-ui": frontendSharedUi(
           "EditCardsSectionUI.tsx",

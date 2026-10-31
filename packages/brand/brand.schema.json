@@ -1,0 +1,220 @@
+{
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-only",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brand configuration",
+  "description": "The product's names, addresses, legal documents and marks: the one brand configuration every application reads, through its generated brand module.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "productName",
+    "legalEntityName",
+    "appUrl",
+    "marketingUrl",
+    "supportEmail",
+    "securityEmail",
+    "docsUrl",
+    "changelogUrl",
+    "sourceRepositoryUrl",
+    "upstreamAttribution",
+    "legalDocuments",
+    "assets",
+    "palette",
+    "displayFace"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Editor hint pointing at this schema; not part of the generated modules."
+    },
+    "$comment": {
+      "type": "string",
+      "description": "Free text for maintainers; not part of the generated modules."
+    },
+    "productName": {
+      "$ref": "#/$defs/displayText",
+      "maxLength": 40,
+      "description": "The product's name wherever the applications show it."
+    },
+    "assistantName": {
+      "$ref": "#/$defs/displayText",
+      "maxLength": 60,
+      "description": "The assistant's name in the interface and in model instructions. Defaults to \"<productName> Assistant\". It names a product feature, never a person."
+    },
+    "legalEntityName": {
+      "$ref": "#/$defs/displayText",
+      "maxLength": 120,
+      "description": "The legal name of the company that operates the service, as it appears in legal documents and notices."
+    },
+    "appUrl": {
+      "$ref": "#/$defs/httpsUrl",
+      "description": "Public address of the web application."
+    },
+    "marketingUrl": {
+      "$ref": "#/$defs/httpsUrl",
+      "description": "Public address of the product website."
+    },
+    "supportEmail": {
+      "$ref": "#/$defs/email",
+      "description": "Mailbox for user support requests."
+    },
+    "securityEmail": {
+      "$ref": "#/$defs/email",
+      "description": "Mailbox for security reports (security.txt and the security policy)."
+    },
+    "docsUrl": {
+      "$ref": "#/$defs/httpsUrl",
+      "description": "Public address of the user documentation."
+    },
+    "changelogUrl": {
+      "$ref": "#/$defs/httpsUrl",
+      "description": "Public address of the release notes."
+    },
+    "sourceRepositoryUrl": {
+      "$ref": "#/$defs/httpsUrl",
+      "description": "Public repository holding the complete corresponding source code of the running service."
+    },
+    "upstreamAttribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectName", "author", "url", "license", "notice"],
+      "description": "The project this software is derived from, credited wherever attribution is shown.",
+      "properties": {
+        "projectName": {
+          "$ref": "#/$defs/displayText",
+          "maxLength": 80,
+          "description": "Name of the upstream project."
+        },
+        "author": {
+          "$ref": "#/$defs/displayText",
+          "maxLength": 120,
+          "description": "Author or organization of the upstream project."
+        },
+        "url": {
+          "$ref": "#/$defs/httpsUrl",
+          "description": "Address of the upstream project's source."
+        },
+        "license": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9.+-]+$",
+          "description": "SPDX identifier of the upstream licence."
+        },
+        "notice": {
+          "$ref": "#/$defs/displayText",
+          "maxLength": 300,
+          "description": "One-sentence attribution shown in the interface."
+        }
+      }
+    },
+    "legalDocuments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "terms",
+        "privacy",
+        "dpa",
+        "subprocessors",
+        "aup",
+        "aiTransparency",
+        "accessibility",
+        "cookies",
+        "security"
+      ],
+      "description": "The legal documents users and customers are pointed to, each with its address, version and status.",
+      "properties": {
+        "terms": { "$ref": "#/$defs/legalDocument", "description": "Terms of service." },
+        "privacy": { "$ref": "#/$defs/legalDocument", "description": "Privacy notice." },
+        "dpa": { "$ref": "#/$defs/legalDocument", "description": "Data processing agreement." },
+        "subprocessors": { "$ref": "#/$defs/legalDocument", "description": "List of subprocessors and model providers." },
+        "aup": { "$ref": "#/$defs/legalDocument", "description": "Acceptable use policy." },
+        "aiTransparency": { "$ref": "#/$defs/legalDocument", "description": "Statement on how AI is used, by which providers, and its known limitations." },
+        "accessibility": { "$ref": "#/$defs/legalDocument", "description": "Accessibility statement." },
+        "cookies": { "$ref": "#/$defs/legalDocument", "description": "Cookie notice." },
+        "security": { "$ref": "#/$defs/legalDocument", "description": "Security overview and vulnerability disclosure policy." }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["glyph", "wordmark", "favicon", "ogImage"],
+      "description": "Paths of the brand's image files, as served by the web application.",
+      "properties": {
+        "glyph": { "$ref": "#/$defs/assetPath", "description": "Square mark used where space is tight." },
+        "wordmark": { "$ref": "#/$defs/assetPath", "description": "The product name as a logotype." },
+        "favicon": { "$ref": "#/$defs/assetPath", "description": "Browser tab icon." },
+        "ogImage": { "$ref": "#/$defs/assetPath", "description": "Preview image for shared links." }
+      }
+    },
+    "palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "onPrimary"],
+      "description": "Brand colours. onPrimary on primary must reach a 4.5:1 contrast ratio (checked by the generator).",
+      "properties": {
+        "primary": { "$ref": "#/$defs/hexColor", "description": "Main brand colour." },
+        "onPrimary": { "$ref": "#/$defs/hexColor", "description": "Text and icon colour placed on primary." }
+      }
+    },
+    "displayFace": {
+      "enum": ["inter", "eb-garamond"],
+      "description": "Typeface for display text, chosen from the faces bundled with the web application."
+    },
+    "docxAuthorLabel": {
+      "$ref": "#/$defs/displayText",
+      "maxLength": 60,
+      "description": "Author name on tracked changes and document properties the assistant writes into Word files. Defaults to assistantName."
+    }
+  },
+  "$defs": {
+    "displayText": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^<>\\s\\p{Cc}](?:[^<>\\p{Cc}]*[^<>\\s\\p{Cc}])?$",
+      "description": "Plain text: no surrounding spaces, no angle brackets, no control characters."
+    },
+    "httpsUrl": {
+      "type": "string",
+      "maxLength": 300,
+      "pattern": "^https://[A-Za-z0-9.-]+(?::\\d+)?(?:/[^\\s]*)?$",
+      "description": "An absolute https address."
+    },
+    "email": {
+      "type": "string",
+      "maxLength": 254,
+      "pattern": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+      "description": "A mailbox address."
+    },
+    "assetPath": {
+      "type": "string",
+      "pattern": "^/[A-Za-z0-9._/-]+\\.(?:svg|png|ico|jpg|jpeg|webp)$",
+      "description": "A root-relative path to an image the web application serves."
+    },
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "description": "A colour as #RRGGBB."
+    },
+    "legalDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "version", "status"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 300,
+          "pattern": "^(?:https://[A-Za-z0-9.-]+(?::\\d+)?(?:/[^\\s]*)?|/[A-Za-z0-9._~/-]*)$",
+          "description": "Where the document is published: an absolute https address, or a path in the web application."
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^[0-9][0-9A-Za-z.-]*$",
+          "description": "Version of the document users accept or are shown, for example 2026-11-01 or 1.2.0."
+        },
+        "status": {
+          "enum": ["draft", "in-effect"],
+          "description": "draft: written but not in effect (pending legal review); in-effect: the version that applies."
+        }
+      }
+    }
+  }
+}
