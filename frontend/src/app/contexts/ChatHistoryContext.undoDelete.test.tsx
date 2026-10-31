@@ -3,13 +3,21 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
-import { CHAT_DELETE_UNDO_MS } from "@/app/lib/chatDeleteUndo";
+import {
+    CHAT_DELETE_FLUSH_MS,
+    CHAT_DELETE_UNDO_MS,
+} from "@/app/lib/chatDeleteUndo";
 import type { Chat } from "@/app/components/shared/types";
 
 const { deleteChat, listChats, session } = vi.hoisted(() => ({
     deleteChat: vi.fn(),
     listChats: vi.fn(),
-    session: { user: { id: "u1", email: "a@firm.test" } },
+    session: {
+        user: { id: "u1", email: "a@firm.test" } as {
+            id: string;
+            email: string;
+        } | null,
+    },
 }));
 
 vi.mock("@/app/lib/mikeApi", () => ({
@@ -31,6 +39,7 @@ vi.mock("@/app/contexts/WorkspaceContext", () => ({
 import {
     ChatHistoryProvider,
     useChatHistoryContext,
+    type ChatDeleteFlush,
 } from "./ChatHistoryContext";
 
 const filing: Chat = {
@@ -50,6 +59,31 @@ const lease: Chat = {
     created_at: "2026-10-01T00:00:00.000Z",
     updated_at: "2026-10-01T00:00:00.000Z",
 };
+const merger: Chat = {
+    ...filing,
+    id: "chat-c",
+    title: "Merger checklist",
+    created_at: "2026-09-30T00:00:00.000Z",
+    updated_at: "2026-09-30T00:00:00.000Z",
+};
+const notice: Chat = {
+    ...filing,
+    id: "chat-d",
+    title: "Notice letter",
+    created_at: "2026-09-29T00:00:00.000Z",
+    updated_at: "2026-09-29T00:00:00.000Z",
+};
+
+/** A DELETE that has not been answered yet. */
+function unansweredDelete() {
+    let answer!: { resolve: () => void; reject: (error: unknown) => void };
+    deleteChat.mockReturnValue(
+        new Promise<void>((resolve, reject) => {
+            answer = { resolve, reject };
+        }),
+    );
+    return () => answer;
+}
 
 let latest: ReturnType<typeof useChatHistoryContext>;
 function Probe() {
@@ -95,7 +129,7 @@ async function deleteFiling() {
  */
 async function refreshSession(view: ReturnType<typeof render>) {
     const reads = listChats.mock.calls.length;
-    session.user = { ...session.user };
+    session.user = { id: "u1", email: "a@firm.test" };
     view.rerender(history());
     await waitFor(() => expect(listChats.mock.calls.length).toBe(reads + 1));
     await act(async () => {
@@ -405,5 +439,129 @@ describe("deleteChatWithUndo", () => {
             await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS * 2);
         });
         expect(deleteChat).toHaveBeenCalledTimes(2);
+    });
+
+    // Deleted in another tab, or with every chat from Settings, while this
+    // one waited on Undo: the server no longer has it.
+    it("treats a chat that is already gone as deleted", async () => {
+        const { MikeApiError } = await vi.importActual<
+            typeof import("@/app/lib/mikeApi")
+        >("@/app/lib/mikeApi");
+        deleteChat.mockRejectedValue(
+            new MikeApiError({ message: "Chat not found", status: 404 }),
+        );
+        await deleteFiling();
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS);
+        });
+
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-a");
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(screen.getByTestId("titles")).toHaveTextContent("Lease review");
+        expect(screen.getByTestId("titles")).not.toHaveTextContent(
+            "Quarterly filing",
+        );
+        // Nothing is left waiting to be sent.
+        let flushed: ChatDeleteFlush | null = null;
+        await act(async () => {
+            flushed = await latest.flushPendingChatDeletes();
+        });
+        expect(flushed).toEqual({ refused: 0 });
+        expect(deleteChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps each Undo open for its whole window when several chats are deleted in a row", async () => {
+        listChats.mockResolvedValue([filing, lease, merger, notice]);
+        renderHistory();
+        await waitFor(() => expect(latest.chats?.length).toBe(4));
+
+        for (const chat of [filing, lease, merger, notice]) {
+            act(() => latest.deleteChatWithUndo(chat));
+        }
+
+        expect(screen.getAllByRole("button", { name: "Undo" })).toHaveLength(4);
+        expect(deleteChat).not.toHaveBeenCalled();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS - 100);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+
+        // The oldest notice still undoes its own delete.
+        fireEvent.click(screen.getAllByRole("button", { name: "Undo" })[0]);
+        expect(screen.getByTestId("titles")).toHaveTextContent(
+            "Quarterly filing",
+        );
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(100);
+        });
+        expect(deleteChat).toHaveBeenCalledTimes(3);
+        expect(deleteChat).not.toHaveBeenCalledWith("chat-a");
+    });
+
+    it("waits for the deletes it sends for at most the flush limit", async () => {
+        const answer = unansweredDelete();
+        await deleteFiling();
+
+        let flushed: ChatDeleteFlush | null = null;
+        void latest.flushPendingChatDeletes().then((result) => {
+            flushed = result;
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_FLUSH_MS - 100);
+        });
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-a");
+        expect(flushed).toBeNull();
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(100);
+        });
+        expect(flushed).toEqual({ refused: 0 });
+        // The unanswered delete still keeps the chat out of the list.
+        expect(screen.getByTestId("titles")).not.toHaveTextContent(
+            "Quarterly filing",
+        );
+        await act(async () => answer().resolve());
+        expect(deleteChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts refused deletes, and leaves telling the person to a caller that asks", async () => {
+        deleteChat.mockRejectedValue(
+            Object.assign(new Error("Forbidden"), { status: 403 }),
+        );
+        await deleteFiling();
+
+        let flushed: ChatDeleteFlush | null = null;
+        await act(async () => {
+            flushed = await latest.flushPendingChatDeletes({ report: false });
+        });
+
+        expect(flushed).toEqual({ refused: 1 });
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(screen.getByTestId("titles")).toHaveTextContent(
+            "Quarterly filing,Lease review",
+        );
+    });
+
+    it("does not show a refusal that arrives after the person signed out", async () => {
+        const answer = unansweredDelete();
+        const view = await deleteFiling();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS);
+        });
+        expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-a");
+
+        session.user = null;
+        view.rerender(history());
+        await act(async () => {
+            answer().reject(
+                Object.assign(new Error("Bad gateway"), { status: 502 }),
+            );
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(0);
+        });
+
+        expect(screen.queryByRole("alert")).toBeNull();
     });
 });

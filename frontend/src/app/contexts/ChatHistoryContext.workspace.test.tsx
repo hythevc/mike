@@ -28,7 +28,11 @@ vi.mock("@/app/lib/mikeApi", () => ({
     deleteChat: (...args: unknown[]) => deleteChat(...args),
     leaveChat: (...args: unknown[]) => leaveChat(...args),
 }));
-vi.mock("@/app/lib/userFacingError", () => ({ notifyError }));
+// The real classifier tells a chat that is already gone from a refusal.
+vi.mock("@/app/lib/userFacingError", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@/app/lib/userFacingError")>()),
+    notifyError,
+}));
 vi.mock("@/app/contexts/AuthContext", () => ({
     useAuth: () => ({ user: auth.user }),
 }));

@@ -76,7 +76,7 @@ describe("SettingsPage Google email changes", () => {
         state.push.mockReset();
         state.signOut.mockReset();
         state.flushPendingChatDeletes.mockReset();
-        state.flushPendingChatDeletes.mockResolvedValue(undefined);
+        state.flushPendingChatDeletes.mockResolvedValue({ refused: 0 });
         state.deleteAccount.mockReset();
         state.deleteAccount.mockResolvedValue(undefined);
         state.updateEmail.mockReset();
@@ -218,6 +218,7 @@ describe("SettingsPage Google email changes", () => {
         const order: string[] = [];
         state.flushPendingChatDeletes.mockImplementation(async () => {
             order.push("chat deletes");
+            return { refused: 0 };
         });
         state.deleteAccount.mockImplementation(async () => {
             order.push("account");

@@ -42,15 +42,16 @@ export function retryToastAction(
  * - `dismissed`: the person closed it, or code dismissed it.
  * - `action`: the person chose one of its actions.
  * - `replaced`: a newer toast with the same dedupe key took its place.
- * - `evicted`: newer toasts pushed it out of a full stack.
  * - `cleared`: every toast was discarded at once, as when the session ends.
+ *
+ * A toast with an `onClose` is never pushed out by newer toasts, so a full
+ * stack is not one of the reasons.
  */
 export type ToastCloseReason =
     | "expired"
     | "dismissed"
     | "action"
     | "replaced"
-    | "evicted"
     | "cleared";
 
 export interface ToastInput {
@@ -75,7 +76,9 @@ export interface ToastInput {
     /**
      * Runs once, after the toast has left the stack, with the reason. Work
      * that lasts only as long as its toast, such as a delete that waits for
-     * Undo, finishes or drops itself here.
+     * Undo, finishes or drops itself here. Newer toasts never push such a
+     * toast out of a full stack, which can then hold more than
+     * `MAX_VISIBLE_TOASTS`: it stays for its whole window.
      */
     onClose?: (reason: ToastCloseReason) => void;
 }
@@ -98,21 +101,28 @@ export const MAX_VISIBLE_TOASTS = 3;
 type Listener = () => void;
 
 /**
- * A toast the user still has to act on: an error carrying "Retry" or
- * "Contact support". These errors take priority over transient notices.
+ * A toast the user can still act on: one carrying an action such as
+ * "Retry" or "Undo", or "Contact support". These take priority over
+ * transient notices.
  */
-function isActionableError(toast: ToastRecord): boolean {
-    return (
-        toast.tone === "error" &&
-        Boolean(toast.actions?.length || toast.supportHref)
-    );
+function isActionable(toast: ToastRecord): boolean {
+    return Boolean(toast.actions?.length || toast.supportHref);
+}
+
+/**
+ * A toast whose `onClose` finishes work, such as a delete that waits for
+ * Undo. Dropping it from the stack would end that work early.
+ */
+function holdsWork(toast: ToastRecord): boolean {
+    return toast.onClose !== undefined;
 }
 
 /**
  * Trim the stack to `MAX_VISIBLE_TOASTS`, dropping dismissible chatter
  * oldest-first and only then falling back to persistent notices and
- * actionable errors. The newest toast is always kept:
- * it is the one that just happened.
+ * actionable ones. A toast that holds work is never dropped, so the stack
+ * may hold more than the maximum while one is open. The newest toast is
+ * always kept: it is the one that just happened.
  */
 function trimToStack(next: readonly ToastRecord[]): readonly ToastRecord[] {
     let excess = next.length - MAX_VISIBLE_TOASTS;
@@ -122,13 +132,22 @@ function trimToStack(next: readonly ToastRecord[]): readonly ToastRecord[] {
     const dropped = new Set<string>();
     for (const toast of next) {
         if (excess === 0) break;
-        if (toast === newest || isActionableError(toast) || toast.durationMs === null) continue;
+        if (
+            toast === newest ||
+            holdsWork(toast) ||
+            isActionable(toast) ||
+            toast.durationMs === null
+        ) {
+            continue;
+        }
         dropped.add(toast.id);
         excess -= 1;
     }
     for (const toast of next) {
         if (excess === 0) break;
-        if (toast === newest || dropped.has(toast.id)) continue;
+        if (toast === newest || holdsWork(toast) || dropped.has(toast.id)) {
+            continue;
+        }
         dropped.add(toast.id);
         excess -= 1;
     }
@@ -169,12 +188,11 @@ export function showToast(input: ToastInput): string {
         ? toasts.filter((toast) => toast.dedupeKey !== input.dedupeKey)
         : toasts;
     const replaced = toasts.filter((toast) => !kept.includes(toast));
-    const next = trimToStack([...kept, record]);
-    const evicted = kept.filter((toast) => !next.includes(toast));
-    toasts = next;
+    // Trimming never drops a toast with an `onClose`, so the toasts it
+    // drops have no one to tell.
+    toasts = trimToStack([...kept, record]);
     emit();
     for (const toast of replaced) toast.onClose?.("replaced");
-    for (const toast of evicted) toast.onClose?.("evicted");
     return record.id;
 }
 

@@ -23,12 +23,15 @@ import {
     listChats,
     renameChat,
 } from "@/app/lib/mikeApi";
-import { notifyError } from "@/app/lib/userFacingError";
+import { describeError, notifyError } from "@/app/lib/userFacingError";
 import type { Chat, Message } from "@/app/components/shared/types";
 import type { ProjectRole } from "@/app/lib/permissions";
 import { subscribeAssistantTurns } from "@/app/lib/assistantTurns";
 import { sortChatsByActivity, touchChatActivity } from "@/app/lib/chatActivity";
-import { CHAT_DELETE_UNDO_MS } from "@/app/lib/chatDeleteUndo";
+import {
+    CHAT_DELETE_FLUSH_MS,
+    CHAT_DELETE_UNDO_MS,
+} from "@/app/lib/chatDeleteUndo";
 import { useLatestRef } from "@/app/hooks/useLatestRef";
 import { dismissToast, showToast } from "@/shared/lib/toastStore";
 
@@ -68,18 +71,35 @@ interface ChatHistoryContextType {
      * notice closes without Undo: after CHAT_DELETE_UNDO_MS, a window that
      * pauses while the notice is hovered or focused, or sooner if the
      * notice is closed. A delete the server refuses puts the row back and
-     * says so.
+     * says so; a chat that is already gone counts as deleted.
      */
     deleteChatWithUndo: (chat: Chat) => void;
     /**
      * Send every delete still inside its undo window, now. Call it before
      * ending the session: a session that ends drops the deletes still
      * waiting, because they could no longer be sent as the person who
-     * confirmed them.
+     * confirmed them. It waits for the answers for at most
+     * CHAT_DELETE_FLUSH_MS, so a server that does not answer cannot hold the
+     * session open. A refused delete puts its chat back and, unless
+     * `report` is false, says so; either way the result counts it.
      */
-    flushPendingChatDeletes: () => Promise<void>;
+    flushPendingChatDeletes: (options?: {
+        report?: boolean;
+    }) => Promise<ChatDeleteFlush>;
     leaveChat: (chatId: string) => Promise<void>;
 }
+
+/** What came of the deletes `flushPendingChatDeletes` sent. */
+export interface ChatDeleteFlush {
+    /**
+     * Deletes the server refused before the time limit. Their chats are
+     * back in the list.
+     */
+    refused: number;
+}
+
+/** What came of one confirmed delete once it was sent. */
+type ChatDeleteOutcome = "deleted" | "refused";
 
 /** A confirmed delete, from the confirmation until the server answers. */
 type PendingChatDelete = {
@@ -94,8 +114,13 @@ type PendingChatDelete = {
      * does, keeps it the same list; a workspace switch does not.
      */
     scopeKey: string;
+    /**
+     * Who confirmed it. A refusal that arrives after they signed out is not
+     * shown to whoever is at the screen by then.
+     */
+    userId: string | null;
     /** The DELETE once it is sent; Undo no longer applies from then on. */
-    sending: Promise<void> | null;
+    sending: Promise<ChatDeleteOutcome> | null;
 };
 
 const ChatHistoryContext = createContext<ChatHistoryContextType | undefined>(
@@ -445,6 +470,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const chatsRef = useLatestRef(chats);
+    const userIdRef = useLatestRef(user?.id ?? null);
 
     // Put back exactly the row that left, in activity order, and only into
     // the list it left. That list may have been re-read since, which keeps
@@ -462,24 +488,38 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     // Send a confirmed delete now, or join the one already under way. The
     // entry stays until the server answers, so a list read in between (a
     // session check on window focus re-reads the list) still leaves the
-    // chat out.
+    // chat out. `report: false` leaves telling the person about a refusal
+    // to the caller.
     const commitChatDelete = useCallback(
-        (chatId: string): Promise<void> => {
+        (chatId: string, report = true): Promise<ChatDeleteOutcome> => {
             const pending = pendingDeletesRef.current.get(chatId);
-            if (!pending) return Promise.resolve();
+            // Nothing is waiting: Undo, or an earlier answer, settled it.
+            if (!pending) return Promise.resolve("deleted");
             if (pending.sending) return pending.sending;
-            pending.sending = (async () => {
+            pending.sending = (async (): Promise<ChatDeleteOutcome> => {
                 try {
                     await deleteChat(chatId);
+                    return "deleted";
                 } catch (error) {
+                    // Already gone: deleted in another tab, or with every
+                    // chat from Settings, while this one waited on Undo.
+                    // That is what the person asked for.
+                    if (describeError(error).kind === "not_found") {
+                        return "deleted";
+                    }
                     // The removal must not become a silent success: the row
-                    // comes back and the notice says why. No Retry: deleting
-                    // again is the row's own action, which asks first.
+                    // comes back and the notice says why, to the person who
+                    // confirmed it while they are still signed in. No Retry:
+                    // deleting again is the row's own action, which asks
+                    // first.
                     restoreDeletedChat(pending);
-                    notifyError(error, {
-                        action: "delete the chat",
-                        dedupeKey: `chat-delete:${chatId}`,
-                    });
+                    if (report && userIdRef.current === pending.userId) {
+                        notifyError(error, {
+                            action: "delete the chat",
+                            dedupeKey: `chat-delete:${chatId}`,
+                        });
+                    }
+                    return "refused";
                 } finally {
                     if (pendingDeletesRef.current.get(chatId) === pending) {
                         pendingDeletesRef.current.delete(chatId);
@@ -491,7 +531,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             dismissToast(pending.toastId);
             return pending.sending;
         },
-        [restoreDeletedChat],
+        [restoreDeletedChat, userIdRef],
     );
 
     const undoChatDelete = useCallback(
@@ -515,6 +555,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
                     chatsRef.current?.some((entry) => entry.id === chat.id) ??
                     false,
                 scopeKey: loadedScopeRef.current ?? scopeKey,
+                userId: userIdRef.current,
                 sending: null,
             };
             pendingDeletesRef.current.set(chat.id, pending);
@@ -553,22 +594,41 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
                         pendingDeletesRef.current.delete(chat.id);
                         return;
                     }
-                    // The window ran out, or the notice was closed or
-                    // pushed out: Undo is gone, so the delete goes now.
+                    // The window ran out or the notice was closed: Undo is
+                    // gone, so the delete goes now. Newer notices never push
+                    // this one out early (it has an onClose), so several
+                    // deletes in a row each keep their whole window.
                     void commitChatDelete(chat.id);
                 },
             });
         },
-        [chatsRef, commitChatDelete, scopeKey, undoChatDelete],
+        [chatsRef, commitChatDelete, scopeKey, undoChatDelete, userIdRef],
     );
 
-    const flushPendingChatDeletes = useCallback(async () => {
-        await Promise.allSettled(
-            [...pendingDeletesRef.current.keys()].map((chatId) =>
-                commitChatDelete(chatId),
-            ),
-        );
-    }, [commitChatDelete]);
+    const flushPendingChatDeletes = useCallback(
+        async ({ report = true }: { report?: boolean } = {}) => {
+            const sends = [...pendingDeletesRef.current.keys()].map((chatId) =>
+                commitChatDelete(chatId, report),
+            );
+            const flushed: ChatDeleteFlush = { refused: 0 };
+            if (sends.length === 0) return flushed;
+            const answered = Promise.all(
+                sends.map(async (send) => {
+                    if ((await send) === "refused") flushed.refused += 1;
+                }),
+            );
+            // Answers that come later still put a refused chat back; they
+            // just no longer hold up the caller.
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const limit = new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, CHAT_DELETE_FLUSH_MS);
+            });
+            await Promise.race([answered, limit]);
+            clearTimeout(timer);
+            return { refused: flushed.refused };
+        },
+        [commitChatDelete],
+    );
 
     // A confirmed delete must not be lost with its notice. Leaving the app
     // shell while signed in sends it at once (a session that ends has

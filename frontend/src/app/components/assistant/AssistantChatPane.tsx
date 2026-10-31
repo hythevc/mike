@@ -280,7 +280,9 @@ export function AssistantChatPane({
             documentPanel={documentPanel}
             paneId={isSideChat ? "side" : "primary"}
             onOpenSideChat={onOpenSideChat}
-            onChatDeleted={isSideChat ? handleNewChat : undefined}
+            // In place, as "New chat" does: a chat beside this one stays
+            // open, and the new chat's message box can take the keyboard.
+            onChatDeleted={handleNewChat}
             onCloseSideChat={sideChat?.onClose ?? onCloseSideChat}
             hiddenChatId={otherChatId}
             widthShare={widthShare}

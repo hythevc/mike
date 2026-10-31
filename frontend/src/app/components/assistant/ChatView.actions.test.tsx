@@ -35,6 +35,7 @@ const { push, renameChat, deleteChatWithUndo, leaveChat, setCurrentChatId, setNe
 
 const addDoc = vi.hoisted(() => vi.fn());
 const attachPlaybook = vi.hoisted(() => vi.fn());
+const focusComposer = vi.hoisted(() => vi.fn());
 
 const activeChat: Chat = {
     id: "chat-1",
@@ -88,7 +89,7 @@ vi.mock("./ChatInput", () => ({
         onDocumentClick?: (document: Document) => void;
         ref?: Ref<ChatInputHandle>;
     }) => {
-        useImperativeHandle(ref, () => ({ addDoc, addFiles: vi.fn(), addExcerpt: vi.fn(), startWorkflow: vi.fn(), startWorkflowDocumentSelection: vi.fn(), attachPlaybook }));
+        useImperativeHandle(ref, () => ({ addDoc, addFiles: vi.fn(), addExcerpt: vi.fn(), startWorkflow: vi.fn(), startWorkflowDocumentSelection: vi.fn(), attachPlaybook, focus: focusComposer }));
         return <button onClick={() => onDocumentClick?.(spreadsheet)}>
             Open Budget.xlsx
         </button>;
@@ -188,6 +189,7 @@ function renderView(
     mobileActionsContainer: HTMLElement | null = null,
     onInitialSubmit?: (message: Message) => void,
     onNewChat = vi.fn(),
+    onChatDeleted?: () => void,
 ) {
     render(
         <PageChromeContext.Provider value={{ mobileActionsContainer }}>
@@ -200,6 +202,7 @@ function renderView(
                 handleChat={vi.fn().mockResolvedValue("chat-1")}
                 cancel={cancel}
                 onNewChat={onNewChat}
+                onChatDeleted={onChatDeleted}
             />
         </PageChromeContext.Provider>,
     );
@@ -642,6 +645,25 @@ describe("ChatView header actions", () => {
             expect.objectContaining({ id: "chat-1" }),
         );
         expect(push).toHaveBeenCalledWith("/assistant");
+    });
+
+    // The menu and the dialog go with the chat; without a place to land,
+    // the keyboard would drop to the top of the page.
+    it("puts the keyboard in the new chat's message box after a confirmed delete", async () => {
+        const onChatDeleted = vi.fn();
+        renderView(vi.fn(), [], null, undefined, vi.fn(), onChatDeleted);
+
+        openActions();
+        fireEvent.click(await screen.findByText("Delete"));
+        const dialog = await screen.findByRole("dialog", { name: "Delete chat?" });
+        fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+        expect(deleteChatWithUndo).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "chat-1" }),
+        );
+        expect(onChatDeleted).toHaveBeenCalledOnce();
+        expect(push).not.toHaveBeenCalled();
+        await waitFor(() => expect(focusComposer).toHaveBeenCalledOnce());
     });
 
     it("keeps the chat when the delete confirmation is cancelled", async () => {

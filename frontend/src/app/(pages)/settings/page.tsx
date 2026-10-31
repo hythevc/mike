@@ -118,7 +118,9 @@ export default function SettingsPage() {
         return;
       }
       // A chat delete still inside its undo window goes first, while the
-      // account can still send it.
+      // account can still send it. Its answer is awaited only briefly
+      // (CHAT_DELETE_FLUSH_MS), so a server that does not answer cannot
+      // hold up the account deletion.
       await flushPendingChatDeletes();
       await deleteAccount();
       await signOut();

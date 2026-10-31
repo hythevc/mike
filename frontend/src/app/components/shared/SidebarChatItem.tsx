@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     MessageSquare,
@@ -23,6 +23,7 @@ import { DeleteChatConfirmPopup } from "@/app/components/shared/DeleteChatConfir
 import { LeaveChatPopup } from "@/app/components/assistant/LeaveChatPopup";
 import { WarningPopup } from "@/app/components/popups/WarningPopup";
 import { can, roleFrom } from "@/app/lib/permissions";
+import { focusNeighbour } from "@/app/lib/focusNeighbour";
 import { userFacingApiError } from "@/app/lib/userFacingError";
 import type { Chat } from "@/app/components/shared/types";
 import { ChatSkeuoIcon } from "@/app/components/shared/AppSidebarSkeuoIcons";
@@ -64,6 +65,7 @@ export function SidebarChatItem({
     const [menuOpen, setMenuOpen] = useState(false);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [renameError, setRenameError] = useState<string | null>(null);
+    const rowRef = useRef<HTMLDivElement>(null);
     const { titleRef, titleStyle, slideHandlers } = useSidebarTitleSlide();
     // Chat management belongs to owners; editors can still send messages.
     const role = roleFrom(chat);
@@ -104,6 +106,11 @@ export function SidebarChatItem({
     };
 
     const confirmDelete = () => {
+        // The dialog and this row are about to go, which would drop the
+        // keyboard to the top of the page: hand it to the next chat in the
+        // list instead (or the list itself once it is empty). From there
+        // the focus key reaches the Undo notice.
+        focusNeighbour(rowRef.current);
         setConfirmDeleteOpen(false);
         leaveChatRoute();
         // Hides the row and offers Undo before anything is sent; a failure
@@ -136,6 +143,7 @@ export function SidebarChatItem({
 
     return (
         <div
+            ref={rowRef}
             className={cn(
                 "group relative flex h-8 w-full items-center rounded-md transition-colors",
                 isActive

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
+import {
+    TOAST_FOCUS_KEY,
+    ToastViewportUI,
+    clearToasts,
+} from "@/shared/ui/ToastUI";
 import type { Chat } from "@/app/components/shared/types";
 
 // The real sidebar row on the real chat history, with only the network
@@ -50,19 +54,29 @@ const filing: Chat = {
     is_owner: true,
     access_role: "owner",
 };
+const lease: Chat = {
+    ...filing,
+    id: "chat-2",
+    title: "Lease review",
+    created_at: "2026-09-30T00:00:00.000Z",
+    updated_at: "2026-09-30T00:00:00.000Z",
+};
 
+/** Laid out like the sidebar's: a focusable region around the list. */
 function SidebarHistory() {
     const { chats } = useChatHistoryContext();
     return (
-        <div>
-            {chats?.map((chat) => (
-                <SidebarChatItem
-                    key={chat.id}
-                    chat={chat}
-                    isActive={false}
-                    onSelect={vi.fn()}
-                />
-            ))}
+        <div role="region" aria-label="History" tabIndex={-1}>
+            <div>
+                {chats?.map((chat) => (
+                    <SidebarChatItem
+                        key={chat.id}
+                        chat={chat}
+                        isActive={false}
+                        onSelect={vi.fn()}
+                    />
+                ))}
+            </div>
         </div>
     );
 }
@@ -186,5 +200,50 @@ describe("deleting a chat from the sidebar", () => {
             await vi.advanceTimersByTimeAsync(1_500);
         });
         expect(deleteChat).toHaveBeenCalledExactlyOnceWith("chat-1");
+    });
+});
+
+describe("deleting a chat from the sidebar with the keyboard", () => {
+    // The dialog and the row both go: without a place to land, focus
+    // dropped to the top of the page and the Undo notice was out of reach.
+    it("keeps the keyboard in the list and reaches Undo with the focus key", async () => {
+        listChats.mockResolvedValue([filing, lease]);
+        await confirmDeleteFromRow();
+
+        const nextChat = screen.getByRole("button", { name: "Lease review" });
+        expect(document.activeElement).toBe(nextChat);
+
+        fireEvent.keyDown(window, { key: TOAST_FOCUS_KEY });
+        const undo = screen.getByRole("button", { name: "Undo" });
+        expect(document.activeElement).toBe(undo);
+        // While the keyboard is on the notice its window holds.
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(30_000);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+
+        act(() => {
+            fireEvent.click(undo);
+        });
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(
+            screen.getByRole("button", { name: "Quarterly filing" }),
+        ).toBeInTheDocument();
+        expect(document.activeElement).toBe(nextChat);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(30_000);
+        });
+        expect(deleteChat).not.toHaveBeenCalled();
+    });
+
+    it("lands on the history itself when its last chat is deleted", async () => {
+        await confirmDeleteFromRow();
+
+        expect(document.activeElement).toBe(
+            screen.getByRole("region", { name: "History" }),
+        );
     });
 });

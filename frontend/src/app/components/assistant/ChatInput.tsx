@@ -96,6 +96,8 @@ export interface ChatInputHandle {
     ) => void;
     /** Attaches a playbook to run on the documents, as the picker does. */
     attachPlaybook: (playbook: { id: string; title: string }) => void;
+    /** Puts the keyboard in the message box. */
+    focus: () => void;
 }
 
 interface Props {
@@ -545,6 +547,7 @@ function ChatInputForChatImpl(
             }
             setDocSelectorOpen(true);
         },
+        focus: () => textareaRef.current?.focus(),
     }));
 
     useEffect(() => {

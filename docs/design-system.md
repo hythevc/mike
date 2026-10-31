@@ -602,8 +602,18 @@ information.
 An Undo toast holds back work until its window ends. Pass the window as
 `durationMs`, so it pauses while the toast is hovered or focused, and finish
 or drop the work in `onClose`, which says why the toast left: `expired`,
-`dismissed`, `action`, `replaced`, `evicted`, or `cleared` when the session
-ends. The chat delete in `ChatHistoryContext.tsx` follows this pattern.
+`dismissed`, `action`, `replaced`, or `cleared` when the session ends. A
+toast with an `onClose` is never pushed out by newer toasts, so the stack
+can briefly hold more than three. The chat delete in
+`ChatHistoryContext.tsx` follows this pattern.
+
+**F8** (`TOAST_FOCUS_KEY`) moves the keyboard onto the newest toast that
+has an action, landing on its first action button. That pauses the
+toast's timer, and when the toast closes the keyboard goes back to where
+it was. A timed toast with an action tells screen-reader users about the
+key. When an action removes the control the keyboard was on (deleting a
+chat removes its row), move focus to a neighbouring control first, as
+`focusNeighbour` in `app/lib/focusNeighbour.ts` does for list items.
 
 The Word add-in has no `WarningPopup`, so there `ToastViewportUI` draws
 errors as toasts in the same top column.

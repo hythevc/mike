@@ -2,6 +2,7 @@ import { act, render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     MAX_VISIBLE_TOASTS,
+    TOAST_FOCUS_KEY,
     focusToast,
     ToastViewportUI,
     clearToasts,
@@ -354,24 +355,58 @@ describe("ToastUI", () => {
             expect(undo).toHaveBeenCalledOnce();
         });
 
-        it("names a toast that was replaced, pushed out or cleared", () => {
+        it("names a toast that was replaced or cleared", () => {
             const replaced = vi.fn();
-            const evicted = vi.fn();
             const cleared = vi.fn();
             act(() => {
                 showToast({ message: "Old", dedupeKey: "same", onClose: replaced });
                 showToast({ message: "New", dedupeKey: "same" });
-                showToast({ message: "Oldest", onClose: evicted });
-                for (let i = 0; i < MAX_VISIBLE_TOASTS; i += 1) {
-                    showToast({ message: `Newer ${i}` });
-                }
                 showToast({ message: "Last", onClose: cleared });
                 clearToasts();
             });
 
             expect(replaced).toHaveBeenCalledExactlyOnceWith("replaced");
-            expect(evicted).toHaveBeenCalledExactlyOnceWith("evicted");
             expect(cleared).toHaveBeenCalledExactlyOnceWith("cleared");
+        });
+
+        // Its onClose is where its work finishes, such as a delete that
+        // waits for Undo: pushing it out would cut that window short.
+        it("keeps a toast that holds work in a full stack until its own timer ends", () => {
+            const onClose = vi.fn();
+            render(<ToastViewportUI />);
+            act(() => {
+                showToast({ message: "Deleted", durationMs: 8_000, onClose });
+                for (let i = 0; i < MAX_VISIBLE_TOASTS + 1; i += 1) {
+                    showToast({ message: `Newer ${i}`, durationMs: 60_000 });
+                }
+            });
+            expect(screen.getByText("Deleted")).toBeInTheDocument();
+            expect(screen.getAllByTestId("toast")).toHaveLength(
+                MAX_VISIBLE_TOASTS,
+            );
+            expect(onClose).not.toHaveBeenCalled();
+
+            act(() => {
+                vi.advanceTimersByTime(8_000);
+            });
+            expect(onClose).toHaveBeenCalledExactlyOnceWith("expired");
+            expect(screen.queryByText("Deleted")).toBeNull();
+        });
+
+        it("lets toasts that hold work stack past the visible maximum", () => {
+            render(<ToastViewportUI />);
+            act(() => {
+                for (let i = 0; i < MAX_VISIBLE_TOASTS + 2; i += 1) {
+                    showToast({
+                        message: `Deleted ${i}`,
+                        durationMs: 8_000,
+                        onClose: () => {},
+                    });
+                }
+            });
+            expect(screen.getAllByTestId("toast")).toHaveLength(
+                MAX_VISIBLE_TOASTS + 2,
+            );
         });
 
         it("runs once, after the toast has left the stack", () => {
@@ -394,6 +429,188 @@ describe("ToastUI", () => {
                 clearToasts();
             });
             expect(stillListed).toEqual([false]);
+        });
+    });
+
+    it("drops plain notices before one with an action", () => {
+        render(<ToastViewportUI />);
+        act(() => {
+            showToast({
+                message: "Export ready",
+                actions: [{ label: "Open", onClick: () => {} }],
+            });
+            for (let i = 0; i < MAX_VISIBLE_TOASTS; i += 1) {
+                showToast({ tone: "success", message: `Saved ${i}` });
+            }
+        });
+        expect(screen.getAllByTestId("toast")).toHaveLength(MAX_VISIBLE_TOASTS);
+        expect(screen.getByText("Export ready")).toBeInTheDocument();
+        expect(screen.queryByText("Saved 0")).toBeNull();
+    });
+
+    describe("focus key", () => {
+        const undoToast = (onUndo = () => {}) =>
+            showToast({
+                title: "Chat deleted",
+                message: "“Lease review” was deleted.",
+                durationMs: 8_000,
+                actions: [{ label: "Undo", onClick: onUndo }],
+            });
+
+        function renderWithOutsideButton() {
+            render(
+                <>
+                    <button type="button">Elsewhere</button>
+                    <ToastViewportUI />
+                </>,
+            );
+            const outside = screen.getByRole("button", { name: "Elsewhere" });
+            outside.focus();
+            return outside;
+        }
+
+        /** Let the focus hand-back, which waits for the card to go, run. */
+        async function settle() {
+            await act(async () => {
+                await Promise.resolve();
+            });
+        }
+
+        it("moves the keyboard onto the newest toast's action, which holds its timer", () => {
+            const plainClosed = vi.fn();
+            renderWithOutsideButton();
+            act(() => {
+                showToast({ message: "Saved" });
+                undoToast();
+                showToast({ message: "Synced", onClose: plainClosed });
+            });
+
+            // The newest toast with an action wins over a newer plain one.
+            const unhandled = fireEvent.keyDown(window, {
+                key: TOAST_FOCUS_KEY,
+            });
+            expect(unhandled).toBe(false);
+            const undo = screen.getByRole("button", { name: "Undo" });
+            expect(document.activeElement).toBe(undo);
+
+            act(() => {
+                vi.advanceTimersByTime(60_000);
+            });
+            expect(screen.getByRole("button", { name: "Undo" })).toBe(undo);
+            // The other toasts' timers kept running.
+            expect(plainClosed).toHaveBeenCalledExactlyOnceWith("expired");
+        });
+
+        it("falls back to the newest toast when none has an action", () => {
+            renderWithOutsideButton();
+            act(() => {
+                showToast({ message: "Saved" });
+                showToast({ message: "Synced" });
+            });
+
+            fireEvent.keyDown(window, { key: TOAST_FOCUS_KEY });
+
+            expect(document.activeElement).toHaveTextContent("Synced");
+        });
+
+        it("hands focus back to where it was once the toast closes", async () => {
+            const onUndo = vi.fn();
+            const outside = renderWithOutsideButton();
+            act(() => {
+                undoToast(onUndo);
+            });
+            fireEvent.keyDown(window, { key: TOAST_FOCUS_KEY });
+            const undo = screen.getByRole("button", { name: "Undo" });
+            expect(document.activeElement).toBe(undo);
+
+            act(() => {
+                fireEvent.click(undo);
+            });
+            await settle();
+
+            expect(onUndo).toHaveBeenCalledOnce();
+            expect(screen.queryByRole("status")).toBeNull();
+            expect(document.activeElement).toBe(outside);
+        });
+
+        it("returns focus that arrived by Tab as well", async () => {
+            const outside = renderWithOutsideButton();
+            act(() => {
+                undoToast();
+            });
+            const undo = screen.getByRole("button", { name: "Undo" });
+            fireEvent.focus(undo, { relatedTarget: outside });
+            undo.focus();
+
+            act(() => {
+                vi.advanceTimersByTime(60_000);
+            });
+            expect(screen.getByRole("status")).toBeInTheDocument();
+
+            act(() => {
+                dismissToast(getSnapshot()[0].id);
+            });
+            await settle();
+            expect(document.activeElement).toBe(outside);
+        });
+
+        it("does not pull focus back once the person has moved on", async () => {
+            renderWithOutsideButton();
+            act(() => {
+                undoToast();
+            });
+            fireEvent.keyDown(window, { key: TOAST_FOCUS_KEY });
+            fireEvent.blur(screen.getByRole("button", { name: "Undo" }), {
+                relatedTarget: document.body,
+            });
+
+            act(() => {
+                dismissToast(getSnapshot()[0].id);
+            });
+            await settle();
+
+            expect(document.activeElement).toBe(document.body);
+        });
+
+        it("leaves the key to the page when no toast is on screen or it is modified", () => {
+            const outside = renderWithOutsideButton();
+            expect(
+                fireEvent.keyDown(window, { key: TOAST_FOCUS_KEY }),
+            ).toBe(true);
+
+            act(() => {
+                undoToast();
+            });
+            expect(
+                fireEvent.keyDown(window, {
+                    key: TOAST_FOCUS_KEY,
+                    shiftKey: true,
+                }),
+            ).toBe(true);
+            expect(document.activeElement).toBe(outside);
+        });
+
+        it("tells screen readers how to reach a timed action, and only that", () => {
+            render(<ToastViewportUI />);
+            act(() => {
+                undoToast();
+                showToast({
+                    tone: "error",
+                    message: "Upload failed",
+                    actions: [{ label: "Retry", onClick: () => {} }],
+                });
+                showToast({ message: "Saved" });
+            });
+
+            const [undoNotice, plainNotice] = screen.getAllByRole("status");
+            expect(undoNotice).toHaveTextContent(
+                `Press ${TOAST_FOCUS_KEY} to reach Undo.`,
+            );
+            expect(plainNotice).not.toHaveTextContent(TOAST_FOCUS_KEY);
+            // A failure that waits for the person needs no head start.
+            expect(screen.getByRole("alert")).not.toHaveTextContent(
+                TOAST_FOCUS_KEY,
+            );
         });
     });
 });

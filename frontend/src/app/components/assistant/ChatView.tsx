@@ -775,8 +775,15 @@ export function AssistantChatColumn({
         setConfirmDeleteOpen(false);
         if (!activeChat) return;
         deleteChatWithUndo(activeChat);
-        if (onChatDeleted) onChatDeleted();
-        else router.push("/assistant");
+        if (onChatDeleted) {
+            onChatDeleted();
+            // The menu and the dialog that asked go with the chat. The new
+            // chat's message box keeps the keyboard on the page, and the
+            // focus key reaches the Undo notice from there.
+            requestAnimationFrame(() => chatInputRef.current?.focus());
+        } else {
+            router.push("/assistant");
+        }
     };
 
     const chatActionItems: HeaderActionsMenuItem[] = can(activeChatRole, "access.manage") ? [
