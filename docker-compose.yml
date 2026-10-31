@@ -394,7 +394,10 @@ services:
     environment:
       - API_BASE_URL=${API_BASE_URL:-http://backend:3001}
       # Header in which the edge in front of this stack puts the browser's
-      # address (docs/deployment.md, "Rate limits and client addresses").
+      # address. Set it only when that edge is the only way to reach the web
+      # app (see the ports below): anyone who connects to the web app directly
+      # can write the header (docs/deployment.md, "Rate limits and client
+      # addresses").
       - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-}
       # Next server side (the /api gateway); same project as the browser.
       - SENTRY_DISABLED=${SENTRY_DISABLED:-}
@@ -404,6 +407,11 @@ services:
       - SENTRY_RELEASE=${SENTRY_RELEASE:-}
     ports:
       # Dokploy's own dashboard occupies 3000 — set FRONTEND_PORT there.
+      # Published on every interface of the host. With CLIENT_IP_HEADER set,
+      # only the edge that writes that header may reach the web app: behind a
+      # reverse proxy on this host, set FRONTEND_PORT=127.0.0.1:3000, or
+      # remove this mapping when the proxy runs on the Compose network
+      # (docs/deployment.md, "Rate limits and client addresses").
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend

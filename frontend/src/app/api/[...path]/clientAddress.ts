@@ -6,8 +6,11 @@ import { isIP } from "node:net";
 // itself, so the gateway never passes on what arrived: it forwards only the
 // address the deployment's edge (CDN, load balancer or platform router) put
 // in the header named by CLIENT_IP_HEADER, such as cf-connecting-ip,
-// fly-client-ip or x-real-ip. Without that setting the API sees every request
-// as coming from this server. See docs/deployment.md.
+// fly-client-ip or x-real-ip. That header is trusted as it arrives, so the
+// setting is only safe while the edge is the only way to reach this server;
+// anyone who connects directly could otherwise write it. Without that setting
+// the API sees every request as coming from this server. See
+// docs/deployment.md.
 
 /** Header names as RFC 9110 defines a token, lower-cased. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
@@ -102,8 +105,9 @@ export function warnAboutClientAddressSetting(
     console.warn(
         "[api-gateway] CLIENT_IP_HEADER is not set, so the API sees every " +
             "browser at this server's address and all users share the " +
-            "per-address rate limits, sign-in included. Set it to the header " +
-            "in which your edge passes the client's address " +
+            "per-address rate limits, sign-in included. Once this server " +
+            "accepts connections only from your edge, set it to the header " +
+            "in which the edge passes the client's address " +
             "(docs/deployment.md, \"Rate limits and client addresses\").",
     );
 }

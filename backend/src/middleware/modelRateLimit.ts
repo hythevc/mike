@@ -6,11 +6,14 @@
 //
 // Each router mounts these AFTER requireAuth, so a budget belongs to one user
 // rather than to a network address: colleagues behind one office address no
-// longer share it. The counts live in the shared store, so the budget is the
-// same on every API replica and survives a deploy. If the store cannot answer
-// these lanes let the request through: the caller is already authenticated,
-// and a database hiccup should not stop work that is otherwise allowed. The
-// address-keyed sign-in and public lanes in app.ts fail closed instead.
+// longer share it. It is one budget per user across every workspace they work
+// in, not one per user and organisation: requireAuth resolves the user but not
+// a workspace, and a single budget per user is the stricter of the two. The
+// counts live in the shared store, so the budget is the same on every API
+// replica and survives a deploy. If the store cannot answer these lanes let
+// the request through: the caller is already authenticated, and a database
+// hiccup should not stop work that is otherwise allowed. The address-keyed
+// sign-in and public lanes in app.ts fail closed instead.
 
 import type { Request, Response } from "express";
 import { ipKeyGenerator } from "express-rate-limit";

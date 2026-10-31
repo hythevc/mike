@@ -41,7 +41,7 @@ import {
   sharedRateLimit,
   type SharedRateLimitOptions,
 } from "./lib/rateLimitStore";
-import { envInt } from "./lib/runtimeConfig";
+import { envInt, envNonNegativeInt } from "./lib/runtimeConfig";
 import { requestDiagnostics } from "./middleware/requestDiagnostics";
 
 export const app = express();
@@ -214,7 +214,11 @@ const authMfaLimiter = sharedAuthLimiter({
 });
 
 app.disable("x-powered-by");
-app.set("trust proxy", envInt("TRUST_PROXY_HOPS", 1));
+// The number of proxies in front of the API whose X-Forwarded-For entries it
+// trusts, counting the one that connects to it (docs/deployment.md, "Rate
+// limits and client addresses"). 0 trusts none: req.ip is then the address
+// of the connection itself, whatever the header says.
+app.set("trust proxy", envNonNegativeInt("TRUST_PROXY_HOPS", 1));
 app.use(requestDiagnostics);
 app.use(protectInternalErrorResponses);
 

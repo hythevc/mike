@@ -98,6 +98,8 @@ describe("warnAboutClientAddressSetting", () => {
 
         expect(warnings).toHaveLength(1);
         expect(warnings[0]).toContain("CLIENT_IP_HEADER is not set");
+        // Setting the header is only safe behind an edge nobody can bypass.
+        expect(warnings[0]).toContain("accepts connections only from your edge");
         expect(warnings[0]).toContain("Rate limits and client addresses");
     });
 

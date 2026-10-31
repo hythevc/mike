@@ -357,13 +357,14 @@ behaves.
 
 **What a budget belongs to.** Requests that call a model (chat, project chat
 and Word chat turns, tabular review chat and generation, playbook reviews) and
-starting a chat are limited per signed-in user, after authentication. People
-who share an office address each get their own budget. Sign-in, MFA, email
-and public lanes are limited per client address; failed sign-ins are also
-limited per account, keyed by a digest of the email address. The general lane
-and the export, import, deletion, signed-upload and Word tool-result lanes are
-limited per client address too, and upload sessions have their own per-user
-limits (see above).
+starting a chat are limited per signed-in user, after authentication, with one
+budget per user whichever workspace a request is for. People who share an
+office address each get their own budget. Sign-in, MFA, email and public lanes
+are limited per client address; failed sign-ins are also limited per account,
+keyed by a digest of the email address. The general lane and the export,
+import, deletion, signed-upload and Word tool-result lanes are limited per
+client address too, and upload sessions have their own per-user limits (see
+above).
 
 **Where the count lives.** The model, sign-in, MFA, email and public lanes
 count in Postgres (the `rate_limit_windows` table, through the
@@ -398,11 +399,36 @@ appending the address it saw, `CLIENT_IP_HEADER=x-forwarded-for` uses the
 right-most entry. Name only a header your edge always sets: a header it
 passes through unchanged can be forged.
 
-Without `CLIENT_IP_HEADER`, the web gateway forwards no client address and the
-API sees every browser at the gateway's own address, so all users share each
-per-address budget. A production web app prints a warning about this when it
-starts. The add-in host falls back to the address of the connection it
-accepted.
+**Let only the edge reach the web app and the add-in host.** Once
+`CLIENT_IP_HEADER` is set, the gateway and the add-in host forward whatever
+address that header carries. Anyone who can connect to either of them without
+passing through the edge can write the header and claim a new address on every
+request, and so get a fresh sign-in, MFA, email and general budget each time:
+the same bypass that "Keep the API private" below closes for the API. Set
+`CLIENT_IP_HEADER` only when the web app and the add-in host accept
+connections from that edge alone:
+
+- With a reverse proxy on the same host, publish both on the loopback
+  interface: `FRONTEND_PORT=127.0.0.1:3000` in the compose-root `.env`, and
+  `-p 127.0.0.1:3200:3200` for the add-in host. Otherwise Docker publishes
+  them on every interface, and a host firewall such as ufw does not filter
+  ports that Docker publishes. A proxy that runs as a container on the Compose
+  network reaches the web app without a published port, so you can remove the
+  mapping instead. Outside Docker, block both ports from other machines with
+  a firewall.
+- With a CDN, let the origin accept only the CDN: allow just the CDN's
+  published address ranges, require authenticated origin pulls, or connect
+  the origin to the CDN through a tunnel. Remove or disable every other public
+  address of the origin, such as the default URL a hosting platform assigns,
+  because requests sent there skip the CDN.
+- With a platform router, make sure that every public request reaches the
+  service through it and that the service has no other public address.
+
+Otherwise leave `CLIENT_IP_HEADER` unset. The web gateway then forwards no
+client address and the API sees every browser at the gateway's own address,
+so all users share each per-address budget. A production web app prints a
+warning about this when it starts. The add-in host falls back to the address
+of the connection it accepted, which is the edge's address when there is one.
 
 **Keep the API private.** The per-address lanes are only as strong as the
 API's network boundary. The API reads the client address from
@@ -421,7 +447,8 @@ Docker publishes.
 
 `TRUST_PROXY_HOPS` (default 1) is the number of proxies between the API and
 the browser whose `X-Forwarded-For` entries the API trusts, counting the
-gateway. Each load balancer between the gateway and the API that appends to
+gateway; at 0 it trusts none and uses the address of the connection itself.
+Each load balancer between the gateway and the API that appends to
 `X-Forwarded-For` adds one; without that, the API takes the load balancer's
 view of the gateway as the client. Raise the setting above 1 only when the
 API and those load balancers are private as described above: where others can
@@ -441,13 +468,15 @@ gateway's own outgoing address, so all of its users share those budgets.
 (`backend/scripts/migrate.sh up`) before starting this version of the API.
 Until the counters exist, the sign-in, MFA and email lanes answer 503 with
 `schema_out_of_date`. The web gateway no longer passes on the
-`X-Forwarded-For` header it receives, so set `CLIENT_IP_HEADER` on the web
-app, and on the add-in host if you run it, at the same time. Until you do,
-the API counts every browser against the gateway's address: a few busy users
-can use up the general lane, and with the default limits 30 failed sign-ins
-from anyone within 15 minutes block sign-in for everybody until that window
-ends. Check that the API is private, as described above, before you raise
-`TRUST_PROXY_HOPS`.
+`X-Forwarded-For` header it receives. Set `CLIENT_IP_HEADER` on the web app,
+and on the add-in host if you run it, as soon as only your edge can reach
+them, as described above. Until you do, the API counts every browser against
+the gateway's address: a few busy users can use up the general lane, and with
+the default limits 30 failed sign-ins from anyone within 15 minutes block
+sign-in for everybody until that window ends. Check that the API is private,
+as described above, before you raise `TRUST_PROXY_HOPS`. Earlier versions read
+`TRUST_PROXY_HOPS=0` as 1; it now trusts no proxy, so if you had set it,
+check that it still matches what sits in front of the API.
 
 ### Error tracking
 
@@ -778,16 +807,20 @@ docker build -t mike-word-addin \
   --build-arg REACT_APP_WEB_APP_URL=https://app.example.com \
   --build-arg WORD_ADDIN_PUBLIC_URL=https://word.example.com \
   -f word-addin/Dockerfile .
-docker run --rm -p 3200:3200 \
+docker run --rm -p 127.0.0.1:3200:3200 \
   -e WORD_ADDIN_BACKEND_ORIGIN=http://backend:3001 \
   mike-word-addin
 ```
 
-Put an HTTPS ingress or reverse proxy in front of port 3200. The included host
-serves `dist/` and streams `/api/*` to the backend while preserving cookies,
-`Set-Cookie`, `Origin`, request bodies, and SSE responses. Set
-`CLIENT_IP_HEADER` on it to the header in which that proxy passes the client's
-address (see
+Put an HTTPS ingress or reverse proxy in front of port 3200. The example
+publishes the port on the host's loopback interface, for a reverse proxy on
+the same host; with an ingress elsewhere, make sure that only the ingress can
+reach the port. The included host serves `dist/` and streams `/api/*` to the
+backend while preserving cookies, `Set-Cookie`, `Origin`, request bodies, and
+SSE responses. When the ingress is the only way to reach the host, set
+`CLIENT_IP_HEADER` on it to the header in which the ingress passes the
+client's address. Otherwise leave it unset: the host then forwards the address
+of the connection it accepted (see
 [Rate limits and client addresses](#rate-limits-and-client-addresses)).
 
 ## Background jobs and Redis
@@ -844,8 +877,11 @@ of on the next fresh install.
 - Generate unique, high-entropy signing and encryption secrets.
 - Use production Supabase credentials rather than the local demo values.
 - Keep backend secrets out of `NEXT_PUBLIC_*` variables.
-- Let only the web app's gateway and the Word add-in host reach the API, and
-  set `CLIENT_IP_HEADER` on both; see
+- Let only the web app's gateway and the Word add-in host reach the API.
+- Set `CLIENT_IP_HEADER` on the web app and the add-in host only when nothing
+  but the edge that writes that header can connect to them, for example both
+  published on loopback behind a reverse proxy on the same host, or an origin
+  that accepts only the CDN. Otherwise leave it unset. See
   [Rate limits and client addresses](#rate-limits-and-client-addresses).
 - Configure spending limits for model-provider keys where supported.
 - Confirm LibreOffice is available to the backend and worker if document

@@ -62,6 +62,8 @@ function normalizedAddress(raw) {
 // CLIENT_IP_HEADER set to the header the edge in front of this host writes
 // (for example cf-connecting-ip), its right-most entry is the client;
 // otherwise the connecting socket is, which is that edge when there is one.
+// The header is trusted as it arrives, so it is only safe to name while that
+// edge is the only way to reach this host.
 function clientAddress(req, clientIpHeader) {
   if (clientIpHeader) {
     const value = req.headers[clientIpHeader];
