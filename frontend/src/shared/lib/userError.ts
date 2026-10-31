@@ -188,6 +188,10 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     missing_api_key: "validation",
     model_unavailable: "validation",
     model_required: "validation",
+    // The request desk exists only in an organization's workspace, and only
+    // its current members can be assigned a request.
+    request_desk_org_only: "validation",
+    request_desk_assignee_not_member: "validation",
     // Identity
     authentication_failed: "unauthenticated",
     session_expired: "unauthenticated",
@@ -207,6 +211,9 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     upload_target_busy: "conflict",
     access_inherited: "conflict",
     ask_inputs_stale: "conflict",
+    request_desk_status_conflict: "conflict",
+    request_desk_assignee_taken: "conflict",
+    request_desk_matter_linked: "conflict",
     // Ours, not theirs
     internal_error: "server",
     upstream_unavailable: "unavailable",

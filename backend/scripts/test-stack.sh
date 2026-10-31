@@ -5,6 +5,12 @@
 # mocks. They are the harness you re-run on every Supabase image bump to prove
 # the auth↔API contract and the deny-all RLS firewall still hold.
 #
+# The *.postgres.test.ts suites run too. rateLimitStore.postgres.test.ts uses
+# the stack itself. Those that accept SUPABASE_TEST_DB_URL
+# (requestDesk.postgres.test.ts) create, use and drop a database of their own
+# on the stack's server; the others still need MIKE_TEST_POSTGRES_CONTAINER and
+# skip without it.
+#
 # Usage:  supabase start   # in the repo, once
 #         npm run test:stack        (from backend/)
 set -euo pipefail
@@ -58,4 +64,4 @@ fi
 echo "Running stack integration tests against $SUPABASE_TEST_URL"
 cd "$BACKEND_DIR"
 exec npx vitest run src/__tests__/integration/*.supabase.test.ts \
-    src/__tests__/integration/rateLimitStore.postgres.test.ts "$@"
+    src/__tests__/integration/*.postgres.test.ts "$@"
