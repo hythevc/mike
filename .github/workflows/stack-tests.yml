@@ -101,4 +101,5 @@ jobs:
       - name: Run stack integration tests
         working-directory: backend
         run: |
-          npx vitest run src/__tests__/integration/*.supabase.test.ts
+          npx vitest run src/__tests__/integration/*.supabase.test.ts \
+            src/__tests__/integration/rateLimitStore.postgres.test.ts

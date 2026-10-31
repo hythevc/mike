@@ -37,7 +37,11 @@ import {
   protectInternalErrorResponses,
 } from "./middleware/internalErrorResponse";
 import { configuredAllowedOrigins } from "./lib/origins";
-import { envInt } from "./lib/runtimeConfig";
+import {
+  sharedRateLimit,
+  type SharedRateLimitOptions,
+} from "./lib/rateLimitStore";
+import { envInt, envNonNegativeInt } from "./lib/runtimeConfig";
 import { requestDiagnostics } from "./middleware/requestDiagnostics";
 
 export const app = express();
@@ -120,16 +124,10 @@ const toolResultLimiter = makeLimiter({
   message: "Too many tool results. Please try again later.",
 });
 
-const chatLimiter = makeLimiter({
-  windowMs: minutes(envInt("RATE_LIMIT_CHAT_WINDOW_MINUTES", 15)),
-  max: envInt("RATE_LIMIT_CHAT_MAX", 30),
-  message: "Too many chat requests. Please try again later.",
-});
-
-const chatCreateLimiter = makeLimiter({
-  windowMs: minutes(envInt("RATE_LIMIT_CHAT_CREATE_WINDOW_MINUTES", 15)),
-  max: envInt("RATE_LIMIT_CHAT_CREATE_MAX", 60),
-});
+// The model-calling lanes (chat, project chat, Word chat, tabular review chat
+// and generation, playbook reviews, chat creation) are not here: they are
+// keyed per signed-in user, so each router mounts them after requireAuth
+// (middleware/modelRateLimit.ts).
 
 const exportLimiter = makeLimiter({
   windowMs: hours(envInt("RATE_LIMIT_EXPORT_WINDOW_HOURS", 1)),
@@ -155,14 +153,27 @@ const dataDeleteLimiter = makeLimiter({
   message: "Too many data deletion requests. Please try again later.",
 });
 
-const authLoginIpLimiter = makeLimiter({
+// The sign-in, MFA and email lanes count in the shared store, so the budget is
+// the same on every replica and survives a deploy, and they refuse requests
+// while the store cannot answer: brute-force protection must not switch off
+// when the database is slow. Anonymous public routes use publicRateLimit,
+// which applies the same policy. See lib/rateLimitStore.ts.
+function sharedAuthLimiter(
+  options: Omit<SharedRateLimitOptions, "onStoreFailure">,
+) {
+  return sharedRateLimit({ ...options, onStoreFailure: "refuse" });
+}
+
+const authLoginIpLimiter = sharedAuthLimiter({
+  lane: "auth-login-address",
   windowMs: minutes(envInt("RATE_LIMIT_AUTH_LOGIN_WINDOW_MINUTES", 15)),
   max: envInt("RATE_LIMIT_AUTH_LOGIN_MAX", 30),
   message: "Too many login attempts. Please try again later.",
   skipSuccessfulRequests: true,
 });
 
-const authLoginAccountLimiter = makeLimiter({
+const authLoginAccountLimiter = sharedAuthLimiter({
+  lane: "auth-login-account",
   windowMs: minutes(envInt("RATE_LIMIT_AUTH_ACCOUNT_WINDOW_MINUTES", 15)),
   max: envInt("RATE_LIMIT_AUTH_ACCOUNT_MAX", 10),
   message: "Too many login attempts. Please try again later.",
@@ -181,26 +192,33 @@ const authLoginAccountLimiter = makeLimiter({
   },
 });
 
-const authEmailLimiter = makeLimiter({
+const authEmailLimiter = sharedAuthLimiter({
+  lane: "auth-email",
   windowMs: hours(envInt("RATE_LIMIT_AUTH_EMAIL_WINDOW_HOURS", 1)),
   max: envInt("RATE_LIMIT_AUTH_EMAIL_MAX", 10),
   message: "Too many authentication requests. Please try again later.",
 });
 
-const authFlowLimiter = makeLimiter({
+const authFlowLimiter = sharedAuthLimiter({
+  lane: "auth-flow",
   windowMs: minutes(envInt("RATE_LIMIT_AUTH_FLOW_WINDOW_MINUTES", 15)),
   max: envInt("RATE_LIMIT_AUTH_FLOW_MAX", 30),
   message: "Too many authentication requests. Please try again later.",
 });
 
-const authMfaLimiter = makeLimiter({
+const authMfaLimiter = sharedAuthLimiter({
+  lane: "auth-mfa",
   windowMs: minutes(envInt("RATE_LIMIT_AUTH_MFA_WINDOW_MINUTES", 15)),
   max: envInt("RATE_LIMIT_AUTH_MFA_MAX", 20),
   message: "Too many verification attempts. Please try again later.",
 });
 
 app.disable("x-powered-by");
-app.set("trust proxy", envInt("TRUST_PROXY_HOPS", 1));
+// The number of proxies in front of the API whose X-Forwarded-For entries it
+// trusts, counting the one that connects to it (docs/deployment.md, "Rate
+// limits and client addresses"). 0 trusts none: req.ip is then the address
+// of the connection itself, whatever the header says.
+app.set("trust proxy", envNonNegativeInt("TRUST_PROXY_HOPS", 1));
 app.use(requestDiagnostics);
 app.use(protectInternalErrorResponses);
 
@@ -261,8 +279,6 @@ app.post(
   authMfaLimiter,
 );
 
-app.post("/chat", chatLimiter);
-app.post("/word-chat", chatLimiter);
 // Own limiter lane plus a tight body cap: the largest legitimate payload is
 // one live document read, which the backend truncates at 200k characters
 // anyway — 2mb leaves headroom for UTF-8 and JSON escaping while keeping the
@@ -270,13 +286,6 @@ app.post("/word-chat", chatLimiter);
 // the global one; body-parser skips a request whose body is already parsed,
 // so the smaller limit wins for this path.
 app.post(TOOL_RESULT_PATH, toolResultLimiter, express.json({ limit: "2mb" }));
-app.post("/projects/:projectId/chat", chatLimiter);
-app.post("/tabular-review/:reviewId/chat", chatLimiter);
-app.post("/tabular-review/:reviewId/generate", chatLimiter);
-// A playbook review is one large model call (or a tool loop when the playbook
-// has supplementary documents), so it shares the chat lane's budget.
-app.post("/playbooks/:playbookId/review", chatLimiter);
-app.post("/chat/create", chatCreateLimiter);
 app.post("/workflow-addons/:addonId/import", workflowImportLimiter);
 app.post(
   ["/playbooks/import", "/playbooks/import/upload-url"],

@@ -1,5 +1,6 @@
 import http from "node:http";
 import https from "node:https";
+import { isIP } from "node:net";
 import path from "node:path";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -30,6 +31,52 @@ function configuredBackend(input) {
     port: backend.port || undefined,
     host: backend.host,
   });
+}
+
+// RFC 9110 header-name token, lower-cased.
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
+
+function configuredClientIpHeader(input) {
+  const name = input?.trim().toLowerCase();
+  if (!name) return null;
+  if (!HEADER_NAME.test(name)) {
+    throw new Error("CLIENT_IP_HEADER must be an HTTP header name");
+  }
+  return name;
+}
+
+function normalizedAddress(raw) {
+  let value = raw.trim();
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    if (end < 0) return null;
+    value = value.slice(1, end);
+  } else if (/^\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}$/.test(value)) {
+    value = value.slice(0, value.lastIndexOf(":"));
+  }
+  return isIP(value) ? value : null;
+}
+
+// The API rate-limits sign-in and other anonymous requests by the address in
+// X-Forwarded-For, so a value the client wrote must never pass through. With
+// CLIENT_IP_HEADER set to the header the edge in front of this host writes
+// (for example cf-connecting-ip), its right-most entry is the client;
+// otherwise the connecting socket is, which is that edge when there is one.
+// The header is trusted as it arrives, so it is only safe to name while that
+// edge is the only way to reach this host.
+function clientAddress(req, clientIpHeader) {
+  if (clientIpHeader) {
+    const value = req.headers[clientIpHeader];
+    const text = Array.isArray(value) ? value.join(",") : (value ?? "");
+    const last = text
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .at(-1);
+    return last ? normalizedAddress(last) : null;
+  }
+  const peer = req.socket.remoteAddress;
+  return peer && isIP(peer) ? peer : null;
 }
 
 const MIME_TYPES = new Map([
@@ -64,7 +111,7 @@ function publicProtocol(req) {
   return req.socket.encrypted ? "https" : "http";
 }
 
-function proxyApi(req, res, backend) {
+function proxyApi(req, res, backend, clientIpHeader) {
   const incoming = new URL(req.url ?? "/", "http://word-addin.invalid");
   if (
     incoming.pathname !== "/api" &&
@@ -80,6 +127,10 @@ function proxyApi(req, res, backend) {
   headers.host = backend.host;
   headers["x-forwarded-host"] = req.headers.host ?? "";
   headers["x-forwarded-proto"] = publicProtocol(req);
+  delete headers["x-forwarded-for"];
+  delete headers.forwarded;
+  const address = clientAddress(req, clientIpHeader);
+  if (address) headers["x-forwarded-for"] = address;
 
   const transport = backend.protocol === "https:" ? https : http;
   const upstream = transport.request(
@@ -162,6 +213,9 @@ export function createWordAddinServer(options = {}) {
   const backend = configuredBackend(
     options.backendOrigin ?? process.env.WORD_ADDIN_BACKEND_ORIGIN,
   );
+  const clientIpHeader = configuredClientIpHeader(
+    options.clientIpHeader ?? process.env.CLIENT_IP_HEADER,
+  );
   return http.createServer((req, res) => {
     if (req.url === "/health") {
       res.writeHead(200, {
@@ -171,7 +225,7 @@ export function createWordAddinServer(options = {}) {
       return;
     }
     if (req.url === "/api" || req.url?.startsWith("/api/")) {
-      proxyApi(req, res, backend);
+      proxyApi(req, res, backend, clientIpHeader);
       return;
     }
     if (req.method !== "GET" && req.method !== "HEAD") {

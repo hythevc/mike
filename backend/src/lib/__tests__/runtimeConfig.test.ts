@@ -4,6 +4,8 @@ import {
   diagnosticEvent,
 } from "../observability/sentryPrivacy";
 import {
+  envInt,
+  envNonNegativeInt,
   uploadConversionTimeoutMs,
   uploadJobWallClockMs,
   uploadProcessingConfiguration,
@@ -97,6 +99,44 @@ describe("runtime authentication configuration", () => {
         SUPABASE_ANON_KEY: "legacy-anon-key",
       }),
     ).not.toThrow();
+  });
+});
+
+describe("non-negative integer settings", () => {
+  // TRUST_PROXY_HOPS=0 is how an API reachable from the internet stops
+  // trusting X-Forwarded-For, so it must not turn into the default of 1 the
+  // way it does for envInt.
+  it("reads 0 as 0, where envInt would fall back", () => {
+    const env = { TRUST_PROXY_HOPS: "0" } as NodeJS.ProcessEnv;
+    expect(envNonNegativeInt("TRUST_PROXY_HOPS", 1, env)).toBe(0);
+    expect(envInt("TRUST_PROXY_HOPS", 1, env)).toBe(1);
+  });
+
+  it("reads plain positive integers, ignoring surrounding spaces", () => {
+    expect(
+      envNonNegativeInt("TRUST_PROXY_HOPS", 1, {
+        TRUST_PROXY_HOPS: " 2 ",
+      } as NodeJS.ProcessEnv),
+    ).toBe(2);
+  });
+
+  it.each([undefined, "", "  ", "-1", "1.5", "0x1", "1e2", "2abc", "abc"])(
+    "falls back to the default for %j",
+    (value) => {
+      expect(
+        envNonNegativeInt("TRUST_PROXY_HOPS", 1, {
+          TRUST_PROXY_HOPS: value,
+        } as NodeJS.ProcessEnv),
+      ).toBe(1);
+    },
+  );
+
+  it("falls back for a value too large to count exactly", () => {
+    expect(
+      envNonNegativeInt("TRUST_PROXY_HOPS", 1, {
+        TRUST_PROXY_HOPS: "99999999999999999999",
+      } as NodeJS.ProcessEnv),
+    ).toBe(1);
   });
 });
 

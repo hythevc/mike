@@ -349,6 +349,135 @@ personal key restores the global key as the fallback. Work in an organization
 never uses personal keys: it runs on the organization's key for a provider,
 and otherwise on the globally configured key.
 
+### Rate limits and client addresses
+
+The API rate-limits requests in lanes, each with its own window and cap
+(`RATE_LIMIT_*` in `backend/.env.example`). Three things decide how a lane
+behaves.
+
+**What a budget belongs to.** Requests that call a model (chat, project chat
+and Word chat turns, tabular review chat and generation, playbook reviews) and
+starting a chat are limited per signed-in user, after authentication, with one
+budget per user whichever workspace a request is for. People who share an
+office address each get their own budget. Sign-in, MFA, email and public lanes
+are limited per client address; failed sign-ins are also limited per account,
+keyed by a digest of the email address. The general lane and the export,
+import, deletion, signed-upload and Word tool-result lanes are limited per
+client address too, and upload sessions have their own per-user limits (see
+above).
+
+**Where the count lives.** The model, sign-in, MFA, email and public lanes
+count in Postgres (the `rate_limit_windows` table, through the
+`check_rate_limit` function), so a budget is the same on every API replica and
+survives a deploy. Each row stores the lane name and a SHA-256 digest of what
+the lane counts (a client address, a user id, or the digest of an email
+address) instead of the value itself. That is pseudonymisation, not
+anonymisation: anyone who can read the table can find the value behind a
+digest by hashing candidates, such as every IPv4 address or the user ids and
+email addresses in the database, so treat the rows as personal data. A row is
+kept until its window ends and the next maintenance sweep deletes it. Every
+other lane counts in process memory, so ordinary requests take no extra
+database round trip. A single-process install can set `RATE_LIMIT_STORE=memory`
+to keep every lane in memory; budgets are then per process and reset on
+restart.
+
+**What happens when Postgres cannot answer.** Model lanes let the request
+through. Sign-in, MFA, email and public lanes refuse it with a 503, so
+brute-force protection does not switch off while the database is slow. Both
+cases are logged, and sent to error tracking when it is enabled.
+
+Client addresses come from `X-Forwarded-For`. A browser can set that header
+itself, so neither the web app's `/api` gateway nor the Word add-in host
+passes on the value it receives. Configure the edge in front of them (CDN,
+load balancer or platform router) to set the client's address in a header
+that clients cannot override, and name that header in `CLIENT_IP_HEADER` on
+the web app and on the add-in host, for example `cf-connecting-ip`,
+`fly-client-ip` or `x-real-ip`. A reverse proxy you run yourself can set one:
+with nginx, `proxy_set_header X-Real-IP $remote_addr;` and
+`CLIENT_IP_HEADER=x-real-ip`. If the edge writes `X-Forwarded-For` itself,
+appending the address it saw, `CLIENT_IP_HEADER=x-forwarded-for` uses the
+right-most entry. Name only a header your edge always sets: a header it
+passes through unchanged can be forged.
+
+**Let only the edge reach the web app and the add-in host.** Once
+`CLIENT_IP_HEADER` is set, the gateway and the add-in host forward whatever
+address that header carries. Anyone who can connect to either of them without
+passing through the edge can write the header and claim a new address on every
+request, and so get a fresh sign-in, MFA, email and general budget each time:
+the same bypass that "Keep the API private" below closes for the API. Set
+`CLIENT_IP_HEADER` only when the web app and the add-in host accept
+connections from that edge alone:
+
+- With a reverse proxy on the same host, publish both on the loopback
+  interface: `FRONTEND_PORT=127.0.0.1:3000` in the compose-root `.env`, and
+  `-p 127.0.0.1:3200:3200` for the add-in host. Otherwise Docker publishes
+  them on every interface, and a host firewall such as ufw does not filter
+  ports that Docker publishes. A proxy that runs as a container on the Compose
+  network reaches the web app without a published port, so you can remove the
+  mapping instead. Outside Docker, block both ports from other machines with
+  a firewall.
+- With a CDN, let the origin accept only the CDN: allow just the CDN's
+  published address ranges, require authenticated origin pulls, or connect
+  the origin to the CDN through a tunnel. Remove or disable every other public
+  address of the origin, such as the default URL a hosting platform assigns,
+  because requests sent there skip the CDN.
+- With a platform router, make sure that every public request reaches the
+  service through it and that the service has no other public address.
+
+Otherwise leave `CLIENT_IP_HEADER` unset. The web gateway then forwards no
+client address and the API sees every browser at the gateway's own address,
+so all users share each per-address budget. A production web app prints a
+warning about this when it starts. The add-in host falls back to the address
+of the connection it accepted, which is the edge's address when there is one.
+
+**Keep the API private.** The per-address lanes are only as strong as the
+API's network boundary. The API reads the client address from
+`X-Forwarded-For` and, by default, trusts whatever connects to it to have
+written that header honestly, as the gateway and the add-in host do. A caller
+that can open a connection to the API itself can write the header and claim a
+new address on every request, which gives it a fresh sign-in, MFA, email and
+general budget each time. Make the API reachable only from the web app's
+gateway and the add-in host: run it on a private network or an internal
+service address, or let only those two connect, with a firewall or an
+allowlist. Docker Compose publishes the API's port on every interface of the
+host; on a server, remove that `ports` mapping or set
+`BACKEND_PORT=127.0.0.1:3001` in the compose-root `.env` so that only the host
+itself can connect. A host firewall such as ufw does not filter ports that
+Docker publishes.
+
+`TRUST_PROXY_HOPS` (default 1) is the number of proxies between the API and
+the browser whose `X-Forwarded-For` entries the API trusts, counting the
+gateway; at 0 it trusts none and uses the address of the connection itself.
+Each load balancer between the gateway and the API that appends to
+`X-Forwarded-For` adds one; without that, the API takes the load balancer's
+view of the gateway as the client. Raise the setting above 1 only when the
+API and those load balancers are private as described above: where others can
+reach them, a value above 1 makes the API trust entries that the caller
+wrote.
+
+If the API has to stay reachable from the internet, for example because the
+web app and the API run on different platforms, do not raise
+`TRUST_PROXY_HOPS`. Keep it at 1 when the platform's router in front of the
+API appends the connecting address to `X-Forwarded-For` or replaces the
+header, and set it to 0 when nothing in front of the API writes that header;
+either way a caller cannot choose the address the API sees. The per-address
+lanes then count every request that comes through the gateway against the
+gateway's own outgoing address, so all of its users share those budgets.
+
+**Upgrading: breaking change.** Apply the migrations
+(`backend/scripts/migrate.sh up`) before starting this version of the API.
+Until the counters exist, the sign-in, MFA and email lanes answer 503 with
+`schema_out_of_date`. The web gateway no longer passes on the
+`X-Forwarded-For` header it receives. Set `CLIENT_IP_HEADER` on the web app,
+and on the add-in host if you run it, as soon as only your edge can reach
+them, as described above. Until you do, the API counts every browser against
+the gateway's address: a few busy users can use up the general lane, and with
+the default limits 30 failed sign-ins from anyone within 15 minutes block
+sign-in for everybody until that window ends. Check that the API is private,
+as described above, before you raise `TRUST_PROXY_HOPS`. Earlier versions read
+`TRUST_PROXY_HOPS=0` as 1; it now trusts no proxy, so if you had set it,
+check that it still matches what sits in front of the API.
+
 ### Error tracking
 
 Error reporting is off by default: no runtime has a built-in destination,
@@ -647,12 +776,17 @@ The image contains no `.env` file. Pass the backend environment explicitly:
 
 ```bash
 docker build -t mike-backend -f backend/Dockerfile .
-docker run --rm -p 3001:3001 --env-file backend/.env \
+docker run --rm -p 127.0.0.1:3001:3001 --env-file backend/.env \
   -e NODE_ENV=production \
   -e FRONTEND_URL=https://app.example.com \
   -e API_PUBLIC_URL=https://app.example.com/api \
   mike-backend
 ```
+
+The example publishes the API on the host's loopback interface only. Wherever
+you publish it, make sure that only the web app's gateway and the Word add-in
+host can reach it (see
+[Rate limits and client addresses](#rate-limits-and-client-addresses)).
 
 To try the image on your own machine over plain `http`, pass
 `-e NODE_ENV=development` with `http://localhost` URLs instead. When required
@@ -674,14 +808,21 @@ docker build -t mike-word-addin \
   --build-arg REACT_APP_WEB_APP_URL=https://app.example.com \
   --build-arg WORD_ADDIN_PUBLIC_URL=https://word.example.com \
   -f word-addin/Dockerfile .
-docker run --rm -p 3200:3200 \
+docker run --rm -p 127.0.0.1:3200:3200 \
   -e WORD_ADDIN_BACKEND_ORIGIN=http://backend:3001 \
   mike-word-addin
 ```
 
-Put an HTTPS ingress or reverse proxy in front of port 3200. The included host
-serves `dist/` and streams `/api/*` to the backend while preserving cookies,
-`Set-Cookie`, `Origin`, request bodies, and SSE responses.
+Put an HTTPS ingress or reverse proxy in front of port 3200. The example
+publishes the port on the host's loopback interface, for a reverse proxy on
+the same host; with an ingress elsewhere, make sure that only the ingress can
+reach the port. The included host serves `dist/` and streams `/api/*` to the
+backend while preserving cookies, `Set-Cookie`, `Origin`, request bodies, and
+SSE responses. When the ingress is the only way to reach the host, set
+`CLIENT_IP_HEADER` on it to the header in which the ingress passes the
+client's address. Otherwise leave it unset: the host then forwards the address
+of the connection it accepted (see
+[Rate limits and client addresses](#rate-limits-and-client-addresses)).
 
 ## Background jobs and Redis
 
@@ -737,6 +878,12 @@ of on the next fresh install.
 - Generate unique, high-entropy signing and encryption secrets.
 - Use production Supabase credentials rather than the local demo values.
 - Keep backend secrets out of `NEXT_PUBLIC_*` variables.
+- Let only the web app's gateway and the Word add-in host reach the API.
+- Set `CLIENT_IP_HEADER` on the web app and the add-in host only when nothing
+  but the edge that writes that header can connect to them, for example both
+  published on loopback behind a reverse proxy on the same host, or an origin
+  that accepts only the CDN. Otherwise leave it unset. See
+  [Rate limits and client addresses](#rate-limits-and-client-addresses).
 - Configure spending limits for model-provider keys where supported.
 - Confirm LibreOffice is available to the backend and worker if document
   conversion is enabled. The backend Docker image and `backend/nixpacks.toml`

@@ -17,6 +17,22 @@ export function envInt(
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/**
+ * Like envInt, for a setting where 0 is a real choice rather than "unset".
+ * Only plain digits count: an empty, negative, fractional or otherwise
+ * malformed value falls back instead of being read as some other number.
+ */
+export function envNonNegativeInt(
+  name: string,
+  fallback: number,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env[name]?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return fallback;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : fallback;
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }

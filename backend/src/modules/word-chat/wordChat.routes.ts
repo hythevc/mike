@@ -18,6 +18,7 @@ import { stopOutcomeFrame } from "../../lib/streamRuns";
 import { randomUUID } from "node:crypto";
 import { Router, type Response } from "express";
 import { requireAuth } from "../../middleware/auth";
+import { modelCallRateLimit } from "../../middleware/modelRateLimit";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
 import {
@@ -620,7 +621,7 @@ wordChatRouter.post("/tool-result", requireAuth, (req, res) => {
 });
 
 // POST /word-chat — Word-specific streaming endpoint.
-wordChatRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
+wordChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (req, res) => {
   setOperation("word_chat.turn");
   const requestId = requestIdOf(res);
   const userId = res.locals.userId as string;

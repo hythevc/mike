@@ -26,7 +26,9 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     // Parse documents in-process: module mocks cannot reach into the
     // extraction subprocess. lib/extraction's own tests turn it back on.
-    env: { EXTRACTION_ISOLATION: "off" },
+    // Count rate limits in process memory: route suites stub the database,
+    // and the shared store's own suites choose it explicitly.
+    env: { EXTRACTION_ISOLATION: "off", RATE_LIMIT_STORE: "memory" },
     exclude: ["dist/**", "node_modules/**"],
     // Generous timeouts so cold-start module transform/import latency
     // can't cause spurious timeout failures on a cold CI runner. Warm
