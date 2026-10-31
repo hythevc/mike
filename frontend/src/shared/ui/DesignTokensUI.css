@@ -8,8 +8,9 @@
  * Import it AFTER `@import "tailwindcss";` so the `@theme` mappings apply.
  *
  * Fonts: `--font-inter` / `--font-eb-garamond` are provided by each host (the
- * web via next/font; the add-in via a Google Fonts <link> plus a :root
- * fallback in its styles.css), so they are intentionally not defined here.
+ * web app by frontend/src/app/fonts/fonts.css beside its self-hosted font
+ * files; the add-in via a Google Fonts <link> plus a :root fallback in its
+ * styles.css), so they are intentionally not defined here.
  */
 
 @custom-variant dark (&:is(.dark *));

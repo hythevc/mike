@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+
+/*
+ * Motion rules shared by the web app and the Word add-in.
+ *
+ * Both entry stylesheets (frontend/src/app/globals.css and
+ * word-addin/src/taskpane/styles.css) import this file into Tailwind's
+ * `utilities` layer, after Tailwind's own utilities. A rule here has the same
+ * specificity as the `animate-*` utility it targets and comes later in the
+ * same layer, so it wins. Imported anywhere else it would lose to them.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+    /* Skeleton pulses, spinners, shimmer placeholders and the typing dots
+       loop for as long as something loads. Stop them for people who ask
+       their system for less motion. The placeholder shapes and spinner icons
+       stay on screen, so the page still shows that something is loading. */
+    .animate-pulse,
+    .animate-spin,
+    .animate-bounce,
+    .theme-shimmer,
+    [class*="animate-[pulse"],
+    [class*="animate-[spin"],
+    [class*="animate-[bounce"],
+    [class*="animate-[shimmer"] {
+        animation: none;
+    }
+}
