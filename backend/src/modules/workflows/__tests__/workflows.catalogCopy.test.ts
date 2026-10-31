@@ -66,6 +66,7 @@ import {
   workflowBodySha256,
 } from "../workflows.catalogCopy";
 import { getWorkflowDetail, updateWorkflow } from "../workflows.crud";
+import { submitOpenSourceWorkflow } from "../workflows.submissions";
 import type { WorkflowRecord } from "../workflows.types";
 
 type Result = { data: unknown; error: unknown };
@@ -77,8 +78,9 @@ type Call = {
 };
 
 // PostgREST-shaped fake: a queue of results per table (the last one repeats)
-// and a record of every call, its payload and its filters.
-function makeDb(results: Record<string, Result[]>) {
+// and a record of every call, its payload and its filters. A queued function
+// answers from the call itself, as the database would from its filters.
+function makeDb(results: Record<string, Array<Result | ((call: Call) => Result)>>) {
   const calls: Call[] = [];
   function from(table: string) {
     const call: Call = { table, op: "select", filters: [] };
@@ -88,7 +90,8 @@ function makeDb(results: Record<string, Result[]>) {
       if (!queue || queue.length === 0) {
         throw new Error(`no result queued for table ${table}`);
       }
-      return queue.length > 1 ? queue.shift()! : queue[0];
+      const entry = queue.length > 1 ? queue.shift()! : queue[0];
+      return typeof entry === "function" ? entry(call) : entry;
     };
     const builder: Record<string, unknown> = {};
     const chain = (name: string) => (...args: unknown[]) => {
@@ -316,7 +319,37 @@ describe("duplicateBuiltInWorkflow", () => {
       await duplicateBuiltInWorkflow(db, { workflowId: "builtin-proofread", userId: "u1" }),
     ).toMatchObject({ ok: false, kind: "not_found" });
     expect(calls[0].filters).toContainEqual(["eq", "workflow_key", "proofread"]);
+    expect(calls[0].filters).toContainEqual(["eq", "distribution", "default"]);
     expect(calls[0].filters).toContainEqual(["eq", "active", true]);
+  });
+
+  it("refuses an add-on's key: add-ons are copied only through their import route", async () => {
+    const addon: Record<string, unknown> = {
+      ...BUILT_IN,
+      workflow_key: "sample-review",
+      distribution: "addon",
+    };
+    const { db, calls } = makeDb({
+      mike_workflows: [
+        (call) => ({
+          data: call.filters.every(
+            ([name, column, value]) =>
+              name !== "eq" || addon[column as string] === value,
+          )
+            ? addon
+            : null,
+          error: null,
+        }),
+      ],
+    });
+
+    expect(
+      await duplicateBuiltInWorkflow(db, {
+        workflowId: "builtin-sample-review",
+        userId: "u1",
+      }),
+    ).toEqual({ ok: false, kind: "not_found", detail: "Built-in workflow not found" });
+    expect(calls.some((c) => c.op === "insert")).toBe(false);
   });
 
   it("makes an editable copy with the built-in's licence, credit and provenance", async () => {
@@ -445,6 +478,37 @@ describe("duplicateBuiltInWorkflow", () => {
     });
     expect((await duplicateBuiltInWorkflow(db, { workflowId: "builtin-proofread", userId: "u1" })).ok).toBe(true);
     expect(calls.some((c) => c.table === "mike_workflow_assets")).toBe(false);
+  });
+
+  it("gives a copy of a row synced before provenance existed every provenance key, as null", async () => {
+    const { db, calls } = makeDb({
+      mike_workflows: [
+        {
+          data: { ...BUILT_IN, license: null, attribution: null, provenance: null },
+          error: null,
+        },
+      ],
+      workflows: [{ data: copyRow(), error: null }],
+      mike_workflow_assets: [{ data: [], error: null }],
+    });
+
+    await duplicateBuiltInWorkflow(db, { workflowId: "builtin-proofread", userId: "u1" });
+
+    const insert = calls.find((c) => c.table === "workflows" && c.op === "insert");
+    expect((insert?.payload as { provenance: unknown }).provenance).toEqual({
+      catalog_repository: null,
+      catalog_path: null,
+      license_file: null,
+      source_repository: null,
+      source_path: null,
+      source_commit: null,
+      source_name: null,
+      source_version: null,
+      review_by: null,
+      catalog_commit: "a".repeat(40),
+      contributors: CONTRIBUTORS,
+      content_sha256: workflowBodySha256(BUILT_IN.prompt_md, null),
+    });
   });
 
   it("rolls the copy back and queues cleanup when a version batch fails", async () => {
@@ -579,6 +643,33 @@ describe("getWorkflowDetail catalog status", () => {
     expect(result.ok && result.body).toMatchObject({ catalog_status: null, license: null });
     expect(calls.some((c) => c.table === "mike_workflows")).toBe(false);
   });
+
+  it("still answers, with the status unknown, when the catalog lookup fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db } = makeDb({
+      workflows: [{ data: copyRow({ catalog_version: "1.0.0" }), error: null }],
+      workflow_open_source_submissions: [{ data: null, error: null }],
+      default_workflow_installations: [{ data: null, error: null }],
+      mike_workflows: [{ data: null, error: { message: "lookup failed" } }],
+    });
+
+    const result = await getWorkflowDetail(db, { workflowId: "w1", userId: "u1", userEmail: undefined });
+
+    expect(result.ok && result.body).toMatchObject({
+      catalog_workflow_key: "proofread",
+      catalog_version: "1.0.0",
+      license: "MIT",
+      attribution: "Proofread by Sample Author (MIT).",
+      provenance: COPY_PROVENANCE,
+      catalog_status: null,
+      catalog_latest_version: null,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "[best-effort] workflow-catalog-status failed",
+      expect.objectContaining({ error: { message: "lookup failed" } }),
+    );
+    warn.mockRestore();
+  });
 });
 
 describe("updateWorkflow on a catalog copy", () => {
@@ -620,5 +711,114 @@ describe("updateWorkflow on a catalog copy", () => {
       catalog_modified: true,
       modification_notice: "Modified by your organisation",
     });
+  });
+
+  it("answers the saved edit, with the status unknown, when the catalog lookup fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db, calls } = makeDb({
+      workflows: [
+        { data: copyRow(), error: null },
+        { data: copyRow({ prompt_md: "Our own instructions." }), error: null },
+      ],
+      mike_workflows: [{ data: null, error: { message: "lookup failed" } }],
+    });
+
+    const result = await updateWorkflow(db, {
+      workflowId: "w1",
+      userId: "u1",
+      userEmail: undefined,
+      body: { skill_md: "Our own instructions." },
+    });
+
+    // The edit was saved, so the answer is the saved row, not an error the
+    // client would retry.
+    expect(calls.find((c) => c.table === "workflows" && c.op === "update")?.payload).toEqual({
+      prompt_md: "Our own instructions.",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      body: {
+        skill_md: "Our own instructions.",
+        license: "MIT",
+        attribution: "Proofread by Sample Author (MIT).",
+        provenance: COPY_PROVENANCE,
+        catalog_status: null,
+        catalog_latest_version: null,
+        catalog_modified: true,
+      },
+    });
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+});
+
+describe("open-source submission of a catalog copy", () => {
+  function submissionDb(row: WorkflowRecord) {
+    return makeDb({
+      workflows: [{ data: row, error: null }],
+      user_profiles: [{ data: { display_name: "Submitting Lawyer" }, error: null }],
+      workflow_open_source_submissions: [
+        // No pending submission yet, then the created one.
+        { data: null, error: null },
+        {
+          data: {
+            id: "s1",
+            status: "pending",
+            submitted_at: "2026-10-31T00:00:00.000Z",
+            updated_at: "2026-10-31T00:00:00.000Z",
+            reviewed_at: null,
+          },
+          error: null,
+        },
+      ],
+    });
+  }
+
+  it("keeps the copy's licence, credit and source in the snapshot, whoever submits it", async () => {
+    const { db, calls } = submissionDb(copyRow({ prompt_md: "Our own instructions." }));
+
+    const result = await submitOpenSourceWorkflow(db, {
+      workflowId: "w1",
+      userId: "u1",
+      userEmail: "u1@example.com",
+      body: { contributor_mode: "named" },
+    });
+
+    expect(result).toMatchObject({ ok: true, status: 201 });
+    const insert = calls.find(
+      (c) => c.table === "workflow_open_source_submissions" && c.op === "insert",
+    );
+    const snapshot = (insert?.payload as { snapshot: Record<string, unknown> }).snapshot;
+    // The submitter is credited for the submission...
+    expect(snapshot.metadata).toMatchObject({
+      contributors: [expect.objectContaining({ name: "Submitting Lawyer" })],
+    });
+    // ...and the original work keeps its licence, credit and contributors.
+    expect(snapshot.catalog_lineage).toEqual({
+      catalog_workflow_key: "proofread",
+      catalog_version: "1.1.0",
+      license: "MIT",
+      attribution: "Proofread by Sample Author (MIT).",
+      provenance: COPY_PROVENANCE,
+      catalog_modified: true,
+    });
+  });
+
+  it("records no catalog lineage for a workflow of the user's own", async () => {
+    const { db, calls } = submissionDb(
+      copyRow({ catalog_workflow_key: null, catalog_version: null, license: null, attribution: null, provenance: null }),
+    );
+
+    await submitOpenSourceWorkflow(db, {
+      workflowId: "w1",
+      userId: "u1",
+      userEmail: "u1@example.com",
+      body: {},
+    });
+
+    const insert = calls.find(
+      (c) => c.table === "workflow_open_source_submissions" && c.op === "insert",
+    );
+    expect((insert?.payload as { snapshot: Record<string, unknown> }).snapshot.catalog_lineage).toBeNull();
   });
 });

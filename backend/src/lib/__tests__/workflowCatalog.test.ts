@@ -71,6 +71,12 @@ describe("workflow catalog identifiers", () => {
       catalog_repository: "example/workflow-catalog",
       catalog_path: "assistant-workflows/proofread",
       license_file: "LICENSE",
+      source_repository: null,
+      source_path: null,
+      source_commit: null,
+      source_name: null,
+      source_version: null,
+      review_by: null,
     };
     expect(
       catalogWorkflowToLegacy({

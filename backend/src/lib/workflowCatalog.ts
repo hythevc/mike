@@ -1,3 +1,9 @@
+import type {
+  WorkflowCatalogLicensing,
+  WorkflowLicense,
+  WorkflowLicenseEvidence,
+  WorkflowProvenance,
+} from "@mike/contracts";
 import { chunkArray } from "./arrays";
 import type { Db } from "./supabase";
 
@@ -35,12 +41,12 @@ export type WorkflowCatalogRow = {
   pack_description: string | null;
   pack_version: string | null;
   // Licence and provenance (20261031_52_workflow_provenance.sql). Null on
-  // rows synced before that migration.
-  license?: string | null;
-  license_evidence?: "file" | "manifest-only" | null;
+  // rows synced before that migration; the sync writes only accepted values.
+  license?: WorkflowLicense | null;
+  license_evidence?: WorkflowLicenseEvidence | null;
   author_confirmation?: string | null;
   attribution?: string | null;
-  provenance?: Record<string, unknown> | null;
+  provenance?: WorkflowProvenance | null;
   notice_md?: string | null;
   changes_md?: string | null;
   source_commit: string | null;
@@ -50,7 +56,10 @@ export type WorkflowCatalogRow = {
   updated_at: string;
 };
 
-export type LegacyCatalogWorkflow = {
+// The built-in detail (GET /workflows/builtin-<key>): the legacy system
+// workflow shape plus the catalog's licence, credit and notices as the wire
+// contract declares them.
+export type LegacyCatalogWorkflow = WorkflowCatalogLicensing & {
   id: string;
   user_id: null;
   is_system: true;
@@ -75,16 +84,26 @@ export type LegacyCatalogWorkflow = {
     description: string;
     version: string;
   } | null;
-  license: string | null;
-  license_evidence: "file" | "manifest-only" | null;
-  author_confirmation: string | null;
-  attribution: string | null;
-  provenance: Record<string, unknown> | null;
-  notice_md: string | null;
-  changes_md: string | null;
-  /** The catalog commit this content was synced from. */
-  source_commit: string | null;
 };
+
+/**
+ * A catalog row's licence, credit, notices and source commit in the wire
+ * shape, each null on a row synced before the field existed.
+ */
+export function catalogLicensing(
+  workflow: WorkflowCatalogRow,
+): WorkflowCatalogLicensing {
+  return {
+    license: workflow.license ?? null,
+    license_evidence: workflow.license_evidence ?? null,
+    author_confirmation: workflow.author_confirmation ?? null,
+    attribution: workflow.attribution ?? null,
+    provenance: workflow.provenance ?? null,
+    notice_md: workflow.notice_md ?? null,
+    changes_md: workflow.changes_md ?? null,
+    source_commit: workflow.source_commit ?? null,
+  };
+}
 
 export function catalogWorkflowId(workflowKey: string): string {
   return `builtin-${workflowKey}`;
@@ -127,14 +146,7 @@ export function catalogWorkflowToLegacy(
           version: workflow.pack_version ?? "",
         }
       : null,
-    license: workflow.license ?? null,
-    license_evidence: workflow.license_evidence ?? null,
-    author_confirmation: workflow.author_confirmation ?? null,
-    attribution: workflow.attribution ?? null,
-    provenance: workflow.provenance ?? null,
-    notice_md: workflow.notice_md ?? null,
-    changes_md: workflow.changes_md ?? null,
-    source_commit: workflow.source_commit ?? null,
+    ...catalogLicensing(workflow),
   };
 }
 

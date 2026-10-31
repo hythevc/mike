@@ -32,6 +32,7 @@ import {
   ok,
   type ServiceFailure,
 } from "../../lib/serviceResult";
+import { bestEffort } from "../../lib/observability/sentry";
 import { downloadFile, storageKey, uploadFile } from "../../lib/storage";
 import type { Db } from "../../lib/supabase";
 import {
@@ -210,6 +211,50 @@ const NOT_A_CATALOG_COPY: WorkflowCatalogCopy = Object.freeze({
 });
 
 /**
+ * What a copy keeps from the catalog workflow it came from, whatever the
+ * catalog does now.
+ */
+export type CatalogCopyLineage = Pick<
+  WorkflowCatalogCopy,
+  | "catalog_workflow_key"
+  | "catalog_version"
+  | "license"
+  | "attribution"
+  | "provenance"
+  | "catalog_modified"
+>;
+
+/**
+ * The read-only catalog fields of a workflow row, and whether its body has
+ * changed since the copy; null for a workflow not copied from the catalog.
+ */
+export function catalogCopyLineage(
+  record: WorkflowRecord,
+): CatalogCopyLineage | null {
+  const key = normalizeOptionalString(record.catalog_workflow_key);
+  if (!key) return null;
+  const provenance = isRecord(record.provenance)
+    ? (record.provenance as unknown as WorkflowProvenance)
+    : null;
+  const copiedBody =
+    typeof provenance?.content_sha256 === "string"
+      ? provenance.content_sha256
+      : null;
+  return {
+    catalog_workflow_key: key,
+    catalog_version: normalizeOptionalString(record.catalog_version),
+    license: (normalizeOptionalString(record.license) ??
+      null) as WorkflowLicense | null,
+    attribution: normalizeOptionalString(record.attribution),
+    provenance,
+    catalog_modified:
+      copiedBody !== null &&
+      copiedBody !==
+        workflowBodySha256(record.prompt_md, record.columns_config),
+  };
+}
+
+/**
  * The read-only catalog fields of a workflow row and its status against the
  * active catalog, which serves `activeVersion` for the row's key (undefined
  * once the key has left the catalog).
@@ -218,41 +263,41 @@ export function catalogCopyFields(
   record: WorkflowRecord,
   activeVersion: string | null | undefined,
 ): WorkflowCatalogCopy {
-  const key = normalizeOptionalString(record.catalog_workflow_key);
-  if (!key) return { ...NOT_A_CATALOG_COPY };
-  const version = normalizeOptionalString(record.catalog_version);
-  const provenance = isRecord(record.provenance)
-    ? (record.provenance as unknown as WorkflowProvenance)
-    : null;
-  const copiedBody =
-    typeof provenance?.content_sha256 === "string"
-      ? provenance.content_sha256
-      : null;
-  const modified =
-    copiedBody !== null &&
-    copiedBody !== workflowBodySha256(record.prompt_md, record.columns_config);
+  const lineage = catalogCopyLineage(record);
+  if (!lineage) return { ...NOT_A_CATALOG_COPY };
   return {
-    catalog_workflow_key: key,
-    catalog_version: version,
-    license: (normalizeOptionalString(record.license) ??
-      null) as WorkflowLicense | null,
-    attribution: normalizeOptionalString(record.attribution),
-    provenance,
-    catalog_status: catalogStatusFor(version, activeVersion),
+    ...lineage,
+    catalog_status: catalogStatusFor(lineage.catalog_version, activeVersion),
     catalog_latest_version: activeVersion ?? null,
-    catalog_modified: modified,
-    modification_notice: modified ? CATALOG_MODIFICATION_NOTICE : null,
+    modification_notice: lineage.catalog_modified
+      ? CATALOG_MODIFICATION_NOTICE
+      : null,
   };
 }
 
-/** `catalogCopyFields` for one row, looking its key up in the active catalog. */
+/**
+ * `catalogCopyFields` for one row, looking its key up in the active catalog.
+ * The licence, credit and provenance come from the row itself; only the
+ * standing against the catalog needs the lookup. A failed lookup must not
+ * turn a saved edit or a readable workflow into an error, so it is reported
+ * and the status is left unknown (null).
+ */
 export async function resolveCatalogCopyFields(
   db: Db,
   record: WorkflowRecord,
 ): Promise<WorkflowCatalogCopy> {
   const key = normalizeOptionalString(record.catalog_workflow_key);
   if (!key) return { ...NOT_A_CATALOG_COPY };
-  const versions = await findActiveCatalogVersions(db, [key]);
+  const versions = await bestEffort(findActiveCatalogVersions(db, [key]), {
+    what: "workflow-catalog-status",
+  });
+  if (!versions) {
+    return {
+      ...catalogCopyFields(record, null),
+      catalog_status: null,
+      catalog_latest_version: null,
+    };
+  }
   return catalogCopyFields(
     record,
     versions.has(key) ? (versions.get(key) ?? null) : undefined,
@@ -279,12 +324,34 @@ export function serializeNewCatalogCopy(row: CatalogWorkflowCopy) {
   };
 }
 
+// The catalog provenance a copy keeps, key by key as the wire contract
+// declares it. A catalog row synced before provenance existed has none, and
+// its copies get every key as null rather than a partial object.
+const CATALOG_PROVENANCE_KEYS = [
+  "catalog_repository",
+  "catalog_path",
+  "license_file",
+  "source_repository",
+  "source_path",
+  "source_commit",
+  "source_name",
+  "source_version",
+  "review_by",
+] as const satisfies ReadonlyArray<keyof WorkflowProvenance>;
+
 // What the copy keeps of the catalog row's provenance, plus what only a copy
 // needs: the catalog commit and contributors at the time of the copy, and a
 // hash of the body as copied, which is how an edit is recognised later.
-function copyProvenance(catalog: Record<string, unknown>) {
+function copyProvenance(catalog: Record<string, unknown>): WorkflowProvenance {
+  const source = isRecord(catalog.provenance) ? catalog.provenance : {};
+  const kept = Object.fromEntries(
+    CATALOG_PROVENANCE_KEYS.map((key) => [
+      key,
+      normalizeOptionalString(source[key]),
+    ]),
+  ) as Record<(typeof CATALOG_PROVENANCE_KEYS)[number], string | null>;
   return {
-    ...(isRecord(catalog.provenance) ? catalog.provenance : {}),
+    ...kept,
     catalog_commit: normalizeOptionalString(catalog.source_commit),
     contributors: normalizeContributors(catalog.contributors) ?? [],
     content_sha256: workflowBodySha256(
@@ -490,7 +557,8 @@ async function copyCatalogAssets(
 
 /**
  * Make an editable copy of a built-in (`builtin-<key>`) that the active
- * catalog serves. A withdrawn workflow cannot be copied again.
+ * catalog serves. A withdrawn workflow cannot be copied again, and an add-on
+ * is copied only through its own import route.
  */
 export async function duplicateBuiltInWorkflow(
   db: Db,
@@ -502,6 +570,7 @@ export async function duplicateBuiltInWorkflow(
     .from("mike_workflows")
     .select("*")
     .eq("workflow_key", workflowKey)
+    .eq("distribution", "default")
     .eq("active", true)
     .maybeSingle();
   if (error) return internalFailure(error);

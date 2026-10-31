@@ -8,8 +8,13 @@
 // status codes. Its functions are re-exported by name from
 // workflows.service.ts, the module facade.
 
+import type { WorkflowCatalogLicensing } from "@mike/contracts";
 import type { Db } from "../../lib/supabase";
 import { chunkArray } from "../../lib/arrays";
+import {
+  catalogLicensing,
+  type WorkflowCatalogRow,
+} from "../../lib/workflowCatalog";
 import {
   loadDocumentDisplay,
   type DocumentDisplayPayload,
@@ -145,11 +150,25 @@ export async function loadWorkflowAddonAssetDisplay(
   }
 }
 
+/**
+ * One add-on as GET /workflow-addons/:id sends it: the catalog row with
+ * `workflow_key` renamed to `addon_key`, its licence, credit and notices in
+ * the wire contract's shape, and its assistant assets.
+ */
+export type WorkflowAddonDetail = Omit<
+  WorkflowCatalogRow,
+  "workflow_key" | keyof WorkflowCatalogLicensing
+> &
+  WorkflowCatalogLicensing & {
+    addon_key: string;
+    assets: Array<Omit<AddonAssetRow, "mike_workflow_id">>;
+  };
+
 /** One catalog row in full, with its assistant assets attached. */
 export async function getWorkflowAddon(
   db: Db,
   params: { addonId: string },
-): Promise<ServiceResult<Record<string, unknown>>> {
+): Promise<ServiceResult<WorkflowAddonDetail>> {
   const { data, error } = await db
     .from("mike_workflows")
     .select("*")
@@ -160,23 +179,25 @@ export async function getWorkflowAddon(
   if (error || !data) {
     return failure("not_found", "Add-on not found");
   }
-  let assets = null;
-  if (data.type === "assistant") {
+  const row = data as WorkflowCatalogRow;
+  let assets: WorkflowAddonDetail["assets"] = [];
+  if (row.type === "assistant") {
     const { data: assistantAssets, error: assetsError } = await db
       .from("mike_workflow_assets")
       .select("id, filename, file_type, size_bytes, created_at")
-      .eq("mike_workflow_id", data.id)
+      .eq("mike_workflow_id", row.id)
       .order("created_at", { ascending: true });
     if (assetsError) {
       return internalFailure(assetsError);
     }
-    assets = assistantAssets;
+    assets = (assistantAssets ?? []) as WorkflowAddonDetail["assets"];
   }
-  const { workflow_key, ...addon } = data;
+  const { workflow_key, ...addon } = row;
   return ok({
     ...addon,
+    ...catalogLicensing(row),
     addon_key: workflow_key,
-    assets: assets ?? [],
+    assets,
   });
 }
 

@@ -8,10 +8,13 @@ import {
   removePreparedWorkflowCatalog,
   resolveWorkflowSourceCommit,
   validateWorkflowCatalogDocument,
+  WORKFLOW_ASSET_TYPES,
   type WorkflowCatalogSourceDocument,
   type WorkflowCatalogSourceOptions,
 } from "../workflowCatalogSource";
 import { WORKFLOW_CATALOG_PIN } from "../workflowCatalogPin";
+import { ALLOWED_DOCUMENT_TYPES } from "../documentTypes";
+import { sampleDocx, samplePdf } from "../../__tests__/helpers/sampleDocuments";
 
 const COMMIT = "a".repeat(40);
 
@@ -82,7 +85,7 @@ async function archive(options: { duplicate?: boolean } = {}) {
   );
   zip.file(
     `${root}assistant-workflows/proofread/assets/template.docx`,
-    Buffer.from("test template"),
+    await sampleDocx(),
   );
   const requiredTabular = "commercial-agreement-tabular-review";
   zip.file(
@@ -168,14 +171,13 @@ describe("GitHub workflow catalog preparation", () => {
       const asset = document.workflows.find(
         (workflow) => workflow.workflow_key === "proofread",
       )!.assets[0];
+      const template = await sampleDocx();
       expect(asset).toMatchObject({
         filename: "template.docx",
         file_type: "docx",
-        size_bytes: 13,
+        size_bytes: template.byteLength,
       });
-      await expect(readFile(asset.temporary_path, "utf8")).resolves.toBe(
-        "test template",
-      );
+      await expect(readFile(asset.temporary_path)).resolves.toEqual(template);
 
       await removePreparedWorkflowCatalog(prepared);
       await expect(readFile(prepared.catalogPath)).rejects.toMatchObject({
@@ -667,21 +669,141 @@ describe("catalog licences", () => {
 describe("never-ship rules", () => {
   const inAdapted = (relative: string, contents: string | Buffer = "x", mode?: number): Entry =>
     ({ path: `${ADAPTED_DIRECTORY}/${relative}`, contents, mode });
+  const elf = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(56)]);
+  const windowsExecutable = Buffer.concat([Buffer.from("MZ", "latin1"), Buffer.alloc(62)]);
 
   it.each([
-    ["a .py asset", inAdapted("assets/helper.py", "print(1)"), "contains a script or executable file"],
+    ["a .py asset", inAdapted("assets/helper.py", "print(1)"), "contains a file type that never ships"],
     ["a scripts/ folder", inAdapted("scripts/build.md"), "contains a scripts/ folder"],
     ["a bin/ folder", inAdapted("bin/tool.txt"), "contains a bin/ folder"],
     ["a hooks/ folder", inAdapted("hooks/pre.txt"), "contains a hooks/ folder"],
-    ["a macro-enabled Word asset", inAdapted("assets/template.docm"), "contains a script or executable file"],
-    ["a .wasm binary", inAdapted("source/module.wasm"), "contains a script or executable file"],
+    ["a tools/ folder", inAdapted("tools/convert.md"), "contains a tools/ folder"],
+    ["a tests/ folder", inAdapted("tests/case.md"), "contains a tests/ folder"],
+    ["a .github/ folder", inAdapted(".github/workflow.yaml"), "contains a .github/ folder"],
+    ["a macro-enabled Word asset", inAdapted("assets/template.docm"), "contains a file type that never ships"],
+    ["a macro-enabled Word template", inAdapted("assets/template.dotm"), "contains a file type that never ships"],
+    ["a VBScript file", inAdapted("references/run.vbs", "MsgBox 1"), "contains a file type that never ships"],
+    ["an HTML asset", inAdapted("assets/page.html", "<script></script>"), "contains a file type that never ships"],
+    ["an SVG image", inAdapted("references/logo.svg", "<svg/>"), "contains a file type that never ships"],
+    ["a notebook", inAdapted("references/analysis.ipynb", "{}"), "contains a file type that never ships"],
+    ["a binary named .bin", inAdapted("assets/setup.bin", windowsExecutable), "contains a file type that never ships"],
+    ["a .wasm binary", inAdapted("source/module.wasm"), "contains a file type that never ships"],
+    ["a package.json", inAdapted("package.json", "{}"), "contains a build or package file"],
+    ["a requirements file", inAdapted("requirements-dev.txt", "jinja2\n"), "contains a build or package file"],
+    ["a Makefile", inAdapted("Makefile", "all:\n"), "contains a build or package file"],
+    ["a name ending in a dot", inAdapted("assets/run.py.", "import os\n"), "ends in a dot or a space"],
+    ["a name ending in a space", inAdapted("assets/run.py ", "import os\n"), "ends in a dot or a space"],
+    ["a folder name ending in a dot", inAdapted("scripts./build.md"), "ends in a dot or a space"],
     ["a symlink", inAdapted("assets/link.docx", "../../../LICENSE", 0o120777), "contains a symlink"],
     ["an executable file", inAdapted("assets/run", "binary", 0o100755), "contains an executable file"],
-    ["an asset that is a script", inAdapted("assets/notes.txt", "#!/bin/sh\necho hi\n"), "is a script"],
   ] as const)("refuses %s and names the workflow", async (_label, entry, message) => {
     await expect(
       parse([...upstreamDefaults(), ...adaptedWorkflow(), entry]),
     ).rejects.toThrow(new RegExp(`Workflow '${ADAPTED_KEY}'.*${message}`));
+  });
+
+  it.each([
+    ["a binary with no extension", "assets/tool", elf, "is not a document type the catalog ships \\(pdf, docx, xlsx, pptx\\)"],
+    ["a legacy Word file", "assets/template.doc", Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), "is not a document type the catalog ships"],
+    ["a plain-text file", "assets/notes.txt", "Notes", "is not a document type the catalog ships"],
+    ["an ELF binary named .pdf", "assets/guide.pdf", elf, "is a script or executable"],
+    ["a Windows executable named .docx", "assets/template.docx", windowsExecutable, "is a script or executable"],
+    ["a script named .pdf", "assets/notes.pdf", "#!/bin/sh\necho hi\n", "is a script or executable"],
+    ["a .pdf that is not a PDF", "assets/guide.pdf", "Guide", "is not a \\.pdf file"],
+    ["a .docx that is not a Word package", "assets/template.docx", Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0]), "is not a \\.docx file"],
+    ["a control character in the name", "assets/tem\u0007plate.pdf", samplePdf(), "has a name that would change on a user's disk"],
+    ["a reserved character in the name", "assets/template:v2.pdf", samplePdf(), "has a name that would change on a user's disk"],
+    ["a leading space in the name", "assets/ template.pdf", samplePdf(), "has a name that would change on a user's disk"],
+  ] as const)("refuses an asset that is %s", async (_label, relative, contents, message) => {
+    await expect(
+      parse([...upstreamDefaults(), ...adaptedWorkflow(), inAdapted(relative, contents)]),
+    ).rejects.toThrow(new RegExp(`Workflow '${ADAPTED_KEY}' asset .*${message}`));
+  });
+
+  it("refuses a macro-enabled document renamed to .docx", async () => {
+    await expect(
+      parse([
+        ...upstreamDefaults(),
+        ...adaptedWorkflow(),
+        inAdapted("assets/template.docx", await sampleDocx({ macros: true })),
+      ]),
+    ).rejects.toThrow(
+      `Workflow '${ADAPTED_KEY}' asset "${ADAPTED_DIRECTORY}/assets/template.docx" contains macros`,
+    );
+  });
+
+  it("ships Word and PDF assets whose content matches their type", async () => {
+    const template = await sampleDocx();
+    const document = await parse([
+      ...upstreamDefaults(),
+      ...adaptedWorkflow(),
+      inAdapted("assets/template.docx", template),
+      inAdapted("assets/guide.pdf", samplePdf()),
+    ]);
+    expect(
+      document.workflows
+        .find((w) => w.workflow_key === ADAPTED_KEY)!
+        .assets.map(({ filename, file_type, size_bytes }) => ({ filename, file_type, size_bytes })),
+    ).toEqual([
+      { filename: "guide.pdf", file_type: "pdf", size_bytes: samplePdf().byteLength },
+      { filename: "template.docx", file_type: "docx", size_bytes: template.byteLength },
+    ]);
+  });
+
+  it("ships only asset types the product reads, and none that carry macros", () => {
+    for (const type of WORKFLOW_ASSET_TYPES) {
+      expect(ALLOWED_DOCUMENT_TYPES.has(type)).toBe(true);
+    }
+    for (const type of ["xlsm", "doc", "xls", "ppt"]) {
+      expect(WORKFLOW_ASSET_TYPES as readonly string[]).not.toContain(type);
+    }
+  });
+
+  it("refuses a catalog document whose asset type the sync would not ship", () => {
+    const document = (asset: Record<string, unknown>) => ({
+      source_repository: "example/workflow-catalog",
+      source_ref: COMMIT,
+      source_commit: COMMIT,
+      workflows: [
+        {
+          workflow_key: "proofread",
+          distribution: "default",
+          type: "assistant",
+          title: "Proofread",
+          prompt_md: "# Proofread",
+          content_hash: "b".repeat(64),
+          license: "MIT",
+          license_evidence: "file",
+          provenance: { catalog_path: "assistant-workflows/proofread", license_file: "LICENSE" },
+          assets: [
+            {
+              filename: "template.docx",
+              file_type: "docx",
+              size_bytes: 4,
+              content_hash: "c".repeat(64),
+              temporary_path: "/tmp/asset",
+              ...asset,
+            },
+          ],
+        },
+      ],
+    });
+    expect(() => validateWorkflowCatalogDocument(document({}))).not.toThrow();
+    for (const asset of [
+      { filename: "tool", file_type: "bin" },
+      { filename: "setup.exe", file_type: "exe" },
+      { filename: "template.docx", file_type: "pdf" },
+      { filename: "template.doc", file_type: "doc" },
+    ]) {
+      expect(() => validateWorkflowCatalogDocument(document(asset))).toThrow(
+        "has an asset type the catalog does not ship",
+      );
+    }
+    for (const filename of ["run.docx.", "run.docx ", "a:b.docx"]) {
+      expect(() => validateWorkflowCatalogDocument(document({ filename }))).toThrow(
+        "has an unsafe asset filename",
+      );
+    }
   });
 
   it("refuses a '..' path that would leave the workflow folder", async () => {

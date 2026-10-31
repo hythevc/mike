@@ -191,12 +191,33 @@ archive and makes no GitHub API call. Moving to a newer catalog release is a
 one-line change to that file. To sync another catalog, set both variables; a
 repository other than the pinned one has no default ref.
 
-**Upgrade note:** with `NODE_ENV=production` (the default in the backend
-image), `MIKE_WORKFLOWS_REF` must be a 40-character commit SHA. A branch or tag
-name such as `main` now fails the sync before anything is downloaded. Earlier
-versions of `backend/.env.example` set `MIKE_WORKFLOWS_REF=main`; if your
-`.env` still has that line, remove it to use the pinned catalog, or replace it
-with the commit you want.
+**Upgrade notes:**
+
+- With `NODE_ENV=production` (the default in the backend image),
+  `MIKE_WORKFLOWS_REF` must be a 40-character commit SHA. A branch or tag name
+  such as `main` now fails the sync before anything is downloaded. Earlier
+  versions of `backend/.env.example` set `MIKE_WORKFLOWS_REF=main`; if your
+  `.env` still has that line, remove it to use the pinned catalog, or replace
+  it with the commit you want.
+- In Docker Compose, the `workflow-sync` service runs with the image's
+  `NODE_ENV=production` unless your `.env` sets `NODE_ENV`, and the `backend`
+  service starts only after that sync succeeds. A leftover
+  `MIKE_WORKFLOWS_REF=main` therefore stops the backend from starting at all,
+  even when the backend itself runs in development mode.
+- The pinned commit can be older than the catalog's `main` branch. A
+  deployment that synced `main` and then syncs the pin deactivates every
+  add-on that exists only in the newer catalog: it leaves the add-on list,
+  and copies people already imported keep working but report
+  `catalog_status: withdrawn`. To stay on a newer catalog, pin it on purpose:
+  find its commit with
+  `git ls-remote https://github.com/<repository>.git refs/heads/main`, using
+  the repository named in `workflowCatalogPin.ts`, then set
+  `MIKE_WORKFLOWS_REF` to that SHA, or change the commit in
+  `workflowCatalogPin.ts` so every deployment of a release syncs it.
+- The asset rules below are new. A catalog of your own that ships other asset
+  types, such as `.doc`, `.txt` or `.md` files in a workflow's `assets/`
+  folder, now fails the sync; convert those files to an accepted type or
+  remove them.
 
 The sync refuses the whole catalog, naming the workflow, when a workflow:
 
@@ -213,10 +234,26 @@ The sync refuses the whole catalog, naming the workflow, when a workflow:
   `MIKE_WORKFLOWS_REQUIRE_CONFIRMED_LICENSES` is on. It is on unless set to
   `false` (or `0`, `no`, `off`), and should stay on for any catalog people
   rely on;
-- ships anything executable: a `scripts/`, `bin/` or `hooks/` folder, a
-  script or binary file (for example `.py`, `.sh`, `.js`, `.ts`, `.exe`,
-  `.jar`, `.wasm`, or a macro-enabled Office file), a symlink, a file with an
-  executable bit, or an asset that starts with `#!`;
+- has, anywhere under `assistant-workflows/` or `tabular-review-workflows/`,
+  a tooling folder (`scripts/`, `bin/`, `tools/`, `hooks/`, `agents/`,
+  `commands/`, `tests/`, `evals/`, `demo/`, `node_modules/`, `.github/` or
+  `.claude-plugin/`); a script or source file (for example `.py`, `.sh`,
+  `.js`, `.ts`, `.vbs` or `.ipynb`); an executable, library or installer
+  (for example `.exe`, `.bin`, `.dll`, `.msi` or `.wasm`); markup that can
+  carry script (`.html`, `.htm`, `.xhtml`, `.svg`, `.xml`, `.hta`); a
+  macro-enabled Office file (`.docm`, `.dotm`, `.xlsm`, `.xltm`, `.xlam`,
+  `.xla`, `.xlsb`, `.pptm`, `.potm`, `.ppam`, `.ppsm` or `.sldm`); a build or
+  package file (such as `package.json`, `requirements*.txt`,
+  `pyproject.toml`, a lockfile, `Makefile` or `Dockerfile`); a symlink; a
+  file with an executable bit; or a name that ends in a dot or a space, which
+  Windows drops (`run.py.` would arrive as `run.py`);
+- has an asset (a file in its `assets/` folder) that is not a `.pdf`,
+  `.docx`, `.xlsx` or `.pptx` file, whose content does not start the way its
+  type does (an executable or a script under a document's name is refused),
+  whose Office file contains macros, or whose name has a control character,
+  a space at either end, or one of `<>:"|?*\`. The legacy `.doc`, `.xls` and
+  `.ppt` formats are refused because their macros cannot be detected
+  reliably;
 - contains a path that leaves its folder (`..`, `.`, an absolute path or a
   backslash).
 
@@ -225,10 +262,13 @@ credit line, provenance (catalog folder, licence file and upstream source),
 `NOTICE` and `CHANGES.md`. These are part of a row's content hash, so the first
 sync after this upgrade stores every workflow as a new row; earlier rows stay
 readable for chat history. Imported add-ons and duplicated built-ins
-(`POST /workflows/builtin-<key>/duplicate`) keep the licence, credit and
-provenance read-only, and their detail reports `catalog_status`: `current`,
-`update_available` when the catalog serves a newer version, or `withdrawn`
-when the catalog no longer has the workflow.
+(`POST /workflows/builtin-<key>/duplicate`, for the default workflows only)
+keep the licence, credit and provenance read-only, and their detail reports
+`catalog_status`: `current`, `update_available` when the catalog serves a
+newer version, or `withdrawn` when the catalog no longer has the workflow.
+Both copies run the same asset copy and rendering, so they share one rate
+limit: `RATE_LIMIT_UPLOAD_MAX` requests (50 by default) per
+`RATE_LIMIT_UPLOAD_WINDOW_HOURS` (1 by default).
 
 ## Document parsing resources
 

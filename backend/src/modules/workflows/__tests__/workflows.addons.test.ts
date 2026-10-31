@@ -364,7 +364,65 @@ describe("getWorkflowAddon", () => {
         type: "assistant",
         addon_key: "draft",
         assets: [{ id: "asset-1", filename: "Precedent.docx" }],
+        // A row synced before the licence fields existed reports each as
+        // null, in the WorkflowCatalogLicensing shape.
+        license: null,
+        license_evidence: null,
+        author_confirmation: null,
+        attribution: null,
+        provenance: null,
+        notice_md: null,
+        changes_md: null,
+        source_commit: null,
       },
+    });
+  });
+
+  it("reports the add-on's licence, credit, provenance and notices", async () => {
+    const provenance = {
+      catalog_repository: "example/workflow-catalog",
+      catalog_path: "assistant-workflows/sample-pack/draft",
+      license_file: "assistant-workflows/sample-pack/draft/LICENSE",
+      source_repository: "example/legal-skills",
+      source_path: "skills/draft",
+      source_commit: "c".repeat(40),
+      source_name: "draft",
+      source_version: "2.1.0",
+      review_by: "2027-10-31",
+    };
+    const { db } = makeDb({
+      mike_workflows: [
+        {
+          data: {
+            id: "a3",
+            workflow_key: "draft",
+            type: "tabular",
+            license: "Apache-2.0",
+            license_evidence: "file",
+            author_confirmation: "not-required",
+            attribution: "Adapted from Draft by Sample Author (Apache-2.0).",
+            provenance,
+            notice_md: "Draft\nCopyright 2026 Sample Author",
+            changes_md: "## 1.0.0",
+            source_commit: "a".repeat(40),
+          },
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getWorkflowAddon(db, { addonId: "a3" });
+
+    expect(result.ok && result.data).toMatchObject({
+      addon_key: "draft",
+      license: "Apache-2.0",
+      license_evidence: "file",
+      author_confirmation: "not-required",
+      attribution: "Adapted from Draft by Sample Author (Apache-2.0).",
+      provenance,
+      notice_md: "Draft\nCopyright 2026 Sample Author",
+      changes_md: "## 1.0.0",
+      source_commit: "a".repeat(40),
     });
   });
 

@@ -48,11 +48,17 @@ async function installBundledWorkflows({ client, backendDir, storageRoot }) {
       !Array.isArray(document.workflows) || !document.workflows.length) {
     throw new Error("The bundled workflow catalog is invalid. Reinstall Mike.");
   }
+  // Skip only when the active catalog is exactly this bundle: the same commit
+  // and the same content hashes. A bundle rebuilt from the same commit with a
+  // different payload (new fields give every row a new hash) installs again.
   const installed = await client.query(
-    "select count(*)::int as count from public.mike_workflows where active and source_commit = $1",
-    [document.source_commit],
+    "select source_commit, content_hash from public.mike_workflows where active",
   );
-  if (installed.rows[0]?.count === document.workflows.length) return;
+  const bundled = new Set(document.workflows.map((workflow) => workflow.content_hash));
+  if (installed.rows.length === document.workflows.length &&
+      installed.rows.every((row) => row.source_commit === document.source_commit && bundled.has(row.content_hash))) {
+    return;
+  }
 
   const workflows = [];
   for (const workflow of document.workflows) {

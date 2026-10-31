@@ -4,6 +4,7 @@ import path from "path";
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import { syncWorkflowCatalog } from "../workflowCatalogSync";
+import { sampleDocx } from "../../__tests__/helpers/sampleDocuments";
 
 const storage = vi.hoisted(() => ({
   enabled: true,
@@ -81,7 +82,7 @@ metadata:
 Proofread the document.
 `,
   );
-  zip.file(`${root}/assets/template.docx`, Buffer.from("template"));
+  zip.file(`${root}/assets/template.docx`, await sampleDocx());
   for (const [key, title] of [
     ["compare-documents", "Compare Documents"],
     ["extract-key-terms", "Extract Key Terms"],

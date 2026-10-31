@@ -1228,6 +1228,48 @@ describe("workflows.routes", () => {
       expect(supabaseState.inserts).toEqual([]);
     });
 
+    it("answers 404 for an add-on's key, which only the add-on import route copies", async () => {
+      const addon: Record<string, unknown> = {
+        ...builtIn,
+        workflow_key: "sample-review",
+        distribution: "addon",
+      };
+      const filters: Array<[string, unknown]> = [];
+      vi.mocked(createServerSupabase).mockImplementationOnce(() => {
+        const db = mockSupabase();
+        const from = db.from;
+        db.from = vi.fn((table: string) => {
+          const query = from(table);
+          if (table !== "mike_workflows") return query;
+          // Answers as the database would: the row only when every equality
+          // filter of the lookup holds for it.
+          const eq = query.eq as (column: string, value: unknown) => unknown;
+          query.eq = vi.fn((column: string, value: unknown) => {
+            filters.push([column, value]);
+            return eq(column, value);
+          });
+          query.maybeSingle = vi.fn(async () => ({
+            data: filters.every(([column, value]) => addon[column] === value)
+              ? addon
+              : null,
+            error: null,
+          }));
+          return query;
+        });
+        return db as unknown as Db;
+      });
+
+      const res = await request(app)
+        .post("/workflows/builtin-sample-review/duplicate")
+        .set(...AUTH);
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ detail: "Built-in workflow not found" });
+      expect(filters).toContainEqual(["workflow_key", "sample-review"]);
+      expect(filters).toContainEqual(["distribution", "default"]);
+      expect(supabaseState.inserts).toEqual([]);
+    });
+
     it("keeps a copy's licence and credit through an edit of its body and marks it modified", async () => {
       supabaseState.tables.workflows = {
         data: {
@@ -1261,6 +1303,38 @@ describe("workflows.routes", () => {
         catalog_modified: true,
         modification_notice: "Modified by your organisation",
       });
+    });
+
+    it("answers 200 for a saved edit when only the catalog status lookup fails", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      supabaseState.tables.workflows = {
+        data: { ...copy, prompt_md: "Our own instructions." },
+        error: null,
+      };
+      supabaseState.tables.mike_workflows = {
+        data: null,
+        error: { message: "catalog lookup failed" },
+      };
+
+      const res = await request(app)
+        .patch("/workflows/w-copy")
+        .set(...AUTH)
+        .send({ skill_md: "Our own instructions." });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        skill_md: "Our own instructions.",
+        license: "MIT",
+        attribution: "Proofread by Sample Author (MIT).",
+        catalog_workflow_key: "proofread",
+        catalog_status: null,
+        catalog_latest_version: null,
+      });
+      expect(warn).toHaveBeenCalledWith(
+        "[best-effort] workflow-catalog-status failed",
+        expect.anything(),
+      );
+      warn.mockRestore();
     });
   });
 });

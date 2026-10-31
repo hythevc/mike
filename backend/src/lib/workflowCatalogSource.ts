@@ -59,39 +59,153 @@ const CHANGES_FILENAME = "CHANGES.md";
 const CONFIRMED_PATTERN = /^confirmed (\d{4}-\d{2}-\d{2})$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-// Nothing executable ships with a workflow. Anywhere under a collection, the
-// sync refuses these folders, these file types (scripts, binaries, and Office
-// formats that carry macros), symlinks, and files with an executable bit.
-const NEVER_SHIP_FOLDERS = new Set(["scripts", "bin", "hooks"]);
+// Nothing executable ships with a workflow. Every file under a collection is
+// checked, including files the parser never reads: the sync refuses these
+// folders, these file types (scripts and source code, executables, markup
+// that can carry script, and Office formats that can carry macros), build and
+// package files, symlinks, files with an executable bit, and names that end
+// in a dot or a space, which Windows drops ("run.py." arrives as "run.py").
+// The folders, file types and build files include the catalog converter's
+// own never-ship list.
+const NEVER_SHIP_FOLDERS = new Set([
+  ".claude-plugin",
+  ".github",
+  "agents",
+  "bin",
+  "commands",
+  "demo",
+  "evals",
+  "hooks",
+  "node_modules",
+  "scripts",
+  "tests",
+  "tools",
+]);
 const NEVER_SHIP_EXTENSIONS = new Set([
-  "py",
-  "sh",
+  // Scripts and source code.
+  "applescript",
   "bash",
-  "zsh",
-  "js",
-  "mjs",
+  "bat",
   "cjs",
-  "ts",
-  "tsx",
-  "rb",
+  "class",
+  "cmd",
+  "command",
+  "go",
+  "ipynb",
+  "jar",
+  "java",
+  "js",
+  "jse",
+  "jsx",
+  "lua",
+  "mjs",
+  "php",
   "pl",
   "ps1",
-  "bat",
-  "cmd",
-  "exe",
+  "psm1",
+  "py",
+  "pyc",
+  "rb",
+  "rs",
+  "scpt",
+  "sh",
+  "ts",
+  "tsx",
+  "vbe",
+  "vbs",
+  "wsf",
+  "zsh",
+  // Executables, libraries and installers.
+  "app",
+  "bin",
+  "com",
+  "cpl",
   "dll",
-  "so",
+  "dmg",
   "dylib",
-  "jar",
-  "php",
+  "exe",
+  "lnk",
+  "msi",
+  "pkg",
+  "reg",
+  "scr",
+  "so",
   "wasm",
+  // Markup that can carry script.
+  "hta",
+  "htm",
+  "html",
+  "svg",
+  "xhtml",
+  "xml",
+  // Office formats that can carry macros.
   "docm",
-  "xlsm",
+  "dotm",
+  "potm",
+  "ppam",
+  "ppsm",
   "pptm",
+  "sldm",
+  "xla",
+  "xlam",
+  "xlsb",
+  "xlsm",
+  "xltm",
 ]);
+// Build and package files, compared in lower case.
+const NEVER_SHIP_FILENAMES = new Set([
+  "cargo.lock",
+  "cargo.toml",
+  "dockerfile",
+  "gemfile",
+  "gemfile.lock",
+  "go.mod",
+  "go.sum",
+  "makefile",
+  "package-lock.json",
+  "package.json",
+  "pipfile",
+  "pipfile.lock",
+  "pnpm-lock.yaml",
+  "poetry.lock",
+  "pyproject.toml",
+  "yarn.lock",
+]);
+const REQUIREMENTS_FILENAME = /^requirements[^/]*\.txt$/;
 const FILE_TYPE_MASK = 0o170000;
 const SYMLINK_TYPE = 0o120000;
 const EXECUTABLE_BITS = 0o111;
+
+// A workflow's assets/ documents are the only catalog files that reach users
+// as files. Each must be one of these types, all of which the product reads
+// (ALLOWED_DOCUMENT_TYPES in documentTypes.ts), and must begin as that type
+// does. The legacy binary Office formats (.doc, .xls, .ppt) are not accepted:
+// they can carry macros that no file or part name reveals.
+export const WORKFLOW_ASSET_TYPES = ["pdf", "docx", "xlsx", "pptx"] as const;
+const ZIP_SIGNATURE = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+const ASSET_SIGNATURES = new Map<string, Buffer>([
+  ["pdf", Buffer.from("%PDF-", "latin1")],
+  ["docx", ZIP_SIGNATURE],
+  ["xlsx", ZIP_SIGNATURE],
+  ["pptx", ZIP_SIGNATURE],
+]);
+const OFFICE_OPEN_XML_TYPES = new Set(["docx", "xlsx", "pptx"]);
+const MAX_CONTENT_TYPES_BYTES = 1024 * 1024;
+// The first bytes of scripts and executables, whatever their names.
+const EXECUTABLE_SIGNATURES = [
+  Buffer.from("#!", "latin1"), // script
+  Buffer.from([0x7f, 0x45, 0x4c, 0x46]), // ELF
+  Buffer.from("MZ", "latin1"), // Windows executable
+  Buffer.from([0xfe, 0xed, 0xfa, 0xce]), // Mach-O
+  Buffer.from([0xfe, 0xed, 0xfa, 0xcf]),
+  Buffer.from([0xce, 0xfa, 0xed, 0xfe]),
+  Buffer.from([0xcf, 0xfa, 0xed, 0xfe]),
+  Buffer.from([0xca, 0xfe, 0xba, 0xbe]), // Mach-O universal, Java class
+  Buffer.from([0x00, 0x61, 0x73, 0x6d]), // WebAssembly
+];
+// Characters a file name loses or changes on the way to a user's disk:
+// control characters and those Windows reserves.
+const UNSAFE_NAME_CHARACTERS = /[\u0000-\u001f\u007f<>:"|?*\\/]/;
 
 const DEFAULT_QUICK_ACTION_PROMPT =
   "Execute this workflow on the selected documents.";
@@ -589,21 +703,40 @@ function ownerOf(entryPath: string, files: Map<string, JSZipObject>): string {
   return `Workflow folder ${quoted(segments.slice(0, -1).join("/"))}`;
 }
 
+/** The lower-cased extension of a file name, without the dot ("" for none). */
+function extensionOf(filename: string): string {
+  return path.extname(filename).slice(1).toLowerCase();
+}
+
+function startsWith(bytes: Buffer, prefix: Buffer): boolean {
+  return (
+    bytes.byteLength >= prefix.byteLength &&
+    bytes.subarray(0, prefix.byteLength).equals(prefix)
+  );
+}
+
 // Applies the never-ship rules to every file under a collection, including
-// files the parser itself never reads, so nothing executable can sit in a
-// published workflow folder.
+// files the parser itself never reads, so a published workflow folder holds
+// nothing executable.
 function refuseUnshippableFiles(files: Map<string, JSZipObject>): void {
   for (const [entryPath, entry] of files) {
     if (!inCollection(entryPath)) continue;
     const segments = entryPath.split("/");
     const owner = () => ownerOf(entryPath, files);
+    if (segments.some((segment) => /[. ]$/.test(segment))) {
+      throw new Error(
+        `${owner()} has a name that ends in a dot or a space ` +
+          `(${quoted(entryPath)}); Windows drops those characters, which ` +
+          "can change a file's type",
+      );
+    }
     const folder = segments
       .slice(1, -1)
       .find((segment) => NEVER_SHIP_FOLDERS.has(segment.toLowerCase()));
     if (folder) {
       throw new Error(
         `${owner()} contains a ${folder}/ folder (${quoted(entryPath)}); ` +
-          "scripts never ship with a workflow",
+          "scripts and tooling never ship with a workflow",
       );
     }
     const mode = unixMode(entry);
@@ -613,11 +746,21 @@ function refuseUnshippableFiles(files: Map<string, JSZipObject>): void {
           "workflow files must be regular files",
       );
     }
-    const extension = path.extname(segments.at(-1)!).slice(1).toLowerCase();
-    if (NEVER_SHIP_EXTENSIONS.has(extension)) {
+    const filename = segments.at(-1)!.toLowerCase();
+    if (NEVER_SHIP_EXTENSIONS.has(extensionOf(filename))) {
       throw new Error(
-        `${owner()} contains a script or executable file ` +
-          `(${quoted(entryPath)}); these never ship with a workflow`,
+        `${owner()} contains a file type that never ships with a workflow ` +
+          `(${quoted(entryPath)}): scripts, executables, markup and ` +
+          "macro-enabled Office files are refused",
+      );
+    }
+    if (
+      NEVER_SHIP_FILENAMES.has(filename) ||
+      REQUIREMENTS_FILENAME.test(filename)
+    ) {
+      throw new Error(
+        `${owner()} contains a build or package file (${quoted(entryPath)}); ` +
+          "these never ship with a workflow",
       );
     }
     if (mode !== null && (mode & EXECUTABLE_BITS) !== 0) {
@@ -627,6 +770,89 @@ function refuseUnshippableFiles(files: Map<string, JSZipObject>): void {
       );
     }
   }
+}
+
+// An Office Open XML file declares the type of each of its parts in
+// [Content_Types].xml. A VBA project part, or a macro-enabled main part,
+// makes it a .docm, .xlsm or .pptm under another name.
+async function officeOpenXmlProblem(
+  bytes: Buffer,
+): Promise<"invalid" | "macros" | null> {
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(bytes);
+  } catch {
+    return "invalid";
+  }
+  const contentTypes = zip.file("[Content_Types].xml");
+  if (!contentTypes) return "invalid";
+  const declared = declaredEntrySize(contentTypes);
+  if (declared === null || declared > MAX_CONTENT_TYPES_BYTES) return "invalid";
+  let text: string;
+  try {
+    text = await contentTypes.async("string");
+  } catch {
+    return "invalid";
+  }
+  if (text.length > MAX_CONTENT_TYPES_BYTES) return "invalid";
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("vbaproject") ||
+    lower.includes("macroenabled") ||
+    Object.keys(zip.files).some((name) =>
+      name.toLowerCase().endsWith("vbaproject.bin"),
+    )
+  ) {
+    return "macros";
+  }
+  return null;
+}
+
+/**
+ * The type of an asset that may ship, or an error naming the workflow when
+ * the asset's name, type or content is refused.
+ */
+async function checkedAssetType(
+  workflowKey: string,
+  assetPath: string,
+  bytes: Buffer,
+): Promise<string> {
+  const filename = assetPath.slice(assetPath.lastIndexOf("/") + 1);
+  const label = `Workflow '${workflowKey}' asset ${quoted(assetPath)}`;
+  if (UNSAFE_NAME_CHARACTERS.test(filename) || filename.trim() !== filename) {
+    throw new Error(
+      `${label} has a name that would change on a user's disk: a control ` +
+        `character, a space at either end, or one of <>:"|?*\\`,
+    );
+  }
+  const fileType = extensionOf(filename);
+  const signature = ASSET_SIGNATURES.get(fileType);
+  if (!signature) {
+    throw new Error(
+      `${label} is not a document type the catalog ships ` +
+        `(${WORKFLOW_ASSET_TYPES.join(", ")})`,
+    );
+  }
+  if (EXECUTABLE_SIGNATURES.some((prefix) => startsWith(bytes, prefix))) {
+    throw new Error(
+      `${label} is a script or executable; these never ship with a workflow`,
+    );
+  }
+  if (!startsWith(bytes, signature)) {
+    throw new Error(`${label} is not a .${fileType} file`);
+  }
+  if (OFFICE_OPEN_XML_TYPES.has(fileType)) {
+    const problem = await officeOpenXmlProblem(bytes);
+    if (problem === "invalid") {
+      throw new Error(`${label} is not a .${fileType} file`);
+    }
+    if (problem === "macros") {
+      throw new Error(
+        `${label} contains macros; these never ship with a workflow`,
+      );
+    }
+  }
+  return fileType;
 }
 
 async function parseArchive(
@@ -1014,23 +1240,17 @@ async function parseArchive(
     const assets: WorkflowCatalogAssetSource[] = [];
     for (const [index, assetPath] of assetPaths.entries()) {
       const bytes = await readEntry(assetPath);
-      // A script with an innocent extension is still a script.
-      if (bytes.subarray(0, 2).toString("latin1") === "#!") {
-        throw new Error(
-          `Workflow '${workflowKey}' asset ${quoted(assetPath)} is a script; ` +
-            "these never ship with a workflow",
-        );
-      }
+      // A script or binary with an innocent name is still refused.
+      const fileType = await checkedAssetType(workflowKey, assetPath, bytes);
       const contentHash = sha256(bytes);
       const temporaryPath = path.join(
         assetDirectory,
         `${workflowKey}-${index}-${contentHash}`,
       );
       await writeFile(temporaryPath, bytes, { mode: 0o600 });
-      const filename = assetPath.slice(assetPrefix.length);
       assets.push({
-        filename,
-        file_type: path.extname(filename).slice(1).toLowerCase() || "bin",
+        filename: assetPath.slice(assetPrefix.length),
+        file_type: fileType,
         size_bytes: bytes.byteLength,
         content_hash: contentHash,
         temporary_path: temporaryPath,
@@ -1248,14 +1468,26 @@ export function validateWorkflowCatalogDocument(
         asset.filename,
         `Workflow '${key}' asset filename`,
       );
+      // Compared untrimmed: a name that ends in a space is refused, not tidied.
       if (
+        filename !== asset.filename ||
         filename.startsWith(".") ||
-        filename.includes("/") ||
-        filename.includes("\\")
+        /[. ]$/.test(filename) ||
+        UNSAFE_NAME_CHARACTERS.test(filename)
       ) {
         throw new Error(`Workflow '${key}' has an unsafe asset filename`);
       }
-      requiredString(asset.file_type, `Workflow '${key}' asset file type`);
+      const fileType = requiredString(
+        asset.file_type,
+        `Workflow '${key}' asset file type`,
+      );
+      if (
+        !(WORKFLOW_ASSET_TYPES as readonly string[]).includes(fileType) ||
+        asset.file_type !== fileType ||
+        extensionOf(filename) !== fileType
+      ) {
+        throw new Error(`Workflow '${key}' has an asset type the catalog does not ship`);
+      }
       if (
         !Number.isInteger(asset.size_bytes) ||
         (asset.size_bytes as number) < 0 ||
