@@ -44,7 +44,7 @@ import {
 import { settleUsageWrites } from "../../../lib/usage";
 import { extractRowColumns } from "../tabular.extractRow";
 import { streamTabularGenerateSync } from "../tabular.generateStream";
-import type { ReviewRow } from "../tabular.rows";
+import type { ReviewRow, RowDocumentText } from "../tabular.rows";
 
 const USER = "00000000-0000-4000-8000-000000000001";
 const ORG = "00000000-0000-4000-8000-000000000010";
@@ -85,9 +85,25 @@ beforeEach(async () => {
     reportError.mockClear();
     loadRowDocumentText.mockReset();
     loadRowDocumentText.mockImplementation(
-        async (_db: unknown, _row: unknown, onPageCount?: (pages: number | null) => void) => {
+        async (
+            _db: unknown,
+            reviewRow: ReviewRow,
+            onPageCount?: (pages: number | null) => void,
+        ): Promise<RowDocumentText> => {
             onPageCount?.(12);
-            return "## Source document: Lease.pdf\nThe term is five years.";
+            const markdown = "The term is five years.";
+            return {
+                text: `## Source document: Lease.pdf\n${markdown}`,
+                sources: [
+                    {
+                        documentId: reviewRow.document_id ?? DOC,
+                        versionId: null,
+                        contentSha256: null,
+                        filename: "Lease.pdf",
+                        markdown,
+                    },
+                ],
+            };
         },
     );
     streamWithProvider.mockReset();
