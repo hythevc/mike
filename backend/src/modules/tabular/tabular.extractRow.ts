@@ -32,6 +32,7 @@ import {
     type UsageDetails,
     type UsageScope,
 } from "../../lib/llm/usageContext";
+import { deploymentQuotaError } from "../../lib/usage";
 import { queryTabularAllColumns } from "./tabular.extract";
 import { loadRowDocumentText, type ReviewRow } from "./tabular.rows";
 import { type CellResult, type Column, type Db } from "./tabular.shared";
@@ -259,10 +260,11 @@ export async function extractRowColumns(args: {
     } catch (err) {
         error = err;
         // An abort re-thrown by the stream is the caller stopping us, not a
-        // failure worth logging; the unreturned columns are reported below.
+        // failure worth logging, and neither is a refusal for the
+        // deployment-key allowance; the unreturned columns are reported below.
         // Not console.error: either the query already reported this failure
         // or the queue runner will report the failed attempt.
-        if (!abortSignal?.aborted) {
+        if (!abortSignal?.aborted && !deploymentQuotaError(err)) {
             console.warn(
                 `[tabular/extract-row] queryTabularAllColumns error row=${row.id}`,
                 err,

@@ -22,10 +22,15 @@ import {
     removeQueuedExtractionJobs,
 } from "../../lib/queue/extractionQueue";
 import { queryTabularCell } from "./tabular.extract";
-import { runWithUsageContext } from "../../lib/llm/usageContext";
+import { deploymentAllowanceRefusal } from "../../lib/llm";
+import {
+    runWithUsageContext,
+    type UsageContext,
+} from "../../lib/llm/usageContext";
 import {
     DEPLOYMENT_QUOTA_EXCEEDED_CODE,
     deploymentQuotaError,
+    type DeploymentQuotaExceededError,
 } from "../../lib/usage";
 import { finalizeCell } from "./tabular.extractRow";
 import { awaitCellTerminal } from "./tabular.generateStream";
@@ -179,6 +184,13 @@ export type RegenerateCellOutcome =
 
 const GENERATION_FAILED = statusFailure(500, { detail: "Generation failed" });
 
+/** The answer for a cell the deployment-key allowance refuses. */
+const allowanceFailure = (refusal: DeploymentQuotaExceededError) =>
+    statusFailure(403, {
+        code: DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+        detail: refusal.message,
+    });
+
 export async function regenerateTabularCell(
     db: Db,
     args: {
@@ -242,6 +254,23 @@ export async function regenerateTabularCell(
     if (!selectedModel.ok) return modelFailure(selectedModel);
     const tabular_model = selectedModel.model;
     const api_keys = selectedModel.apiKeys;
+
+    // Refused for the deployment-key allowance before anything changes: the
+    // cell keeps what it holds, and no job is queued that would only be
+    // refused the same way.
+    const cellUsage: UsageContext = {
+        userId,
+        orgId: review.org_id ?? null,
+        projectId: review.project_id ?? null,
+        surface: "tabular",
+        reviewId,
+    };
+    const refusal = await deploymentAllowanceRefusal(
+        tabular_model,
+        api_keys,
+        cellUsage,
+    );
+    if (refusal) return allowanceFailure(refusal);
 
     const generationId = randomUUID();
     const { data: startResult, error: startError } = await db.rpc(
@@ -383,7 +412,18 @@ export async function regenerateTabularCell(
                         },
                     },
                 };
-            if (terminal.status === "error") return GENERATION_FAILED;
+            if (terminal.status === "error") {
+                // The worker's refusal for the allowance (reached while the
+                // job waited) reaches this request only as a failed cell:
+                // when the allowance is used up now, that is why.
+                const refused = await deploymentAllowanceRefusal(
+                    tabular_model,
+                    api_keys,
+                    cellUsage,
+                    { fresh: true },
+                );
+                return refused ? allowanceFailure(refused) : GENERATION_FAILED;
+            }
             return { ok: true, data: { status: 200, body: terminal.content } };
         }
 
@@ -393,11 +433,7 @@ export async function regenerateTabularCell(
         });
         const result = await runWithUsageContext(
             {
-                userId,
-                orgId: review.org_id ?? null,
-                projectId: review.project_id ?? null,
-                surface: "tabular",
-                reviewId,
+                ...cellUsage,
                 runId: generationId,
                 documentId: sourceIds.length === 1 ? sourceIds[0] : null,
                 documentPages,
@@ -452,11 +488,7 @@ export async function regenerateTabularCell(
         // The workspace's allowance on the deployment's keys is used up:
         // the user's to act on, not a failure to report.
         const quota = deploymentQuotaError(error);
-        if (quota)
-            return statusFailure(403, {
-                code: DEPLOYMENT_QUOTA_EXCEEDED_CODE,
-                detail: quota.message,
-            });
+        if (quota) return allowanceFailure(quota);
         const generationFailure = new AppError(
             "tabular.generation_failed",
             "Tabular cell generation failed",

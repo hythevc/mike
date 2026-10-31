@@ -61,6 +61,8 @@ type QueryResult = { data: unknown; error: unknown };
 // role before deleting it.
 let supabaseState: {
     rpc: QueryResult;
+    /** Per-function results, queued like tables; `rpc` answers the rest. */
+    rpcByFn: Record<string, QueryResult | QueryResult[]>;
     rpcCalls: { fn: string; args: unknown }[];
     operations: string[];
     tables: Record<string, QueryResult | QueryResult[]>;
@@ -71,6 +73,7 @@ let supabaseState: {
 function resetSupabaseState() {
     supabaseState = {
         rpc: { data: [], error: null },
+        rpcByFn: {},
         rpcCalls: [],
         operations: [],
         tables: {},
@@ -154,7 +157,13 @@ function mockSupabase() {
         rpc: vi.fn((fn: string, args: unknown) => {
             supabaseState.operations.push(`rpc:${fn}`);
             supabaseState.rpcCalls.push({ fn, args });
-            return Promise.resolve(supabaseState.rpc);
+            const queued = supabaseState.rpcByFn[fn];
+            const result = Array.isArray(queued)
+                ? queued.length > 1
+                    ? (queued.shift() as QueryResult)
+                    : (queued[0] ?? supabaseState.rpc)
+                : (queued ?? supabaseState.rpc);
+            return Promise.resolve(result);
         }),
         auth: {
             getUser: () =>
@@ -226,6 +235,16 @@ vi.mock("../../modules/user/user.settings", () => ({
     persistLastSelectedReasoningLevel: vi.fn(async () => null),
 }));
 
+// The async cell path hands its work to the extraction queue; only the
+// hand-off is replaced, so a test can play the worker.
+const { enqueueExtraction } = vi.hoisted(() => ({
+    enqueueExtraction: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock("../../lib/queue/extractionQueue", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../lib/queue/extractionQueue")>()),
+    enqueueExtraction: (...args: unknown[]) => enqueueExtraction(...args),
+}));
+
 // Version-path enrichment hits the DB in real life; no-op it so route
 // responses are driven purely by the table stubs.
 vi.mock("../../lib/documentVersions", () => ({
@@ -235,6 +254,7 @@ vi.mock("../../lib/documentVersions", () => ({
 
 import { app } from "../../app";
 import { resetStreamRunsForTests } from "../../lib/streamRuns";
+import { resetDeploymentTotalsForTests } from "../../lib/usage";
 import { REVIEW_EDIT_FORBIDDEN } from "../../modules/tabular/tabular.service";
 
 const AUTH = ["Authorization", "Bearer test"] as const;
@@ -1672,6 +1692,135 @@ describe("tabular.routes", () => {
             expect(res.status).toBe(422);
             expect(res.body.code).toBe("missing_api_key");
             expect(res.body.provider).toBe("claude");
+        });
+
+        describe("over the deployment-key allowance", () => {
+            const usedThisMonth = (tokens: number): QueryResult => ({
+                data: [
+                    {
+                        workspace_tokens: tokens,
+                        person_tokens: tokens,
+                        workspace_personal: true,
+                    },
+                ],
+                error: null,
+            });
+
+            beforeEach(() => {
+                resetDeploymentTotalsForTests();
+                vi.stubEnv("DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP", "1000");
+                // The review runs on the deployment's own Anthropic key.
+                vi.stubEnv("ANTHROPIC_API_KEY", "sk-deployment");
+                getUserModelSettings.mockResolvedValue({
+                    title_model: "claude-haiku-4-5",
+                    tabular_model: "claude-sonnet-5-5",
+                    legal_research_us: false,
+                    api_keys: {
+                        claude: "sk-deployment",
+                        keySources: { claude: "env" },
+                    },
+                });
+                supabaseState.tables.tabular_reviews = {
+                    data: {
+                        id: "r1",
+                        user_id: "u1",
+                        project_id: null,
+                        columns_config: [{ index: 0, name: "Col", prompt: "p" }],
+                    },
+                    error: null,
+                };
+                supabaseState.tables.tabular_review_rows = {
+                    data: [
+                        {
+                            id: "row-1",
+                            review_id: "r1",
+                            label: "Document",
+                            row_type: "document",
+                            document_id: "d1",
+                            sort_index: 0,
+                        },
+                    ],
+                    error: null,
+                };
+                supabaseState.tables.tabular_review_row_sources = {
+                    data: [{ row_id: "row-1", document_id: "d1" }],
+                    error: null,
+                };
+                supabaseState.rpcByFn.begin_tabular_review_generation = {
+                    data: "started",
+                    error: null,
+                };
+            });
+
+            afterEach(() => {
+                vi.unstubAllEnvs();
+            });
+
+            it.each(["inline", "queued"])(
+                "answers 403 before touching the cell or the lease (%s extraction)",
+                async (path) => {
+                    if (path === "queued") vi.stubEnv("ASYNC_TABULAR_EXTRACTION", "true");
+                    supabaseState.rpcByFn.usage_deployment_key_tokens = usedThisMonth(1000);
+
+                    const res = await request(app)
+                        .post("/tabular-review/r1/regenerate-cell")
+                        .set(...AUTH)
+                        .send({ row_id: "row-1", column_index: 0 });
+
+                    expect(res.status).toBe(403);
+                    expect(res.body).toEqual({
+                        code: "deployment_quota_exceeded",
+                        detail: expect.stringContaining("this month's limit"),
+                    });
+                    expect(enqueueExtraction).not.toHaveBeenCalled();
+                    expect(supabaseState.rpcCalls.map(({ fn }) => fn)).not.toContain(
+                        "begin_tabular_review_generation",
+                    );
+                    expect(
+                        supabaseState.updates.filter(({ table }) => table === "tabular_cells"),
+                    ).toEqual([]);
+                },
+            );
+
+            it("answers 403 when the queued cell is refused while it waited", async () => {
+                vi.stubEnv("ASYNC_TABULAR_EXTRACTION", "true");
+                // Under the cap when asked; used up by the time the worker ran.
+                supabaseState.rpcByFn.usage_deployment_key_tokens = [
+                    usedThisMonth(10),
+                    usedThisMonth(1000),
+                ];
+                // The worker's refusal leaves the cell in error.
+                supabaseState.tables.tabular_cells = {
+                    data: { status: "error", content: null },
+                    error: null,
+                };
+
+                const res = await request(app)
+                    .post("/tabular-review/r1/regenerate-cell")
+                    .set(...AUTH)
+                    .send({ row_id: "row-1", column_index: 0 });
+
+                expect(enqueueExtraction).toHaveBeenCalledTimes(1);
+                expect(res.status).toBe(403);
+                expect(res.body.code).toBe("deployment_quota_exceeded");
+            });
+
+            it("still answers the generic failure when a queued cell fails for another reason", async () => {
+                vi.stubEnv("ASYNC_TABULAR_EXTRACTION", "true");
+                supabaseState.rpcByFn.usage_deployment_key_tokens = usedThisMonth(10);
+                supabaseState.tables.tabular_cells = {
+                    data: { status: "error", content: null },
+                    error: null,
+                };
+
+                const res = await request(app)
+                    .post("/tabular-review/r1/regenerate-cell")
+                    .set(...AUTH)
+                    .send({ row_id: "row-1", column_index: 0 });
+
+                expect(res.status).toBe(500);
+                expect(res.body.code).not.toBe("deployment_quota_exceeded");
+            });
         });
     });
 

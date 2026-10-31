@@ -196,8 +196,9 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     untrusted_origin: "forbidden",
     // An organization's owners have not allowed this in its workspace.
     member_data_action_disabled: "forbidden",
-    // The workspace has used this month's allowance on the deployment's own
-    // AI keys; retrying cannot help until a key is added or the month ends.
+    // The workspace, or the person across all their workspaces, has used
+    // this month's allowance on the deployment's own AI keys; retrying
+    // cannot help until a key is added or the month ends.
     deployment_quota_exceeded: "forbidden",
     // Something else changed first
     review_running: "conflict",

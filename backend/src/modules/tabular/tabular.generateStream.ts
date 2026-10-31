@@ -43,6 +43,7 @@ import {
 } from "../../lib/queue/runProgress";
 import { type UserApiKeys } from "../../lib/llm";
 import { type UsageScope } from "../../lib/llm/usageContext";
+import { deploymentQuotaError } from "../../lib/usage";
 import { AppError } from "../../lib/appError";
 import { reportError } from "../../lib/observability/sentry";
 import { extractRowColumns, finalizeCell } from "./tabular.extractRow";
@@ -621,6 +622,9 @@ export async function streamTabularGenerateSync(args: {
     } = args;
 
     let nextRowIndex = 0;
+    // Set once a row is refused for the deployment-key allowance: every row
+    // after it would be refused the same way, so no further row is started.
+    let refused = false;
     const cellFrame = (
         rowId: string,
         columnIndex: number,
@@ -665,6 +669,7 @@ export async function streamTabularGenerateSync(args: {
         });
 
         if (error) onError?.(error);
+        if (deploymentQuotaError(error)) refused = true;
 
         // Stopped cells return to pending; genuine missing model output is
         // still an error. Completed cells remain untouched.
@@ -682,7 +687,7 @@ export async function streamTabularGenerateSync(args: {
     };
 
     const runWorker = async () => {
-        while (!abortSignal.aborted) {
+        while (!abortSignal.aborted && !refused) {
             const rowIndex = nextRowIndex++;
             if (rowIndex >= rows.length) return;
             await processRow(rows[rowIndex]);

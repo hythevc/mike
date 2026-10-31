@@ -14,9 +14,13 @@
 -- history stays with the organization: deleting an account or a matter only
 -- clears the link to it.
 --
--- usage_monthly_rollup totals one workspace's calendar month (UTC). The
--- backend reads it to apply DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP before a call
--- that would use the deployment's keys.
+-- usage_deployment_key_tokens totals this calendar month's (UTC) tokens on
+-- the deployment's own keys for one workspace, and for one person across
+-- every workspace they work in. The backend reads it to apply
+-- DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP to both before a call that would use those
+-- keys, so an organization someone creates brings them no new allowance.
+-- usage_monthly_rollup totals one workspace's month by key source, surface,
+-- provider and model.
 --
 -- Only the backend reads or writes the ledger: RLS is on with no policies,
 -- and the browser roles hold no privileges on the table or the functions.
@@ -49,6 +53,10 @@ create table if not exists public.usage_events (
   document_pages integer
     constraint usage_events_document_pages_check
     check (document_pages is null or document_pages >= 0),
+  -- The tokens are an estimate, about four characters a token of the text
+  -- sent and received: a model call was cut off before its provider
+  -- reported them, or the provider reports none.
+  tokens_estimated boolean not null default false,
   -- What the call was part of. Attribution only, like audit_events: these
   -- outlive the chat, review, run or document they name.
   chat_id uuid,
@@ -140,10 +148,69 @@ as $$
   order by e.key_source, e.surface, e.provider, e.model;
 $$;
 
+-- This calendar month's (UTC) input plus output tokens on the deployment's
+-- own keys, as the cap counts them: the workspace's, from every member, and
+-- the person's, from every workspace (read through usage_events_user_created).
+-- The workspace is p_org_id, or the personal organization of p_user_id when
+-- p_org_id is null; workspace_personal says whether it is a personal one.
+create or replace function public.usage_deployment_key_tokens(
+  p_org_id uuid,
+  p_user_id uuid,
+  p_month timestamptz default now()
+)
+returns table (
+  workspace_tokens bigint,
+  person_tokens bigint,
+  workspace_personal boolean
+)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  with bounds as (
+    select
+      date_trunc('month', p_month at time zone 'UTC') at time zone 'UTC' as starts_at,
+      (date_trunc('month', p_month at time zone 'UTC') + interval '1 month') at time zone 'UTC' as ends_at
+  ),
+  workspace as (
+    select coalesce(
+      p_org_id,
+      (select o.id from public.organizations o where o.personal_user_id = p_user_id)
+    ) as id
+  )
+  select
+    (
+      select coalesce(sum(e.input_tokens + e.output_tokens), 0)::bigint
+      from public.usage_events e, bounds b, workspace w
+      where e.org_id = w.id
+        and e.key_source = 'env'
+        and e.created_at >= b.starts_at
+        and e.created_at < b.ends_at
+    ),
+    (
+      select coalesce(sum(e.input_tokens + e.output_tokens), 0)::bigint
+      from public.usage_events e, bounds b
+      where e.user_id = p_user_id
+        and e.key_source = 'env'
+        and e.created_at >= b.starts_at
+        and e.created_at < b.ends_at
+    ),
+    p_org_id is null or exists (
+      select 1
+      from public.organizations o
+      where o.id = p_org_id
+        and o.personal_user_id is not null
+    );
+$$;
+
 revoke all on function public.usage_events_scope()
   from public, anon, authenticated;
 revoke all on function public.usage_monthly_rollup(uuid, uuid, timestamptz)
   from public, anon, authenticated;
+revoke all on function public.usage_deployment_key_tokens(uuid, uuid, timestamptz)
+  from public, anon, authenticated;
 grant execute on function public.usage_events_scope() to service_role;
 grant execute on function public.usage_monthly_rollup(uuid, uuid, timestamptz)
+  to service_role;
+grant execute on function public.usage_deployment_key_tokens(uuid, uuid, timestamptz)
   to service_role;

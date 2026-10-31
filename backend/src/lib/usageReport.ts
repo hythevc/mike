@@ -36,6 +36,8 @@ export type UsageRow = {
     output_tokens: number;
     cached_tokens: number;
     document_pages: number | null;
+    /** The tokens are an estimate (llm/usageMeter.ts); absent on older rows. */
+    tokens_estimated?: boolean | null;
     chat_id: string | null;
     review_id: string | null;
     run_id: string | null;
@@ -43,7 +45,7 @@ export type UsageRow = {
 };
 
 export const USAGE_ROW_COLUMNS =
-    "created_at, org_id, user_id, project_id, surface, model, provider, key_source, input_tokens, output_tokens, cached_tokens, document_pages, chat_id, review_id, run_id, document_id";
+    "created_at, org_id, user_id, project_id, surface, model, provider, key_source, input_tokens, output_tokens, cached_tokens, document_pages, tokens_estimated, chat_id, review_id, run_id, document_id";
 
 const PRICE_TABLE_EXAMPLE =
     '{"currency":"USD","models":{"model-id":{"input":1.0,"output":2.0,"cached_input":0.1}}}';
@@ -160,6 +162,11 @@ export type UsageTotals = {
     estimatedCostPerPage: number | null;
     /** Calls whose model has no price: their tokens count, their cost does not. */
     unpricedCalls: number;
+    /**
+     * Calls whose tokens are themselves an estimate: cut off before the
+     * provider reported them, or from a provider that reports none.
+     */
+    estimatedTokenCalls: number;
 };
 
 export type UsageGroup = UsageTotals & {
@@ -185,6 +192,7 @@ class Accumulator {
     pages = 0;
     estimatedCost = 0;
     unpricedCalls = 0;
+    estimatedTokenCalls = 0;
     private pricedPages = 0;
     private pricedPagesCost = 0;
     readonly surfaces = new Set<string>();
@@ -194,6 +202,7 @@ class Accumulator {
         this.inputTokens += whole(row.input_tokens);
         this.outputTokens += whole(row.output_tokens);
         this.cachedTokens += whole(row.cached_tokens);
+        if (row.tokens_estimated === true) this.estimatedTokenCalls += 1;
         this.surfaces.add(row.surface);
         const pages =
             row.document_pages === null || row.document_pages === undefined
@@ -223,6 +232,7 @@ class Accumulator {
                 ? this.pricedPagesCost / this.pricedPages
                 : null,
             unpricedCalls: this.unpricedCalls,
+            estimatedTokenCalls: this.estimatedTokenCalls,
         };
     }
 }
@@ -360,6 +370,11 @@ export function formatUsageReport(report: UsageReport, scope: ReportScope): stri
         "",
         "Totals",
         table(["", ...numbers], [["all calls", ...totalsCells(report.totals)]]),
+        ...(report.totals.estimatedTokenCalls
+            ? [
+                  `  The tokens of ${report.totals.estimatedTokenCalls} ${report.totals.estimatedTokenCalls === 1 ? "call are" : "calls are"} themselves estimated, about four characters a token: the call was cut off before the provider reported them, or the provider reports none.`,
+              ]
+            : []),
         "",
         "By key source (user: a person's own key, org: an organization's key, env: the deployment's)",
         table(

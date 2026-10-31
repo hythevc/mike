@@ -31,6 +31,9 @@ import { config } from "../../../lib/llm/__tests__/mockLanguageModel";
 import { settleUsageWrites } from "../../../lib/usage";
 import {
   blankPlaybookContent,
+  isPlaybookRefusal,
+  PLAYBOOK_IMPORT_GENERIC_FAILURE,
+  playbookImportFailureMessage,
   runFailureMessage,
   startPlaybookReview,
 } from "../playbooks.operations";
@@ -144,5 +147,16 @@ describe("a playbook run in the usage ledger", () => {
     expect(runFailureMessage(new DeploymentQuotaExceededError("personal"))).toMatch(
       /reached this month's limit/,
     );
+  });
+
+  it("tells the user why an import over the deployment allowance stopped, instead of to try again", () => {
+    const refusal = new DeploymentQuotaExceededError("organization");
+    const message = playbookImportFailureMessage("compiling", refusal);
+    expect(message).toBe(refusal.message);
+    expect(message).not.toBe(PLAYBOOK_IMPORT_GENERIC_FAILURE);
+    // Found under a wrapper too, and treated as a refusal, not a fault to report.
+    const wrapped = new Error("compile failed", { cause: refusal });
+    expect(playbookImportFailureMessage("compiling", wrapped)).toBe(refusal.message);
+    expect(isPlaybookRefusal(wrapped)).toBe(true);
   });
 });

@@ -382,7 +382,7 @@ async function loadUsageEvents(
         const { data, error } = await (db as any)
             .from("usage_events")
             .select(
-                "id, created_at, surface, model, provider, key_source, input_tokens, output_tokens, cached_tokens, document_pages, project_id, chat_id, review_id, run_id, document_id",
+                "id, created_at, surface, model, provider, key_source, input_tokens, output_tokens, cached_tokens, document_pages, tokens_estimated, project_id, chat_id, review_id, run_id, document_id",
             )
             .range(from, from + PAGE_SIZE - 1)
             .eq("user_id", userId)

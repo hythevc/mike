@@ -18,7 +18,12 @@ import {
   envVertexCredentials,
   vertexCredentials,
 } from "./cloudProviders";
-import { assertDeploymentKeyAllowance } from "../usage";
+import {
+  assertDeploymentKeyAllowance,
+  deploymentQuotaError,
+  type DeploymentQuotaExceededError,
+} from "../usage";
+import type { UsageContext } from "./usageContext";
 import { guardedFetch } from "../mcp/client";
 import { isBlockedDestinationError } from "../blockedDestination";
 import { localModelToleranceMiddleware } from "./localModelMiddleware";
@@ -938,4 +943,34 @@ export async function completeWithProvider(
   const adapter = await createProviderAdapter(params.model, params.apiKeys);
   await assertDeploymentKeyAllowance(adapter.keySource);
   return completeAiSdkText(params, adapter);
+}
+
+/**
+ * The refusal a call to `model` with `apiKeys` would meet now for the
+ * deployment-key allowance in `context` (lib/usage.ts), or null. No provider
+ * request is made, and any other problem with the model is left for the call
+ * itself to raise. For a request that waits on work it does not run itself,
+ * such as a queued job, so it can refuse early and say why the work failed.
+ * `fresh` reads the ledger even while this process holds recent totals.
+ */
+export async function deploymentAllowanceRefusal(
+  model: string,
+  apiKeys: UserApiKeys | undefined,
+  context: UsageContext,
+  options: { fresh?: boolean } = {},
+): Promise<DeploymentQuotaExceededError | null> {
+  let keySource: KeySource | undefined;
+  try {
+    keySource = (await createProviderAdapter(model, apiKeys)).keySource;
+  } catch {
+    return null;
+  }
+  try {
+    await assertDeploymentKeyAllowance(keySource ?? "env", context, options);
+    return null;
+  } catch (error) {
+    const refusal = deploymentQuotaError(error);
+    if (refusal) return refusal;
+    throw error;
+  }
 }

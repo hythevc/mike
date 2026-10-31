@@ -150,6 +150,34 @@ describe("buildUsageReport", () => {
         expect(text).toContain("unpriced-model (1 call)");
         // No cost column without its "est." label.
         expect(text).not.toMatch(/(?<!est\. )cost \(/);
+        // Every token count here was reported by its provider.
+        expect(report.totals.estimatedTokenCalls).toBe(0);
+        expect(text).not.toContain("themselves estimated");
+    });
+
+    it("counts and names the calls whose tokens are themselves estimated", () => {
+        const withEstimate = buildUsageReport(
+            [
+                ...FIXTURE,
+                row({
+                    chat_id: "chat-2",
+                    input_tokens: 400,
+                    output_tokens: 25,
+                    tokens_estimated: true,
+                }),
+            ],
+            table(),
+        );
+        expect(withEstimate.totals.estimatedTokenCalls).toBe(1);
+        expect(
+            withEstimate.byRun.find((group) => group.id === "chat-2"),
+        ).toMatchObject({ estimatedTokenCalls: 1 });
+        const text = formatUsageReport(withEstimate, {
+            month: "2026-10",
+            orgId: null,
+            projectId: null,
+        });
+        expect(text).toContain("The tokens of 1 call are themselves estimated");
     });
 });
 

@@ -182,6 +182,44 @@ describe("runExtractionJob", () => {
         expect((thrown as AppError).cause).toBeUndefined();
     });
 
+    it("ends a row refused for the deployment-key allowance without a retry or a report", async () => {
+        const { DeploymentQuotaExceededError } = await import("../../../lib/usage.js");
+        service.extractRowColumns.mockResolvedValue({
+            processed: [COLUMN],
+            received: new Set(),
+            missing: [0],
+            error: new DeploymentQuotaExceededError("personal"),
+        });
+        const publish = vi.fn().mockResolvedValue(undefined);
+        const fake = reviewDb();
+
+        // Resolving, not throwing: a thrown job is retried by the queue.
+        await expect(
+            runExtractionJob(
+                { reviewId: REVIEW_ID, userId: "user-1", rowId: ROW_ID, generationId: GENERATION_ID },
+                { db: fake.db, publish },
+            ),
+        ).resolves.toBeUndefined();
+
+        expect(service.finalizeCell).toHaveBeenCalledWith(fake.db, {
+            reviewId: REVIEW_ID,
+            rowId: ROW_ID,
+            columnIndex: 0,
+            status: "error",
+            generationId: GENERATION_ID,
+        });
+        expect(publish).toHaveBeenCalledWith(REVIEW_ID, {
+            type: "cell_update",
+            row_id: ROW_ID,
+            column_index: 0,
+            content: null,
+            status: "error",
+        });
+        expect(service.finishGenerationIfIdle).toHaveBeenCalled();
+        expect(reportError).not.toHaveBeenCalled();
+        expect(consoleError).not.toHaveBeenCalled();
+    });
+
     it("reports a lost lease as a warning, by ids only, and keeps extracting", async () => {
         vi.useFakeTimers();
         service.renewGeneration.mockResolvedValue(false);

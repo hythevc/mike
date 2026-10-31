@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { inserts, rpcCalls, control } = vi.hoisted(() => ({
   inserts: [] as Array<Record<string, unknown>>,
   rpcCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
-  control: { deploymentTokensUsed: 0 },
+  control: {
+    /** The workspace's deployment-key tokens this month. */
+    deploymentTokensUsed: 0,
+    /** The person's, across every workspace; the workspace's when unset. */
+    personTokensUsed: null as number | null,
+  },
 }));
 
 // The ledger: this month's deployment-key usage, and the rows written.
@@ -15,9 +20,10 @@ vi.mock("../supabase", () => ({
       return {
         data: [
           {
-            key_source: "env",
-            input_tokens: control.deploymentTokensUsed,
-            output_tokens: 0,
+            workspace_tokens: control.deploymentTokensUsed,
+            person_tokens:
+              control.personTokensUsed ?? control.deploymentTokensUsed,
+            workspace_personal: args.p_org_id === null,
           },
         ],
         error: null,
@@ -32,10 +38,19 @@ vi.mock("../supabase", () => ({
   }),
 }));
 
-import { completeWithProvider, keySourceOf, streamWithProvider } from "./providers";
+import {
+  completeWithProvider,
+  deploymentAllowanceRefusal,
+  keySourceOf,
+  streamWithProvider,
+} from "./providers";
 import { resetModelRegistryCache } from "./registry";
 import { runWithUsageContext, type UsageContext } from "./usageContext";
-import { DEPLOYMENT_QUOTA_EXCEEDED_CODE, settleUsageWrites } from "../usage";
+import {
+  DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+  resetDeploymentTotalsForTests,
+  settleUsageWrites,
+} from "../usage";
 import type { UserApiKeys } from "./types";
 
 const USER = "00000000-0000-4000-8000-000000000001";
@@ -90,6 +105,8 @@ beforeEach(() => {
   inserts.length = 0;
   rpcCalls.length = 0;
   control.deploymentTokensUsed = 0;
+  control.personTokensUsed = null;
+  resetDeploymentTotalsForTests();
   providerCalls.mockReset();
   providerCalls.mockImplementation(async () => anthropicMessageResponse());
   vi.stubGlobal("fetch", providerCalls);
@@ -132,9 +149,21 @@ describe("the monthly cap on the deployment's keys", () => {
       /This organization has reached/,
     );
     expect(rpcCalls[0]).toMatchObject({
-      name: "usage_monthly_rollup",
+      name: "usage_deployment_key_tokens",
       args: { p_org_id: ORG, p_user_id: USER },
     });
+  });
+
+  it("gives a new organization no new allowance for a person who has used theirs", async () => {
+    // A workspace with nothing used yet, opened by someone who has used the
+    // whole cap elsewhere this month.
+    control.deploymentTokensUsed = 0;
+    control.personTokensUsed = 1000;
+    await expect(complete(undefined, { ...personal, orgId: ORG })).rejects.toMatchObject({
+      code: DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+      message: expect.stringContaining("counted across all your workspaces"),
+    });
+    expect(providerCalls).not.toHaveBeenCalled();
   });
 
   it("lets deployment-key calls through below the cap and records them", async () => {
@@ -191,6 +220,49 @@ describe("the monthly cap on the deployment's keys", () => {
     expect(inserts).toEqual([
       expect.objectContaining({ key_source: "org", org_id: ORG }),
     ]);
+  });
+});
+
+describe("deploymentAllowanceRefusal", () => {
+  it("names the refusal a call would meet, without calling the provider", async () => {
+    vi.stubEnv("DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP", "1000");
+    control.deploymentTokensUsed = 1000;
+    await expect(
+      deploymentAllowanceRefusal("claude-haiku-4-5", undefined, personal),
+    ).resolves.toMatchObject({ code: DEPLOYMENT_QUOTA_EXCEEDED_CODE });
+    // A person's own key is never capped.
+    await expect(
+      deploymentAllowanceRefusal(
+        "claude-haiku-4-5",
+        { claude: "sk-person", keySources: { claude: "user" } },
+        personal,
+      ),
+    ).resolves.toBeNull();
+    // No key at all is for the call itself to report.
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    await expect(
+      deploymentAllowanceRefusal("claude-haiku-4-5", undefined, personal),
+    ).resolves.toBeNull();
+    expect(providerCalls).not.toHaveBeenCalled();
+  });
+
+  it("reads the ledger afresh when asked to, past this process's recent totals", async () => {
+    vi.stubEnv("DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP", "1000");
+    control.deploymentTokensUsed = 10;
+    await expect(
+      deploymentAllowanceRefusal("claude-haiku-4-5", undefined, personal),
+    ).resolves.toBeNull();
+    // Another process used the rest of the allowance meanwhile.
+    control.deploymentTokensUsed = 1000;
+    await expect(
+      deploymentAllowanceRefusal("claude-haiku-4-5", undefined, personal),
+    ).resolves.toBeNull();
+    await expect(
+      deploymentAllowanceRefusal("claude-haiku-4-5", undefined, personal, {
+        fresh: true,
+      }),
+    ).resolves.toMatchObject({ code: DEPLOYMENT_QUOTA_EXCEEDED_CODE });
+    expect(rpcCalls).toHaveLength(2);
   });
 });
 

@@ -4,6 +4,10 @@ import { checkProjectAccess, ensureChatAccess, ensureReviewAccess, projectHasSha
 import { hasDirectContentGrants } from "../../lib/contentAccess";
 import { streamChatWithTools, type OpenAIToolSchema, type UserApiKeys } from "../../lib/llm";
 import { runWithUsageContext } from "../../lib/llm/usageContext";
+import {
+  DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+  deploymentQuotaError,
+} from "../../lib/usage";
 import { hasApiKeyForModel, resolveEffectiveChatModel } from "../../lib/modelSelection";
 import { resolveModel } from "../../lib/llm/models";
 import { can } from "../../lib/permissions";
@@ -966,6 +970,11 @@ export async function runMemoryCuratorScope(
     if (writeFailure instanceof MemoryConversationNotQuietError) {
       throw writeFailure;
     }
+    // A refusal for the deployment-key allowance, made before any provider
+    // request, is this process's own message and carries none of that: the
+    // job skips the scope on it (handleMemoryConsolidation).
+    const refusal = deploymentQuotaError(error);
+    if (refusal) throw refusal;
     throw memoryScopeFailure(error);
   }
   if (writeFailure instanceof MemoryConversationNotQuietError) {
@@ -1509,6 +1518,20 @@ export async function handleMemoryConsolidation(
           new Date(Date.now() + 60_000).toISOString(),
           "memory_quiet_period",
         );
+      }
+      // The deployment-key allowance is used up: a retry would be refused
+      // the same way until it resets, so the scope is skipped, not failed,
+      // and nothing is retried or reported.
+      if (deploymentQuotaError(error)) {
+        await recordResult({
+          db,
+          jobId: job.id,
+          file: candidate.file,
+          outcome: "skipped",
+          revision: numeric(candidate.file.revision),
+        });
+        outcomes[candidate.file.scope] = DEPLOYMENT_QUOTA_EXCEEDED_CODE;
+        continue;
       }
       // Keep the app and project processes failure-isolated. A successful
       // scope records an idempotency result and will be skipped on retry.

@@ -8,6 +8,7 @@ import { createServerSupabase, type Db } from "../../lib/supabase";
 import { AppError } from "../../lib/appError";
 import { asReportableError } from "../../lib/httpError";
 import { reportError, setOperation } from "../../lib/observability/sentry";
+import { deploymentQuotaError } from "../../lib/usage";
 
 /**
  * The lease was lost, or its bookkeeping failed, while a row was still being
@@ -239,6 +240,32 @@ export async function runExtractionJob(
             }
         }
         if (processed.length === 0) {
+            settled = true;
+            return;
+        }
+
+        // A refusal for the deployment-key allowance: every retry would be
+        // refused the same way until the allowance resets, so the job ends
+        // here instead. The cells the model never saw end in error, as an
+        // exhausted retry would leave them, and nothing is reported: the
+        // error frame above tells the grid why.
+        if (deploymentQuotaError(error)) {
+            for (const missingColumn of missing) {
+                await finalizeCell(db, {
+                    reviewId,
+                    rowId,
+                    columnIndex: missingColumn,
+                    status: "error",
+                    generationId,
+                });
+                await publish(reviewId, {
+                    type: "cell_update",
+                    row_id: rowId,
+                    column_index: missingColumn,
+                    content: null,
+                    status: "error",
+                });
+            }
             settled = true;
             return;
         }

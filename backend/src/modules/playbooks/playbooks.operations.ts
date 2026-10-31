@@ -301,7 +301,9 @@ export class PlaybookModelOutputError extends PlaybookRequestError {
 export function isPlaybookRefusal(error: unknown): boolean {
   if (error instanceof PlaybookModelOutputError) return false;
   return (
-    error instanceof PlaybookRequestError || error instanceof UserFacingError
+    error instanceof PlaybookRequestError ||
+    error instanceof UserFacingError ||
+    deploymentQuotaError(error) !== null
   );
 }
 
@@ -715,6 +717,9 @@ export function playbookImportFailureMessage(
     return `The selected model did not finish within ${minutes} minute${minutes === 1 ? "" : "s"}. Try again or select another model.`;
   }
   if (error instanceof PlaybookRequestError) return message;
+  // Retrying cannot help until the allowance resets: say so, not "try again".
+  const quota = deploymentQuotaError(error);
+  if (quota) return quota.message;
   return PLAYBOOK_IMPORT_GENERIC_FAILURE;
 }
 

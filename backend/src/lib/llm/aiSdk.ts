@@ -19,6 +19,11 @@ import { providerDeadlines } from "./providerDeadlines";
 import { asProviderStallError, streamErrorMessage, toProviderStreamError } from "./providerErrors";
 import { createRawLlmStreamRecorder, logRawLlmStream } from "./rawStreamLog";
 import { recordUsage, type ModelUsage } from "../usage";
+import {
+  createUsageMeter,
+  estimatedTokens,
+  type MeteredUsage,
+} from "./usageMeter";
 
 /**
  * Per-step output limit, or undefined to leave it to the provider.
@@ -249,26 +254,49 @@ export type AiSdkAdapterConfig = {
 };
 
 /** The usage ledger's record of one call through `config`. */
-function recordModelCall(config: AiSdkAdapterConfig, usage: ModelUsage): void {
+function recordModelCall(
+  config: AiSdkAdapterConfig,
+  { usage, estimated }: MeteredUsage,
+): void {
   void recordUsage({
     model: config.modelId,
     provider: config.provider,
     keySource: config.keySource ?? "env",
     usage,
+    ...(estimated ? { estimated: true } : {}),
   });
 }
 
-/** One step's (or one call's) tokens, as the SDK reports them. */
-function usageOf(usage: {
-  inputTokens?: number;
-  outputTokens?: number;
-  inputTokenDetails?: { cacheReadTokens?: number };
-}): ModelUsage {
-  return {
+/**
+ * A completion's tokens as the SDK reports them, or, from a provider that
+ * reports no counts, estimated from the text sent and received (see
+ * usageMeter.ts).
+ */
+function completionUsage(
+  usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+    inputTokenDetails?: { cacheReadTokens?: number };
+  },
+  sentCharacters: number,
+  receivedCharacters: number,
+): MeteredUsage {
+  if (usage.inputTokens === undefined && usage.outputTokens === undefined) {
+    return {
+      usage: {
+        inputTokens: estimatedTokens(sentCharacters),
+        outputTokens: estimatedTokens(receivedCharacters),
+        cachedTokens: 0,
+      },
+      estimated: true,
+    };
+  }
+  const reported: ModelUsage = {
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
     cachedTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
   };
+  return { usage: reported, estimated: false };
 }
 
 type PendingToolExecution = {
@@ -584,16 +612,21 @@ export async function streamAiSdk(
   const maxIterations = params.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   let lastFinishReason: string | undefined;
   let lastRawFinishReason: string | undefined;
-  // Summed over the call's steps, and recorded as one ledger row once the
-  // call ends, however it ends: steps the provider finished are paid for.
-  const callUsage: ModelUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
-  let finishedSteps = 0;
+  // Every model call this makes, metered at the model (usageMeter.ts) so a
+  // step that pauses, is stopped or fails still counts, and recorded as one
+  // ledger row once the call ends, however it ends.
+  const meter = createUsageMeter();
 
   try {
     const result = sdk.streamText({
       model: sdk.wrapLanguageModel({
         model: config.model,
-        middleware: providerDeadlines(params.callbacks?.onActivity),
+        // The meter sits next to the provider, so it sees each model call's
+        // own parts before anything else acts on them.
+        middleware: [
+          providerDeadlines(params.callbacks?.onActivity),
+          meter.middleware,
+        ],
       }),
       system: params.systemPrompt,
       messages: cacheHints.messages,
@@ -741,11 +774,6 @@ export async function streamAiSdk(
           }
           break;
         case "finish-step": {
-          const step = usageOf(part.usage);
-          finishedSteps += 1;
-          callUsage.inputTokens += step.inputTokens;
-          callUsage.outputTokens += step.outputTokens;
-          callUsage.cachedTokens += step.cachedTokens;
           if (
             part.usage.inputTokens !== undefined ||
             part.usage.outputTokens !== undefined
@@ -834,7 +862,8 @@ export async function streamAiSdk(
     throw fatal;
   } finally {
     params.abortSignal?.removeEventListener("abort", forwardAbort);
-    if (finishedSteps > 0) recordModelCall(config, callUsage);
+    const used = meter.close();
+    if (used) recordModelCall(config, used);
   }
 }
 
@@ -872,7 +901,14 @@ export async function completeAiSdkText(
       | undefined,
   });
   // `usage` is the call's total over its steps.
-  recordModelCall(config, usageOf(result.usage));
+  recordModelCall(
+    config,
+    completionUsage(
+      result.usage,
+      (params.systemPrompt?.length ?? 0) + params.user.length,
+      result.text.length + (result.reasoningText?.length ?? 0),
+    ),
+  );
   return result.text;
 }
 

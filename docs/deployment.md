@@ -750,19 +750,44 @@ included in their data export. Apply `20261031_56_usage_events.sql` (Compose's
 ledger: until it runs, calls go ahead and the server log reports once that
 rows cannot be written.
 
+A call's tokens are the counts its provider reports for each model request
+it makes, including a request that pauses for an approval or for the
+person's input. A request that is stopped, or cut off by a deadline or a
+provider failure, after its answer had started streaming, and a request to a
+provider that reports no counts, are recorded with an estimate instead: about
+four characters a token of the text sent and received, with
+`tokens_estimated` set on the row. Text in attached files is not part of an
+estimate. A request stopped before any of its answer arrived is not recorded,
+although the provider may still bill its input.
+
 Set `DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP` to limit how many input plus output
-tokens each workspace may use on the deployment's own keys in a calendar month
-(UTC). Leave it unset for no cap, as before the ledger existed; `0` turns the
-deployment's keys off. Once a workspace's usage this month has reached the
-cap, the next request that would run on a deployment key is refused before
-any provider call with the code `deployment_quota_exceeded`: JSON endpoints
-answer 403, and streamed answers end with an error event carrying the same
-code and a message that says how to continue (save a provider key in Settings
-→ Bring Your Own Keys, or ask the administrator). Keys people and
-organizations save are recorded but never capped. A value that is not a whole
-number of tokens refuses deployment-key calls until it is fixed, and the
-server log names the variable. If the ledger cannot be read, the call goes
-ahead and the failure is logged.
+tokens may be used on the deployment's own keys in a calendar month (UTC). The
+cap is counted twice: for each workspace, over all its members, and for each
+person, over every workspace they work in. Anyone signed in can create an
+organization, and a new organization starts with nothing used, so the
+person's own total is what keeps the cap a limit on what one account can
+spend. Leave it unset for no cap, as before the ledger existed; `0` turns the
+deployment's keys off. Once either total this month has reached the cap, the
+next request that would run on a deployment key is refused before any
+provider call with the code `deployment_quota_exceeded`: JSON endpoints answer
+403, and streamed answers end with an error event carrying the same code and
+a message that says how to continue (save a provider key in Settings → Bring
+Your Own Keys, have an organization admin add the organization's key, or ask
+the administrator). A tabular review stops starting rows once one is refused,
+and background work (row extraction jobs, memory curation) is not retried on
+a refusal. Keys people and organizations save are recorded but never capped.
+A value that is not a whole number of tokens refuses deployment-key calls
+until it is fixed, and the server log names the variable. If the ledger
+cannot be read, the call goes ahead and the failure is logged.
+
+The cap is a limit per workspace and per account, not a spending limit for
+the deployment: it cannot stop one person from opening several accounts, and
+it is checked before a call, so calls already running when it is reached
+finish. Each backend process reuses a total it has read from the ledger for
+up to 30 seconds per workspace and person, adding its own calls as they
+finish, so calls running in other processes can go over the cap by what they
+use in that time. Keep the provider's own spending limits on the deployment's
+keys.
 
 `npm run report:usage --prefix backend` prints tokens and estimated cost per
 run, per document and per page for one month. It runs the compiled job, so
@@ -782,7 +807,7 @@ A model id ending in `*` prices every id that starts with it. Keep the table in
 the deployment's environment rather than in source control. Without it the
 command exits with status 1 and names the variable. Every cost it prints is an
 estimate, recorded tokens times your prices; the provider's invoice is the
-authority.
+authority. The report also says how many calls have estimated tokens.
 
 ## Deployment safety
 
@@ -792,6 +817,8 @@ authority.
 - Configure spending limits for model-provider keys where supported, and set
   `DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP` when people without their own key use the
   deployment's (see [AI usage](#ai-usage-the-deployment-key-cap-and-the-cost-report)).
+  The cap limits each workspace and each account; it does not replace the
+  provider's limits, because it cannot limit how many accounts are opened.
 - Confirm LibreOffice is available to the backend and worker if document
   conversion is enabled. The backend Docker image and `backend/nixpacks.toml`
   install it; elsewhere the backend looks on `PATH`, in the usual Linux

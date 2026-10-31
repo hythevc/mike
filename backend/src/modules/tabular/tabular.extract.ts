@@ -222,7 +222,10 @@ Rules:
         });
     } catch (err) {
         streamError = err;
-        if (!abortSignal?.aborted && reportFailure) {
+        // A refusal for the deployment-key allowance is the caller's to tell
+        // the user about, not a failure: like queryTabularCell, it is neither
+        // reported nor logged here.
+        if (!abortSignal?.aborted && reportFailure && !deploymentQuotaError(err)) {
             // Inline callers report here; queue callers let the runner own
             // retries and severity. Reported once, here, under the kind that names the failure, with
             // the provider's error as the cause (provider_error and

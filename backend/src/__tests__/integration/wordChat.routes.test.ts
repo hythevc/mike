@@ -35,11 +35,14 @@ const { dbState, recordedQueries } = vi.hoisted(() => ({
 
 const {
   runLLMStream,
+  streamWithProvider,
   beginMemoryConversationTurn,
   releaseMemoryConversationTurn,
   scheduleMemoryConsolidation,
 } = vi.hoisted(() => ({
   runLLMStream: vi.fn(),
+  // The model provider, for the one test that runs the real engine.
+  streamWithProvider: vi.fn(),
   beginMemoryConversationTurn: vi.fn().mockResolvedValue({
     activityId: "activity-1",
   }),
@@ -161,6 +164,11 @@ vi.mock("../../modules/chat/engine/index", async (importOriginal) => {
   };
 });
 
+vi.mock("../../lib/llm/providers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/llm/providers")>()),
+  streamWithProvider: (...args: unknown[]) => streamWithProvider(...args),
+}));
+
 vi.mock("../../modules/user/user.settings", () => ({
   getUserModelSettings: vi.fn(async () => ({
     legal_research_us: false,
@@ -196,6 +204,13 @@ vi.mock("../../middleware/auth", () => ({
 }));
 
 import { app } from "../../app";
+import { streamAiSdk } from "../../lib/llm/aiSdk";
+import {
+  config,
+  makeModel,
+  textStep,
+} from "../../lib/llm/__tests__/mockLanguageModel";
+import { settleUsageWrites } from "../../lib/usage";
 
 const DOCUMENT_ID = "123e4567-e89b-42d3-a456-426614174000";
 const CHAT_ID = "41eb8f61-d7af-454e-b680-cd28bd65c742";
@@ -576,6 +591,52 @@ describe("POST /word-chat — local storage", () => {
       projectId: null,
       surface: "word",
       chatId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
+  });
+
+  it("writes one usage row for a Word turn's model call", async () => {
+    const USER = "00000000-0000-4000-8000-000000000001";
+    const realEngine = await vi.importActual<
+      typeof import("../../modules/chat/engine/index.js")
+    >("../../modules/chat/engine/index.js");
+    const engine = await import("../../modules/chat/engine/index.js");
+    const model = await makeModel([textStep("Here is the revised clause.")]);
+    streamWithProvider.mockImplementationOnce((params) =>
+      streamAiSdk(params as never, { ...config(model), keySource: "user" }),
+    );
+    runLLMStream.mockImplementationOnce(realEngine.runLLMStream);
+    vi.mocked(engine.buildMessages).mockImplementationOnce(
+      realEngine.buildMessages,
+    );
+
+    const res = await request(app)
+      .post("/word-chat")
+      .set(...AUTH)
+      .set("x-test-user", USER)
+      .send({
+        messages: [{ role: "user", content: "Revise this clause" }],
+        document_id: DOCUMENT_ID,
+        document_name: "Contract.docx",
+        storage: "local",
+        model: "gemini-3-flash-preview",
+      });
+    await settleUsageWrites();
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('"type":"content_delta"');
+    expect(res.text).not.toContain('"type":"error"');
+    const ledger = recordedQueries.filter(
+      ({ table, op }) => table === "usage_events" && op === "insert",
+    );
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0].payload).toMatchObject({
+      surface: "word",
+      key_source: "user",
+      user_id: USER,
+      org_id: null,
+      project_id: null,
+      model: "mock-model",
+      chat_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
   });
 
