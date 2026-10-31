@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { checkProjectAccess, ensureChatAccess, ensureReviewAccess, projectHasSharedAudience } from "../../lib/access";
 import { hasDirectContentGrants } from "../../lib/contentAccess";
 import { streamChatWithTools, type OpenAIToolSchema, type UserApiKeys } from "../../lib/llm";
+import { runWithUsageContext } from "../../lib/llm/usageContext";
 import { hasApiKeyForModel, resolveEffectiveChatModel } from "../../lib/modelSelection";
 import { resolveModel } from "../../lib/llm/models";
 import { can } from "../../lib/permissions";
@@ -1453,7 +1454,16 @@ export async function handleMemoryConsolidation(
         continue;
       }
 
-      const result = await runMemoryCuratorScope({
+      // Curation runs on the conversation's workspace keys, so it is that
+      // workspace's model use (usage ledger, deployment-key cap).
+      const usage = {
+        userId: state.actor_user_id,
+        orgId: conversation.orgId,
+        projectId: file.project_id ?? state.project_id,
+        surface: "memory" as const,
+        chatId: state.conversation_id,
+      };
+      const result = await runWithUsageContext(usage, () => runMemoryCuratorScope({
         db,
         file,
         current,
@@ -1473,7 +1483,7 @@ export async function handleMemoryConsolidation(
         conversationId: state.conversation_id,
         turnId: candidate.turnId,
         jobId: job.id,
-      });
+      }));
       await recordResult({
         db,
         jobId: job.id,

@@ -130,6 +130,46 @@ describe("exports enforce current read access", () => {
         expect((await buildUserAccountExport(db, userId, email, "current-org")).memory.markdown).toBe("# Firm");
     });
 
+    it("exports the person's AI usage rows for the workspace it covers", async () => {
+        const usage = (id: string, fields: Row) => ({
+            id,
+            created_at: `2026-10-${id.length}`,
+            surface: "chat",
+            model: "m",
+            provider: "claude",
+            key_source: "env",
+            input_tokens: 1,
+            output_tokens: 1,
+            ...fields,
+        });
+        const { db } = makeExportDb({
+            // Personal work is filed under the person's own organization.
+            organizations: [{ id: "personal-org", personal_user_id: userId }],
+            usage_events: [
+                usage("usage-personal", { user_id: userId, org_id: "personal-org" }),
+                usage("usage-firm", { user_id: userId, org_id: "current-org" }),
+                usage("usage-colleague", { user_id: "colleague", org_id: "current-org" }),
+            ],
+        });
+
+        const personal = await buildUserAccountExport(db, userId, email, null);
+        const firm = await buildUserAccountExport(db, userId, email, "current-org");
+
+        expect(ids(personal.usage_events)).toEqual(["usage-personal"]);
+        expect(ids(firm.usage_events)).toEqual(["usage-firm"]);
+    });
+
+    it("exports no usage rows from a database without the ledger", async () => {
+        const { db } = makeExportDb(
+            { organizations: [{ id: "personal-org", personal_user_id: userId }] },
+            { usage_events: { message: "relation does not exist", code: "42P01" } as never },
+        );
+
+        await expect(
+            buildUserAccountExport(db, userId, email, null),
+        ).resolves.toMatchObject({ usage_events: [] });
+    });
+
     it("applies the same rules to chat-only and review-only exports", async () => {
         const { db } = makeExportDb(fixtures());
         const chats = await buildUserChatsExport(db, userId, email, null);

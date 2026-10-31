@@ -3,6 +3,7 @@ import { AppError } from "../appError";
 import { diagnosticErrorTags } from "../observability/sentryPrivacy";
 import { UserFacingError } from "../userFacingError";
 import { InvalidApiKeyError } from "./apiKeyErrors";
+import { DeploymentQuotaExceededError } from "../usage";
 import {
   asProviderStallError,
   providerFailureKind,
@@ -156,6 +157,14 @@ describe("providerFailureKind", () => {
     expect(providerFailureKind(stall)).toBe("chat.provider_unavailable");
     expect(providerFailureKind(toProviderStreamError(stall, gemini))).toBe("chat.provider_unavailable");
     expect(providerFailureKind(new Error("turn failed", { cause: stall }))).toBe("chat.provider_unavailable");
+  });
+
+  it("names a call refused for the deployment allowance, before any provider", () => {
+    const refused = new DeploymentQuotaExceededError("personal");
+    expect(providerFailureKind(refused)).toBe("usage.quota_exceeded");
+    expect(providerFailureKind(new Error("outer", { cause: refused }))).toBe(
+      "usage.quota_exceeded",
+    );
   });
 
   it("names a rejected key whatever wraps it", () => {

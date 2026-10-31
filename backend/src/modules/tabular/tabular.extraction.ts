@@ -140,7 +140,7 @@ export async function runExtractionJob(
         //    by the enqueuing route, so the shared core will re-extract it.
         const { data: review } = await db
             .from("tabular_reviews")
-            .select("columns_config, model, org_id")
+            .select("columns_config, model, org_id, project_id")
             .eq("id", reviewId)
             .single();
         let columns: Column[] = (review?.columns_config as Column[]) ?? [];
@@ -204,6 +204,12 @@ export async function runExtractionJob(
             model: tabular_model,
             apiKeys: api_keys,
             generationId,
+            usage: {
+                userId,
+                orgId: (review as { org_id?: string | null }).org_id ?? null,
+                projectId:
+                    (review as { project_id?: string | null }).project_id ?? null,
+            },
             sink: {
                 generating: (id, columnIndex) =>
                     publish(reviewId, {
@@ -225,8 +231,10 @@ export async function runExtractionJob(
         });
         if (error instanceof ExtractionLimitError) throw error;
         if (error) {
+            // A rejected key, or a workspace out of allowance on the
+            // deployment's keys: the user's to fix, so the grid is told why.
             const payload = assistantStreamErrorPayload(error);
-            if (payload.code === "invalid_api_key") {
+            if (payload.code) {
                 await publish(reviewId, { type: "error", ...payload });
             }
         }

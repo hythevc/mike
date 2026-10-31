@@ -416,3 +416,44 @@ describe("CourtListener, per workspace", () => {
         expect(tables.user_courtlistener_connections).toHaveLength(1);
     });
 });
+
+// The usage ledger records, and the deployment's monthly cap counts, whose
+// key a call ran on; the store is what knows.
+describe("keySources", () => {
+    it("names the deployment for its own keys and the saver for saved ones", async () => {
+        process.env.ANTHROPIC_API_KEY = "env-claude";
+        process.env.GEMINI_API_KEY = "env-gemini";
+        const { db } = firm();
+        await saveApiKeyFor(userKeyOwner(USER), "gemini", "my-gemini", db);
+        await saveApiKeyFor(userKeyOwner(USER), "openai", "my-openai", db);
+
+        const keys = await getUserApiKeys(USER, db);
+        expect(keys.keySources).toEqual({
+            claude: "env",
+            gemini: "user",
+            openai: "user",
+        });
+    });
+
+    it("names the organization for its keys in organization work", async () => {
+        process.env.ANTHROPIC_API_KEY = "env-claude";
+        const { db } = firm();
+        await saveApiKeyFor(userKeyOwner(USER), "openai", "my-openai", db);
+        await saveApiKeyFor(orgKeyOwner(ORG), "claude", "org-claude", db);
+
+        const keys = await getEffectiveApiKeys(USER, ORG, db);
+        expect(keys.claude).toBe("org-claude");
+        expect(keys.keySources).toEqual({ claude: "org" });
+    });
+
+    it("drops the source of a provider that is switched off", async () => {
+        process.env.ANTHROPIC_API_KEY = "env-claude";
+        const { db, tables } = firm();
+        await saveApiKeyFor(userKeyOwner(USER), "claude", "my-claude", db);
+        tables.user_api_keys[0].enabled = false;
+
+        const keys = await getUserApiKeys(USER, db);
+        expect(keys.claude).toBeNull();
+        expect(keys.keySources).toEqual({});
+    });
+});

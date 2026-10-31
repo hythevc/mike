@@ -22,6 +22,11 @@ import {
     removeQueuedExtractionJobs,
 } from "../../lib/queue/extractionQueue";
 import { queryTabularCell } from "./tabular.extract";
+import { runWithUsageContext } from "../../lib/llm/usageContext";
+import {
+    DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+    deploymentQuotaError,
+} from "../../lib/usage";
 import { finalizeCell } from "./tabular.extractRow";
 import { awaitCellTerminal } from "./tabular.generateStream";
 import { loadReviewRows, loadRowDocumentText } from "./tabular.rows";
@@ -382,15 +387,31 @@ export async function regenerateTabularCell(
             return { ok: true, data: { status: 200, body: terminal.content } };
         }
 
-        const markdown = await loadRowDocumentText(db, row);
-        const result = await queryTabularCell(
-            tabular_model,
-            row.label,
-            markdown,
-            column.prompt,
-            column.format,
-            column.tags,
-            api_keys,
+        let documentPages: number | null = null;
+        const markdown = await loadRowDocumentText(db, row, (pages) => {
+            documentPages = pages;
+        });
+        const result = await runWithUsageContext(
+            {
+                userId,
+                orgId: review.org_id ?? null,
+                projectId: review.project_id ?? null,
+                surface: "tabular",
+                reviewId,
+                runId: generationId,
+                documentId: sourceIds.length === 1 ? sourceIds[0] : null,
+                documentPages,
+            },
+            () =>
+                queryTabularCell(
+                    tabular_model,
+                    row.label,
+                    markdown,
+                    column.prompt,
+                    column.format,
+                    column.tags,
+                    api_keys,
+                ),
         );
 
         if (!result) {
@@ -428,6 +449,14 @@ export async function regenerateTabularCell(
             .eq("row_id", row.id)
             .eq("column_index", columnIndex)
             .eq("generation_id", generationId);
+        // The workspace's allowance on the deployment's keys is used up:
+        // the user's to act on, not a failure to report.
+        const quota = deploymentQuotaError(error);
+        if (quota)
+            return statusFailure(403, {
+                code: DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+                detail: quota.message,
+            });
         const generationFailure = new AppError(
             "tabular.generation_failed",
             "Tabular cell generation failed",

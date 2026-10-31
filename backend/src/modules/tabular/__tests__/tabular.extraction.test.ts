@@ -117,6 +117,36 @@ describe("runExtractionJob", () => {
         expect(setOperation).toHaveBeenLastCalledWith("tabular.cell");
     });
 
+    it("extracts the row under the review's workspace and matter", async () => {
+        service.extractRowColumns.mockResolvedValue({
+            processed: [],
+            received: new Set(),
+            missing: [],
+        });
+        await run(
+            reviewDb({
+                tables: {
+                    tabular_reviews: {
+                        data: {
+                            columns_config: [COLUMN],
+                            model: "m",
+                            org_id: "org-1",
+                            project_id: "project-1",
+                        },
+                        error: null,
+                    },
+                },
+            }).db,
+            GENERATION_ID,
+        );
+        expect(service.extractRowColumns).toHaveBeenCalledWith(
+            expect.objectContaining({
+                generationId: GENERATION_ID,
+                usage: { userId: "user-1", orgId: "org-1", projectId: "project-1" },
+            }),
+        );
+    });
+
     it("throws an incomplete extraction under its kind with the provider's error as the cause", async () => {
         const providerError = Object.assign(new Error("rate limited"), {
             name: "AI_APICallError",

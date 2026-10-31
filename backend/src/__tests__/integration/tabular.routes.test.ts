@@ -2122,6 +2122,25 @@ describe("tabular.routes", () => {
             resetStreamRunsForTests();
         });
 
+        it("extracts every row under the review's usage scope", async () => {
+            const review = (
+                supabaseState.tables.tabular_reviews as { data: Record<string, unknown> }
+            ).data;
+            supabaseState.tables.tabular_reviews = {
+                data: { ...review, org_id: "org-1", project_id: "p1" },
+                error: null,
+            };
+
+            const res = await startGeneration();
+
+            expect(res.status).toBe(200);
+            expect(extractRowColumns).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    usage: { userId: "u1", orgId: "org-1", projectId: "p1" },
+                }),
+            );
+        });
+
         it("returns a safe internal error and releases the claimed lease when document access lookup fails", async () => {
             filterAccessibleDocumentIds.mockRejectedValueOnce(new Error("Document access lookup failed: private database detail"));
 
@@ -2414,6 +2433,58 @@ describe("tabular.routes", () => {
 
             expect(res.status).toBe(422);
             expect(res.body.code).toBe("missing_api_key");
+        });
+
+        it("runs the review chat turn under the review's usage context", async () => {
+            supabaseState.tables.tabular_reviews = {
+                data: {
+                    id: "r1",
+                    user_id: "u1",
+                    project_id: "p1",
+                    title: "Leases",
+                    columns_config: [],
+                },
+                error: null,
+            };
+            supabaseState.tables.tabular_cells = { data: [], error: null };
+            supabaseState.tables.tabular_review_rows = { data: [], error: null };
+            supabaseState.tables.tabular_review_chats = {
+                data: {
+                    id: "review-chat-1",
+                    title: "Existing title",
+                    review_id: "r1",
+                    user_id: "u1",
+                    model: "claude-sonnet-5-5",
+                    reasoning_level: "high",
+                },
+                error: null,
+            };
+            supabaseState.tables.tabular_review_chat_messages = {
+                data: null,
+                error: null,
+            };
+
+            const res = await request(app)
+                .post("/tabular-review/r1/chat")
+                .set(...AUTH)
+                .send({
+                    messages: [{ role: "user", content: "Summarise" }],
+                    model: "claude-sonnet-5-5",
+                });
+
+            expect(res.status).toBe(200);
+            expect(runLLMStream).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    usage: {
+                        userId: "u1",
+                        orgId: null,
+                        projectId: "p1",
+                        surface: "tabular",
+                        reviewId: "r1",
+                        chatId: "review-chat-1",
+                    },
+                }),
+            );
         });
 
         it("schedules app memory but not project memory for a direct review grant", async () => {

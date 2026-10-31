@@ -406,6 +406,39 @@ describe("POST /projects/:projectId/chat", () => {
     expect(releaseMemoryConversationTurn).not.toHaveBeenCalled();
     });
 
+    it("runs the turn and its title under the project chat's usage context", async () => {
+        const { generateAssistantChatTitle } = await import(
+            "../../modules/chat/chat.service.js"
+        );
+        checkProjectAccess.mockResolvedValue({
+            ok: true,
+            isCreator: true,
+            orgRole: "member",
+            projectRole: "owner",
+            project: { id: "p1", user_id: "u1", org_id: "org-1" },
+        });
+
+        const res = await request(app)
+            .post("/projects/p1/chat")
+            .set("Authorization", "Bearer test")
+            .send(VALID_BODY);
+
+        expect(res.status).toBe(200);
+        const usage = {
+            userId: "u1",
+            orgId: "org-1",
+            projectId: "p1",
+            surface: "project_chat",
+            chatId: "chat-1",
+        };
+        expect(runLLMStream).toHaveBeenCalledWith(
+            expect.objectContaining({ usage }),
+        );
+        expect(generateAssistantChatTitle).toHaveBeenCalledWith(
+            expect.objectContaining({ usage }),
+        );
+    });
+
     it("runs a personal project's chat on the caller's own keys", async () => {
         const userSettings = await import("../../modules/user/user.settings.js");
 

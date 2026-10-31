@@ -731,12 +731,67 @@ images on every pull request (`.github/workflows/docker-images.yml`), so a
 source change that reaches outside a build context fails before merge instead
 of on the next fresh install.
 
+## AI usage, the deployment-key cap and the cost report
+
+Every model call is recorded in `usage_events`, one row per call: the
+workspace (an organization, or the person's Personal workspace), the person,
+the matter when there is one, the surface (chat, project chat, Word, tabular
+review, playbook, title, subagent or memory curation), the model and provider,
+whose key it ran on, the input, output and cached tokens, and the document
+pages when they are known. No prompt or answer text is stored. The key source
+is `user` for a key the person saved, `org` for their organization's key, and
+`env` for the deployment's own: the provider keys in this environment, keys
+written into `MIKE_MODEL_CONFIG_JSON`, and endpoints served without a key
+(Ollama, keyless configured models). Rows go with their organization; Personal
+rows go with the account. When an account or a matter is deleted, a team
+organization keeps its rows and only the link to them is cleared. A person's rows are
+included in their data export. Apply `20261031_56_usage_events.sql` (Compose's
+`db-init` and `backend/scripts/migrate.sh up` do) before relying on the
+ledger: until it runs, calls go ahead and the server log reports once that
+rows cannot be written.
+
+Set `DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP` to limit how many input plus output
+tokens each workspace may use on the deployment's own keys in a calendar month
+(UTC). Leave it unset for no cap, as before the ledger existed; `0` turns the
+deployment's keys off. Once a workspace's usage this month has reached the
+cap, the next request that would run on a deployment key is refused before
+any provider call with the code `deployment_quota_exceeded`: JSON endpoints
+answer 403, and streamed answers end with an error event carrying the same
+code and a message that says how to continue (save a provider key in Settings
+→ Bring Your Own Keys, or ask the administrator). Keys people and
+organizations save are recorded but never capped. A value that is not a whole
+number of tokens refuses deployment-key calls until it is fixed, and the
+server log names the variable. If the ledger cannot be read, the call goes
+ahead and the failure is logged.
+
+`npm run report:usage --prefix backend` prints tokens and estimated cost per
+run, per document and per page for one month. It runs the compiled job, so
+build first, as for `sync:workflows`:
+
+```bash
+npm run build --prefix backend
+npm run report:usage --prefix backend -- --month 2026-10 --org <organization uuid>
+```
+
+`--project <uuid>` narrows it to one matter and `--json` prints the report as
+JSON (run it as `npm run --silent report:usage ...` to pipe it, so npm's own
+banner stays out of the output); `--help` lists the options. Prices come from `USAGE_PRICE_TABLE_JSON`,
+in your currency per million tokens, for example
+`{"currency":"USD","models":{"model-id":{"input":1.0,"output":2.0,"cached_input":0.1}}}`.
+A model id ending in `*` prices every id that starts with it. Keep the table in
+the deployment's environment rather than in source control. Without it the
+command exits with status 1 and names the variable. Every cost it prints is an
+estimate, recorded tokens times your prices; the provider's invoice is the
+authority.
+
 ## Deployment safety
 
 - Generate unique, high-entropy signing and encryption secrets.
 - Use production Supabase credentials rather than the local demo values.
 - Keep backend secrets out of `NEXT_PUBLIC_*` variables.
-- Configure spending limits for model-provider keys where supported.
+- Configure spending limits for model-provider keys where supported, and set
+  `DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP` when people without their own key use the
+  deployment's (see [AI usage](#ai-usage-the-deployment-key-cap-and-the-cost-report)).
 - Confirm LibreOffice is available to the backend and worker if document
   conversion is enabled. The backend Docker image and `backend/nixpacks.toml`
   install it; elsewhere the backend looks on `PATH`, in the usual Linux

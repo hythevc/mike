@@ -519,6 +519,9 @@ export type AssistantEvent =
       /**
        * Machine-readable cause, when the client can offer a specific remedy.
        * "invalid_api_key": the provider rejected the caller's key.
+       * "deployment_quota_exceeded": the workspace has used this month's
+       * allowance on the deployment's own provider keys; nothing reached the
+       * provider.
        */
       code?: AssistantErrorCode;
       /**
@@ -531,7 +534,7 @@ export type AssistantEvent =
       reporting_owner?: "backend";
     };
 
-export type AssistantErrorCode = "invalid_api_key";
+export type AssistantErrorCode = "invalid_api_key" | "deployment_quota_exceeded";
 
 export type WordEditApplyMode = "direct" | "approval";
 

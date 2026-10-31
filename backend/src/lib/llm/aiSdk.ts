@@ -4,6 +4,7 @@ import type { LanguageModel, ToolSet } from "ai" with {
 };
 import type * as AiSdk from "ai" with { "resolution-mode": "import" };
 import type {
+  KeySource,
   LlmMessage,
   NormalizedToolCall,
   NormalizedToolResult,
@@ -17,6 +18,7 @@ import type { WebSource } from "@mike/contracts";
 import { providerDeadlines } from "./providerDeadlines";
 import { asProviderStallError, streamErrorMessage, toProviderStreamError } from "./providerErrors";
 import { createRawLlmStreamRecorder, logRawLlmStream } from "./rawStreamLog";
+import { recordUsage, type ModelUsage } from "../usage";
 
 /**
  * Per-step output limit, or undefined to leave it to the provider.
@@ -238,7 +240,36 @@ export type AiSdkAdapterConfig = {
   defaultMaxOutputTokens?: (
     reasoning: StreamChatParams["reasoning"],
   ) => number | undefined;
+  /**
+   * Whose credential the adapter was built with. providers.ts always sets
+   * it; the usage ledger records it, and an adapter without one counts as
+   * the deployment's.
+   */
+  keySource?: KeySource;
 };
+
+/** The usage ledger's record of one call through `config`. */
+function recordModelCall(config: AiSdkAdapterConfig, usage: ModelUsage): void {
+  void recordUsage({
+    model: config.modelId,
+    provider: config.provider,
+    keySource: config.keySource ?? "env",
+    usage,
+  });
+}
+
+/** One step's (or one call's) tokens, as the SDK reports them. */
+function usageOf(usage: {
+  inputTokens?: number;
+  outputTokens?: number;
+  inputTokenDetails?: { cacheReadTokens?: number };
+}): ModelUsage {
+  return {
+    inputTokens: usage.inputTokens ?? 0,
+    outputTokens: usage.outputTokens ?? 0,
+    cachedTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+  };
+}
 
 type PendingToolExecution = {
   call: NormalizedToolCall;
@@ -553,6 +584,10 @@ export async function streamAiSdk(
   const maxIterations = params.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   let lastFinishReason: string | undefined;
   let lastRawFinishReason: string | undefined;
+  // Summed over the call's steps, and recorded as one ledger row once the
+  // call ends, however it ends: steps the provider finished are paid for.
+  const callUsage: ModelUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+  let finishedSteps = 0;
 
   try {
     const result = sdk.streamText({
@@ -705,7 +740,12 @@ export async function streamAiSdk(
             });
           }
           break;
-        case "finish-step":
+        case "finish-step": {
+          const step = usageOf(part.usage);
+          finishedSteps += 1;
+          callUsage.inputTokens += step.inputTokens;
+          callUsage.outputTokens += step.outputTokens;
+          callUsage.cachedTokens += step.cachedTokens;
           if (
             part.usage.inputTokens !== undefined ||
             part.usage.outputTokens !== undefined
@@ -721,6 +761,7 @@ export async function streamAiSdk(
           lastFinishReason = part.finishReason;
           lastRawFinishReason = part.rawFinishReason;
           break;
+        }
         // A tool's own failure is not the model provider's: a search tool
         // answering 401 says nothing about our LLM key, so this path keeps the
         // executor error rather than blaming the user's credentials.
@@ -793,6 +834,7 @@ export async function streamAiSdk(
     throw fatal;
   } finally {
     params.abortSignal?.removeEventListener("abort", forwardAbort);
+    if (finishedSteps > 0) recordModelCall(config, callUsage);
   }
 }
 
@@ -829,6 +871,8 @@ export async function completeAiSdkText(
       | Exclude<NonNullable<StreamChatParams["reasoning"]>, "max">
       | undefined,
   });
+  // `usage` is the call's total over its steps.
+  recordModelCall(config, usageOf(result.usage));
   return result.text;
 }
 

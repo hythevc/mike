@@ -15,6 +15,7 @@ import {
   handleUnhandledError,
   protectInternalErrorResponses,
 } from "./internalErrorResponse";
+import { DeploymentQuotaExceededError } from "../lib/usage";
 
 function testApp(status: number, body: unknown) {
   const app = express();
@@ -151,6 +152,33 @@ describe("protectInternalErrorResponses", () => {
     });
     expect(res.text).not.toContain("database password");
     expect(consoleError).toHaveBeenCalledOnce();
+  });
+
+  it("answers a used-up deployment allowance with 403 and its code", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = express();
+    app.use((_req, res, next) => {
+      res.locals.requestId = "req-quota-123";
+      next();
+    });
+    app.use(protectInternalErrorResponses);
+    app.get("/test", () => {
+      throw new Error("wrapped", {
+        cause: new DeploymentQuotaExceededError("organization"),
+      });
+    });
+    app.use(handleUnhandledError);
+
+    const res = await request(app).get("/test");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      code: "deployment_quota_exceeded",
+      detail: expect.stringContaining("This organization has reached"),
+      request_id: "req-quota-123",
+    });
+    // The user's to act on, not a server failure.
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("returns a safe 400 response for malformed JSON", async () => {

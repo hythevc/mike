@@ -144,13 +144,32 @@ export async function loadReviewRow(
     return rows.find((row) => row.id === rowId) ?? null;
 }
 
+/**
+ * Pages across a row's source documents, or null unless every one has a
+ * known page count (spreadsheets and older versions have none).
+ */
+function knownPageCount(docs: SourceDocument[]): number | null {
+    let total = 0;
+    for (const doc of docs) {
+        const pages = (doc as { page_count?: unknown }).page_count;
+        if (typeof pages !== "number" || !Number.isInteger(pages) || pages < 0) {
+            return null;
+        }
+        total += pages;
+    }
+    return docs.length ? total : null;
+}
+
 export async function loadRowDocumentText(
     db: Db,
     row: ReviewRow,
+    /** Told the row's page count once its documents are loaded (usage ledger). */
+    onPageCount?: (pages: number | null) => void,
 ): Promise<string> {
     const sourceIds =
         row.source_document_ids ?? (row.document_id ? [row.document_id] : []);
     const docs = await fetchSourceDocuments(db, sourceIds);
+    onPageCount?.(knownPageCount(docs));
     const sections: string[] = [];
     for (const doc of docs) {
         const storagePath = (doc as SourceDocument & { storage_path?: string })

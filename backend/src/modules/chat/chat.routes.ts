@@ -51,6 +51,7 @@ import { generateAssistantChatTitle, logChatTitleFailure } from "./chat.title";
 import { sendInternalError } from "../../lib/httpError";
 import { sendServiceFailure } from "../../lib/serviceResult";
 import { titleModelForChat } from "../../lib/modelSelection";
+import type { UsageContext } from "../../lib/llm/usageContext";
 import {
     releaseMemoryConversationTurn,
     scheduleMemoryConsolidation,
@@ -622,6 +623,15 @@ chatRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
         chatId,
         messageId: turnMessageId,
     });
+    // Who this turn's model calls are for: the usage ledger and the cap on
+    // the deployment's keys count them here (lib/usage.ts).
+    const usage: UsageContext = {
+        userId,
+        orgId,
+        projectId: resolvedProjectId,
+        surface: "chat",
+        chatId,
+    };
 
     devLog("[chat/stream] starting LLM stream", {
         apiMessageCount: apiMessages.length,
@@ -728,6 +738,7 @@ chatRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
                       model: titleModelForChat(selectedModel, titleModel),
                       message: titleMessage,
                       apiKeys,
+                      usage,
                   })
                       .then(async (title) => {
                           if (stream.signal.aborted) return;
@@ -772,6 +783,7 @@ chatRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
                 signal: stream.signal,
                 projectId: resolvedProjectId,
                 conversationId: chatId,
+                usage,
                 includeMemory: true,
                 connectorApprovals: true,
                 memoryProjectId: canReadProjectMemory

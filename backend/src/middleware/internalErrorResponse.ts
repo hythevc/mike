@@ -13,6 +13,10 @@ import {
   reportMessage,
   requestRoutePattern,
 } from "../lib/observability/sentry";
+import {
+  DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+  deploymentQuotaError,
+} from "../lib/usage";
 
 type ErrorBody = {
   code?: unknown;
@@ -127,6 +131,18 @@ export const handleUnhandledError: ErrorRequestHandler = (
     res.status(413).json({
       code: "request_too_large",
       detail: "The request body is too large.",
+      ...(requestId ? { request_id: requestId } : {}),
+    });
+    return;
+  }
+  // A model call refused because the workspace has used this month's
+  // allowance on the deployment's keys: written for the user, and not a
+  // server failure.
+  const quota = deploymentQuotaError(error);
+  if (quota) {
+    res.status(403).json({
+      code: DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+      detail: quota.message,
       ...(requestId ? { request_id: requestId } : {}),
     });
     return;

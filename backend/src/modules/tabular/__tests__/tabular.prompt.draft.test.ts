@@ -72,6 +72,40 @@ describe("draftColumnPrompt", () => {
         ).toBe("model_required");
     });
 
+    it("drafts under the person's Personal workspace usage context", async () => {
+        const { currentUsageContext } = await import(
+            "../../../lib/llm/usageContext.js"
+        );
+        let context: unknown;
+        completeText.mockImplementation(async () => {
+            context = currentUsageContext();
+            return '{"prompt":"Extract the governing law."}';
+        });
+        await draftColumnPrompt(DB, ARGS);
+        expect(context).toEqual({
+            userId: "user-1",
+            orgId: null,
+            projectId: null,
+            surface: "tabular",
+        });
+    });
+
+    it("403s with the code when the deployment allowance is used up, without reporting", async () => {
+        const { DeploymentQuotaExceededError } = await import("../../../lib/usage.js");
+        completeText.mockRejectedValue(new DeploymentQuotaExceededError("personal"));
+        const result = await draftColumnPrompt(DB, ARGS);
+        expect(result).toMatchObject({
+            ok: false,
+            kind: "status",
+            status: 403,
+            body: {
+                code: "deployment_quota_exceeded",
+                detail: expect.stringContaining("reached this month's limit"),
+            },
+        });
+        expect(reportError).not.toHaveBeenCalled();
+    });
+
     it("unwraps a fenced JSON reply", async () => {
         completeText.mockResolvedValue(
             '```json\n{"prompt":"  Extract the governing law clause.  "}\n```',

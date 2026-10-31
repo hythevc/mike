@@ -60,6 +60,8 @@ const {
         // the eq/not/order/limit chain genuinely applied (a mini query
         // engine), so tests can prove which assistant row a query picks.
         assistantMessageRows: null as Record<string, unknown>[] | null,
+        // Makes the usage ledger's insert fail.
+        failUsageInsert: false,
     },
 }));
 
@@ -189,6 +191,12 @@ function makeQuery(table: string) {
         error: { message: "user message insert failed" },
       };
     }
+        if (dbControl.failUsageInsert && table === "usage_events") {
+            result = {
+                data: null,
+                error: { message: "usage ledger unavailable" },
+            };
+        }
         if (
             dbControl.failAssistantReservation &&
             table === "chat_messages" &&
@@ -434,6 +442,7 @@ vi.mock("../../lib/llm", async (importOriginal) => {
 
 import { app } from "../../app";
 import { resetAssistantTurnRunsForTests } from "../../lib/assistantTurnRuns";
+import { settleUsageWrites } from "../../lib/usage";
 import { createServerSupabase } from "../../lib/supabase";
 import { DEFAULT_WEB_SEARCH_SETTINGS } from "../../lib/webSearch";
 
@@ -469,12 +478,80 @@ describe("POST /chat — streaming endpoint", () => {
         dbControl.wordChatMissing = false;
         dbControl.failContentGrantLookup = false;
         dbControl.assistantMessageRows = null;
+        dbControl.failUsageInsert = false;
         runLLMStream.mockResolvedValue({
             fullText: "hi there",
             events: [],
             citations: [],
         });
     });
+
+    it("runs the turn and its title under the chat's usage context", async () => {
+        const res = await request(app)
+            .post("/chat")
+            .set("Authorization", "Bearer test")
+            .send(VALID_BODY);
+
+        expect(res.status).toBe(200);
+        const usage = {
+            userId: "u1",
+            orgId: null,
+            projectId: null,
+            surface: "chat",
+            chatId: "chat-1",
+        };
+        expect(runLLMStream).toHaveBeenCalledWith(
+            expect.objectContaining({ usage }),
+        );
+        const titles = await import("../../modules/chat/chat.title.js");
+        expect(titles.generateAssistantChatTitle).toHaveBeenCalledWith(
+            expect.objectContaining({ usage }),
+        );
+    });
+
+    it.each([false, true])(
+        "writes one usage row for the turn's model call (ledger write fails: %s)",
+        async (failUsageInsert) => {
+            const realChat =
+                await vi.importActual<typeof import("../../modules/chat/engine/index.js")>(
+                    "../../modules/chat/engine/index.js",
+                );
+            const mockedChat = await import("../../modules/chat/engine/index.js");
+            const model = await makeModel([textStep("Here is the answer.")]);
+            streamWithProvider.mockImplementationOnce((params) =>
+                streamAiSdk(params, { ...config(model), keySource: "user" }),
+            );
+            runLLMStream.mockImplementationOnce(realChat.runLLMStream);
+            vi.mocked(mockedChat.buildMessages).mockImplementationOnce(
+                realChat.buildMessages,
+            );
+            dbControl.failUsageInsert = failUsageInsert;
+            await seedResolvableModel();
+
+            const res = await request(app)
+                .post("/chat")
+                .set("Authorization", "Bearer test")
+                .send({ ...VALID_BODY, model: "gpt-6.1-sol" });
+            await settleUsageWrites();
+
+            // A lost ledger row never costs the user the answer.
+            expect(res.text).not.toContain('"type":"error"');
+            expect(res.text.match(/data: \[DONE\]/g)).toHaveLength(1);
+            expect(findAssistantUpdate()?.value).toMatchObject({
+                content: expect.arrayContaining([
+                    { type: "content", text: "Here is the answer." },
+                ]),
+            });
+            const ledger = dbInserts.filter(({ table }) => table === "usage_events");
+            expect(ledger).toHaveLength(1);
+            expect(ledger[0].value).toMatchObject({
+                surface: "chat",
+                key_source: "user",
+                project_id: null,
+                model: "mock-model",
+            });
+        },
+    );
 
     it("streams SSE with a chat_id event on the happy path", async () => {
         const chatLib = await import("../../modules/chat/engine/index.js");

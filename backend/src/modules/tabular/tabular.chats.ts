@@ -15,6 +15,11 @@ import {
 } from "../chat/chat.service";
 import { MESSAGE_TIME_PROMPT, resolveRequestTimeZone } from "../../lib/userTime";
 import { type ReasoningLevel, type UserApiKeys } from "../../lib/llm";
+import {
+    runWithUsageContext,
+    withUsageSurface,
+    type UsageContext,
+} from "../../lib/llm/usageContext";
 import { randomUUID } from "node:crypto";
 import {
     checkProjectAccess,
@@ -496,6 +501,8 @@ export type PreparedTabularChat = {
     apiKeys: UserApiKeys;
     /** The review's organization, whose keys and model lists apply. */
     orgId: string | null;
+    /** The review's project (matter), if it is in one. */
+    projectId: string | null;
     apiMessages: unknown[];
     /** The id of the user turn just persisted — the assistant row links back
      *  to it through `memory_input_message_id`. */
@@ -783,6 +790,7 @@ export async function prepareTabularChat(
             ),
             apiKeys: modelSettings.api_keys,
             orgId: review.org_id ?? null,
+            projectId: review.project_id ?? null,
             apiMessages,
             inputMessageId,
             readableMemoryProjectId,
@@ -856,14 +864,20 @@ export async function titleTabularChat(
         reviewTitle: string | null;
         projectName: string | null;
         apiKeys: UserApiKeys;
+        /** The chat's usage context; the title is recorded under it. */
+        usage?: UsageContext;
     },
 ): Promise<string | null> {
-    const title = await generateChatTitle(
-        args.titleModel,
-        args.userContent,
-        { reviewTitle: args.reviewTitle, projectName: args.projectName },
-        args.apiKeys,
-    );
+    const generate = () =>
+        generateChatTitle(
+            args.titleModel,
+            args.userContent,
+            { reviewTitle: args.reviewTitle, projectName: args.projectName },
+            args.apiKeys,
+        );
+    const title = await (args.usage
+        ? runWithUsageContext({ ...args.usage, surface: "title" }, generate)
+        : withUsageSurface("title", {}, generate));
     if (!title) return null;
     await db
         .from("tabular_review_chats")

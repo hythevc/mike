@@ -28,6 +28,7 @@ import {
 import { openAssistantSse } from "../../lib/assistantSse";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
+import type { UsageContext } from "../../lib/llm/usageContext";
 import { recordAudit } from "../../lib/audit";
 import { sendInternalError } from "../../lib/httpError";
 import { reportError, setOperation } from "../../lib/observability/sentry";
@@ -459,7 +460,7 @@ tabularRouter.post("/:reviewId/generate", requireAuth, asyncRoute(async (req, re
     });
     if (!prepared.ok)
         return void sendTabularFailure(res, preparedGenerateFailure(prepared));
-    const { columns, tabular_model, api_keys } = prepared.data;
+    const { columns, review, tabular_model, api_keys } = prepared.data;
 
     const expectedUpdatedAt = req.body?.expected_updated_at;
     if (
@@ -646,10 +647,20 @@ tabularRouter.post("/:reviewId/generate", requireAuth, asyncRoute(async (req, re
             apiKeys: api_keys,
             generationId,
             abortSignal: generationSignal,
+            usage: {
+                userId,
+                orgId: typeof review.org_id === "string" ? review.org_id : null,
+                projectId:
+                    typeof review.project_id === "string"
+                        ? review.project_id
+                        : null,
+            },
             onError: (error) => {
                 if (sentGenerationError) return;
+                // A rejected key, or a workspace out of allowance on the
+                // deployment's keys: the user's to fix, so the grid is told why.
                 const payload = assistantStreamErrorPayload(error);
-                if (payload.code !== "invalid_api_key") return;
+                if (!payload.code) return;
                 sentGenerationError = true;
                 write(
                     `data: ${JSON.stringify({ type: "error", ...payload })}\n\n`,
@@ -1016,6 +1027,7 @@ tabularRouter.post("/:reviewId/chat", requireAuth, asyncRoute(async (req, res) =
         memoryTurn,
         model: selectedChatModel,
         orgId,
+        projectId: reviewProjectId,
         readableMemoryProjectId,
         reasoningLevel: selectedReasoningLevel,
         reviewTitle,
@@ -1023,6 +1035,15 @@ tabularRouter.post("/:reviewId/chat", requireAuth, asyncRoute(async (req, res) =
         titleModel,
         writableMemoryProjectId,
     } = preparation.data;
+    // Who this turn's model calls are for (usage ledger, deployment-key cap).
+    const usage: UsageContext = {
+        userId,
+        orgId,
+        projectId: reviewProjectId,
+        surface: "tabular",
+        reviewId,
+        chatId,
+    };
     // The fence `prepareTabularChat` opened is released here unless this turn
     // hands it to the curator (`scheduleMemoryConsolidation`).
     let memoryTurnScheduled = false;
@@ -1115,6 +1136,7 @@ tabularRouter.post("/:reviewId/chat", requireAuth, asyncRoute(async (req, res) =
             orgId,
             signal: stream.signal,
             conversationId: chatId,
+            usage,
             includeMemory: true,
             memoryProjectId: readableMemoryProjectId,
             memorySharedAudience,
@@ -1152,6 +1174,7 @@ tabularRouter.post("/:reviewId/chat", requireAuth, asyncRoute(async (req, res) =
                 reviewTitle: clientReviewTitle ?? reviewTitle ?? null,
                 projectName: clientProjectName ?? null,
                 apiKeys: api_keys,
+                usage,
             });
             if (title) {
                 write(

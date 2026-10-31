@@ -42,6 +42,7 @@ import {
     type RunProgressUpdate,
 } from "../../lib/queue/runProgress";
 import { type UserApiKeys } from "../../lib/llm";
+import { type UsageScope } from "../../lib/llm/usageContext";
 import { AppError } from "../../lib/appError";
 import { reportError } from "../../lib/observability/sentry";
 import { extractRowColumns, finalizeCell } from "./tabular.extractRow";
@@ -602,6 +603,8 @@ export async function streamTabularGenerateSync(args: {
     abortSignal: AbortSignal;
     onError?: (error: unknown) => void;
     onActivity?: () => void;
+    /** Who the generation is for; each row's call is recorded under it. */
+    usage?: UsageScope;
 }): Promise<boolean> {
     const {
         write,
@@ -651,6 +654,7 @@ export async function streamTabularGenerateSync(args: {
             apiKeys,
             generationId,
             abortSignal,
+            usage: args.usage,
             sink: {
                 activity: args.onActivity,
                 generating: (rowId, columnIndex) =>

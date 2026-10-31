@@ -552,6 +552,33 @@ describe("POST /word-chat — local storage", () => {
     expect(scheduleMemoryConsolidation).not.toHaveBeenCalled();
   });
 
+  it("runs a Word turn under the person's Personal workspace usage context", async () => {
+    const res = await request(app)
+      .post("/word-chat")
+      .set(...AUTH)
+      .send({
+        messages: [{ role: "user", content: "Revise this clause" }],
+        document_id: DOCUMENT_ID,
+        document_name: "Contract.docx",
+        storage: "local",
+        model: "gemini-3-flash-preview",
+      });
+
+    expect(res.status).toBe(200);
+    const params = runLLMStream.mock.calls[0]?.[0] as {
+      usage?: Record<string, unknown>;
+    };
+    // A local chat is never stored, but its turn is still recorded under the
+    // id the pane's run is keyed on.
+    expect(params.usage).toEqual({
+      userId: "u1",
+      orgId: null,
+      projectId: null,
+      surface: "word",
+      chatId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
+  });
+
   it("schedules memory after a durable cloud turn", async () => {
     const chatLib = await import("../../modules/chat/engine/index.js");
     dbState.chatDetail = {

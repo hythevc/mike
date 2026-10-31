@@ -9,6 +9,7 @@ import {
 } from "../../lib/llm";
 import { AppError } from "../../lib/appError";
 import { reportError } from "../../lib/observability/sentry";
+import { deploymentQuotaError } from "../../lib/usage";
 import { formatPromptSuffix } from "./tabular.prompt";
 import { type CellResult, type Column } from "./tabular.shared";
 
@@ -45,6 +46,9 @@ The "summary" field must contain only the extracted value with inline citations 
             apiKeys,
         });
     } catch (err) {
+        // The workspace's allowance on the deployment's keys is used up:
+        // the caller tells the user, nothing failed.
+        if (deploymentQuotaError(err)) throw err;
         // Reported once, here, under the kind that names the failure; the
         // provider's own error is the cause, so its class and HTTP status
         // reach Sentry as provider_error / dependency_status. The caller

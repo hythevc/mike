@@ -13,6 +13,7 @@ import type {
     TokenUsage,
 } from "../../../../lib/llm";
 import { REASONING_LEVELS, type ReasoningLevel } from "../../../../lib/llm/types";
+import { withUsageSurface } from "../../../../lib/llm/usageContext";
 import { DELEGATION_MODEL_TIERS, subagentModelFor } from "../../../../lib/modelSelection";
 import { CITATIONS_OPEN_TAG } from "../citations";
 import { spotlight, withDocumentList } from "../contextBuilders";
@@ -623,7 +624,10 @@ export async function runDelegateCall(
     let outcome: SubagentResult;
     let status: DelegationEvent["status"];
     try {
-        outcome = await ctx.spawn({
+        // The subagent's model calls are its own ledger rows, under its
+        // delegation, within the answer's chat.
+        const subagent = { runId: identity.delegation_id };
+        outcome = await withUsageSurface("subagent", subagent, () => ctx.spawn({
             apiMessages: childMessages(
                 `${systemPrompt}\n\n${subagentSystemPrompt(preset.steps, !!earlier)}`,
                 task,
@@ -671,7 +675,7 @@ export async function runDelegateCall(
             askParent: (asked) => {
                 question = textInput(asked).slice(0, MAX_QUESTION_CHARS) || undefined;
             },
-        });
+        }));
         // A subagent cannot ask the user questions, so its only ask_inputs are approvals.
         const paused = question || outcome.events.some((e) => e.type === "ask_inputs");
         status = paused ? "needs_input" : "completed";

@@ -66,6 +66,9 @@ import {
   recordPlaybookRunDeletedAudit,
 } from "./playbooks.audit";
 import { UserFacingError } from "../../lib/userFacingError";
+import { runWithUsageContext } from "../../lib/llm/usageContext";
+import { deploymentQuotaError } from "../../lib/usage";
+import { playbookImportUsage, playbookReviewUsage } from "./playbooks.usage";
 import {
   importReportStage,
   removePlaybookObjects,
@@ -86,6 +89,8 @@ const DEFAULT_PLAYBOOK_COMPILATION_TIMEOUT_MS = 300_000;
 export function runFailureMessage(error: unknown): string {
   if (error instanceof PlaybookRequestError) return error.message;
   if (error instanceof PlaybookImportError) return error.message;
+  const quota = deploymentQuotaError(error);
+  if (quota) return quota.message;
   if (error instanceof Error && error.name === "TimeoutError")
     return "The review timed out before the model answered. Try again, or review a shorter document.";
   if (error instanceof z.ZodError)
@@ -1523,6 +1528,18 @@ export async function compilePlaybookImport(
   file: Buffer | (() => Promise<Buffer>),
   dependencies: PlaybookImportArgs["dependencies"] = {},
 ): Promise<Playbook> {
+  // The compile calls are recorded, and capped, as this attempt's playbook use.
+  return runWithUsageContext(playbookImportUsage(work), () =>
+    compileImportAttempt(db, work, file, dependencies),
+  );
+}
+
+async function compileImportAttempt(
+  db: Db,
+  work: PlaybookImportWork,
+  file: Buffer | (() => Promise<Buffer>),
+  dependencies: PlaybookImportArgs["dependencies"],
+): Promise<Playbook> {
   const { attemptId, userId, model } = work;
   const compilationTimeoutMs = playbookCompilationTimeoutMs();
   let stage: PlaybookImportStage = enterImportStage("validating_file");
@@ -1574,7 +1591,7 @@ export async function compilePlaybookImport(
 
     stage = enterImportStage("compiling");
     await updateImportAttempt(db, attemptId, { stage });
-    const runCompletion = dependencies.completeText ?? completeText;
+    const runCompletion = dependencies?.completeText ?? completeText;
     const raw = await withCompilationTimeout(
       runCompletion({
         model,
@@ -2419,7 +2436,12 @@ export async function runPlaybookReview(
     // Checked again rather than trusted from the request: access to the
     // playbook can be lost while a job waits, as compilePlaybookImport
     // checks its target.
-    await getPlaybook(work.userId, work.playbookId, db, work.userEmail);
+    const playbook = await getPlaybook(
+      work.userId,
+      work.playbookId,
+      db,
+      work.userEmail,
+    );
     const keys =
       apiKeys ??
       (await assertPlaybookModelAvailable(
@@ -2438,22 +2460,33 @@ export async function runPlaybookReview(
       sources,
       scope,
     );
-    const raw = sources.length
-      ? await completeReviewWithSources({
-          db,
-          playbookId: work.playbookId,
-          model: work.model,
-          apiKeys: keys,
-          prompt,
-          sources,
-        })
-      : await completeText({
-          model: work.model,
-          systemPrompt: REVIEW_SYSTEM_PROMPT,
-          user: prompt,
-          maxTokens: 20_000,
-          apiKeys: keys,
-        });
+    // The review's calls are recorded, and capped, as this run's playbook
+    // use, in the playbook's workspace.
+    const usage = await playbookReviewUsage(db, {
+      userId: work.userId,
+      orgId: playbook.orgId,
+      runId,
+      documentId: work.documentId,
+      versionId: work.expectedVersion?.id ?? null,
+    });
+    const raw = await runWithUsageContext(usage, () =>
+      sources.length
+        ? completeReviewWithSources({
+            db,
+            playbookId: work.playbookId,
+            model: work.model,
+            apiKeys: keys,
+            prompt,
+            sources,
+          })
+        : completeText({
+            model: work.model,
+            systemPrompt: REVIEW_SYSTEM_PROMPT,
+            user: prompt,
+            maxTokens: 20_000,
+            apiKeys: keys,
+          }),
+    );
     const parsed = reviewSchema.parse(parseModelJson(raw));
     const normalized = normalizeFindings(
       work.content,

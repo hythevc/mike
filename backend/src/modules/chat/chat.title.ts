@@ -1,5 +1,10 @@
 import { abortable } from "../../lib/abortable";
 import { completeText, type UserApiKeys } from "../../lib/llm";
+import {
+    runWithUsageContext,
+    withUsageSurface,
+    type UsageContext,
+} from "../../lib/llm/usageContext";
 import { providerFailureStatus } from "../../lib/llm/providerErrors";
 import { reportError } from "../../lib/observability/sentry";
 import { UserFacingError } from "../../lib/userFacingError";
@@ -95,6 +100,11 @@ export async function generateAssistantChatTitle(args: {
     message: string;
     apiKeys?: UserApiKeys;
     abortSignal?: AbortSignal;
+    /**
+     * The chat's usage context. The title is recorded under it, as a
+     * "title" call; without one it inherits the context it runs in.
+     */
+    usage?: UsageContext;
 }): Promise<string> {
     const controller = new AbortController();
     const abort = () => controller.abort(args.abortSignal?.reason);
@@ -111,14 +121,18 @@ export async function generateAssistantChatTitle(args: {
     timer.unref?.();
     try {
         controller.signal.throwIfAborted();
-        const titleText = await abortable(
+        const complete = () =>
             completeText({
                 model: args.model,
                 user: `Generate a concise title (3–6 words) for a chat in an AI Legal Platform that starts with this message. The title should describe the topic or document — do NOT include words like "Legal Assistant", "AI", "Chat", or any similar prefix. If there is not enough information to generate a title, return exactly "${TITLE_FALLBACK}". Return only the title, no quotes or punctuation.\n\nMessage: ${args.message.slice(0, 500)}`,
                 maxTokens: 64,
                 apiKeys: args.apiKeys,
                 abortSignal: controller.signal,
-            }),
+            });
+        const titleText = await abortable(
+            args.usage
+                ? runWithUsageContext({ ...args.usage, surface: "title" }, complete)
+                : withUsageSurface("title", {}, complete),
             controller.signal,
         );
         return normalizeGeneratedTitle(titleText);

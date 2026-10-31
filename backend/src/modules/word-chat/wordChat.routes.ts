@@ -861,6 +861,9 @@ wordChatRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
       apiKeys,
       signal: stream.signal,
       conversationId: persistChat ? chatId : null,
+      // Word chats run on the person's own keys, in their Personal
+      // workspace; a local-only chat is still recorded under its id.
+      usage: { userId, orgId: null, projectId: null, surface: "word", chatId },
         includeMemory: true,
         memoryProjectId: null,
       nonce,
