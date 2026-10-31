@@ -5,6 +5,11 @@
 # mocks. They are the harness you re-run on every Supabase image bump to prove
 # the auth↔API contract and the deny-all RLS firewall still hold.
 #
+# The *.postgres.test.ts suites run too. Those that accept SUPABASE_TEST_DB_URL
+# (requestDesk.postgres.test.ts) create, use and drop a database of their own
+# on the stack's server; the others still need MIKE_TEST_POSTGRES_CONTAINER and
+# skip without it.
+#
 # Usage:  supabase start   # in the repo, once
 #         npm run test:stack        (from backend/)
 set -euo pipefail
@@ -34,7 +39,7 @@ if [[ -z "$SUPABASE_TEST_URL" || -z "$SUPABASE_TEST_SERVICE_ROLE_KEY" || -z "$SU
     echo "Could not read API_URL/DB_URL/SERVICE_ROLE_KEY/ANON_KEY from 'supabase status'." >&2
     exit 1
 fi
-export SUPABASE_TEST_URL SUPABASE_TEST_SERVICE_ROLE_KEY SUPABASE_TEST_ANON_KEY
+export SUPABASE_TEST_URL SUPABASE_TEST_SERVICE_ROLE_KEY SUPABASE_TEST_ANON_KEY SUPABASE_TEST_DB_URL
 
 if ! command -v psql >/dev/null 2>&1; then
     echo "psql not found. Install PostgreSQL's client tools before running stack tests." >&2
@@ -57,4 +62,5 @@ fi
 
 echo "Running stack integration tests against $SUPABASE_TEST_URL"
 cd "$BACKEND_DIR"
-exec npx vitest run src/__tests__/integration/*.supabase.test.ts "$@"
+exec npx vitest run src/__tests__/integration/*.supabase.test.ts \
+    src/__tests__/integration/*.postgres.test.ts "$@"
