@@ -1,6 +1,6 @@
 {
-  "$schema": "./brand.schema.json",
   "$comment": "SPDX-License-Identifier: AGPL-3.0-only. The single source of the product's name, addresses, legal documents and marks. After editing, run `node scripts/brand/generate.mjs` (see README.md). Bracketed and example.com values are placeholders.",
+  "$schema": "./brand.schema.json",
   "productName": "Glossa",
   "legalEntityName": "[Company legal name]",
   "appUrl": "https://app.example.com",

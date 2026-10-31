@@ -78,11 +78,8 @@ function shown(value) {
 export function validateAgainstSchema(schema, value, root = schema, path = "") {
     const at = path || "brand config";
     const problems = [];
-    let formatSource = schema;
     if (schema.$ref) {
-        const target = resolveRef(root, schema.$ref);
-        problems.push(...validateAgainstSchema(target, value, root, path));
-        formatSource = target;
+        problems.push(...validateAgainstSchema(resolveRef(root, schema.$ref), value, root, path));
     }
     if (schema.enum && !schema.enum.includes(value)) {
         problems.push(
@@ -99,14 +96,19 @@ export function validateAgainstSchema(schema, value, root = schema, path = "") {
     if (typeof value === "string") {
         const length = [...value].length;
         if (schema.minLength !== undefined && length < schema.minLength) {
-            problems.push(`${at} must not be empty`);
+            problems.push(
+                schema.minLength === 1
+                    ? `${at} must not be empty`
+                    : `${at} must be at least ${schema.minLength} characters; it has ${length}`,
+            );
         }
         if (schema.maxLength !== undefined && length > schema.maxLength) {
             problems.push(`${at} must be at most ${schema.maxLength} characters; it has ${length}`);
         }
+        // The schema holding the pattern describes the format it expects.
         if (schema.pattern && !new RegExp(schema.pattern, "u").test(value)) {
             problems.push(
-                `${at} does not match the expected format${formatHint(schema.description && !schema.$ref ? schema.description : formatSource.description)}; found ${shown(value)}`,
+                `${at} does not match the expected format${formatHint(schema.description)}; found ${shown(value)}`,
             );
         }
     }

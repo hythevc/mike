@@ -4,7 +4,8 @@
 // Counts, per application, the places that still show the upstream
 // project's name or addresses, so the rename to the names in
 // packages/brand/brand.json can be finished file by file and cannot regress.
-// What is counted (PATTERNS):
+// Each application's whole src tree is swept, tests included: a test that
+// pins the old copy has to change with it. What is counted (PATTERNS):
 //
 //   name            the word "Mike" (case-sensitive: lowercase forms are
 //                   identifiers, see the allowlist)
@@ -17,8 +18,8 @@
 //
 // What is not counted (the allowlist):
 //
-//   - comments: // and /* */ in scripts and styles, <!-- --> in markup,
-//     -- in SQL, # in YAML and shell;
+//   - comments: // and /* */ in scripts, /* */ in styles, <!-- --> in markup,
+//     -- and /* */ in SQL, # in YAML and shell;
 //   - attribution text ("<project> by <author>" naming the upstream author)
 //     and the generated brand modules, which carry brand.upstreamAttribution;
 //   - persisted identifiers, which keep their names on purpose because
