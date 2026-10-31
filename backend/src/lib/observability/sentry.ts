@@ -412,9 +412,9 @@ function mapStringLeaves(
 /**
  * COMMUNITY INSTALLS: every install that has not set SENTRY_INSTALL=official
  * sends only what our own code owns and what is too broad to identify
- * anyone. Removed: the machine name, the user id, request
- * headers and host, every breadcrumb, device / app / locale contexts, local
- * variables, and any absolute filesystem path (in frames, messages, extras).
+ * anyone. Removed: the machine name, the user id, request headers and host,
+ * every breadcrumb, device / app / locale contexts, local variables, and any
+ * absolute filesystem path (in frames, messages, extras).
  * Kept: repo-relative code locations with their source lines, our own tags
  * and ids, the route pattern, OS / runtime / browser name and version,
  * environment and release.
