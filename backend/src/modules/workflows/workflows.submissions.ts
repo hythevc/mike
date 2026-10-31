@@ -4,6 +4,8 @@ import { OpenSourceSubmissionRow, OpenSourceSubmissionSummary, WorkflowRecord, W
 
 import { metadataFromWorkflowRecord, normalizeContributors, contributorFromName } from "./workflows.serialization";
 
+import { catalogCopyLineage } from "./workflows.catalogCopy";
+
 function toOpenSourceSubmissionSummary(
   row: OpenSourceSubmissionRow,
 ): OpenSourceSubmissionSummary {
@@ -50,6 +52,10 @@ function buildOpenSourceSnapshot(
     columns_config: workflow.columns_config ?? null,
     contributor_mode: contributorMode,
     created_at: workflow.created_at ?? null,
+    // A copy of a catalog workflow is someone else's work: its licence,
+    // credit and source (with the original contributors) travel with the
+    // submission, whoever submits it. Null for a workflow of the user's own.
+    catalog_lineage: catalogCopyLineage(workflow),
   };
 }
 

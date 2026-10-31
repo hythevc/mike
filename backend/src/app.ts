@@ -139,7 +139,7 @@ const exportLimiter = makeLimiter({
 const workflowImportLimiter = makeLimiter({
   windowMs: hours(envInt("RATE_LIMIT_UPLOAD_WINDOW_HOURS", 1)),
   max: envInt("RATE_LIMIT_UPLOAD_MAX", 50),
-  message: "Too many workflow imports. Please try again later.",
+  message: "Too many workflow imports or copies. Please try again later.",
 });
 
 const playbookImportLimiter = makeLimiter({
@@ -287,7 +287,13 @@ app.post(
 // the global one; body-parser skips a request whose body is already parsed,
 // so the smaller limit wins for this path.
 app.post(TOOL_RESULT_PATH, toolResultLimiter, express.json({ limit: "2mb" }));
-app.post("/workflow-addons/:addonId/import", workflowImportLimiter);
+// Importing an add-on and duplicating a built-in run the same copy: object
+// copies, a LibreOffice rendition of each Word or presentation asset, and
+// text extraction. One limiter instance means one budget for both.
+app.post(
+  ["/workflow-addons/:addonId/import", "/workflows/:workflowId/duplicate"],
+  workflowImportLimiter,
+);
 app.post(
   ["/playbooks/import", "/playbooks/import/upload-url"],
   playbookImportLimiter,

@@ -1578,8 +1578,18 @@ create table if not exists public.workflows (
     constraint workflows_visibility_check
       check (visibility in ('private', 'organization')),
   created_at timestamptz not null default now(),
+  -- An editable copy of a catalog workflow remembers which catalog workflow
+  -- and version it was made from, and keeps that workflow's licence, credit
+  -- and source read-only (20261031_52_workflow_provenance.sql).
+  catalog_workflow_key text,
+  catalog_version text,
+  license text,
+  attribution text,
+  provenance jsonb,
   constraint workflows_visibility_scope_check
-    check (visibility = 'private' or org_id is not null)
+    check (visibility = 'private' or org_id is not null),
+  constraint workflows_provenance_check
+    check (provenance is null or jsonb_typeof(provenance) = 'object')
 );
 
 create index if not exists idx_workflows_user
@@ -1863,6 +1873,15 @@ create table if not exists public.mike_workflows (
   document_upload boolean not null default false,
   word_quick_action boolean not null default false,
   word_quick_action_prompt text,
+  -- Licence, credit, source and notices, as the catalog sync read them
+  -- (20261031_52_workflow_provenance.sql).
+  license text,
+  license_evidence text,
+  author_confirmation text,
+  attribution text,
+  provenance jsonb,
+  notice_md text,
+  changes_md text,
   source_commit text,
   content_hash text not null,
   active boolean not null default true,
@@ -1877,7 +1896,14 @@ create table if not exists public.mike_workflows (
   constraint mike_workflows_source_commit_check
     check(source_commit is null or source_commit ~ '^[0-9a-f]{40}$'),
   constraint mike_workflows_content_hash_check
-    check(content_hash ~ '^[0-9a-f]{64}$')
+    check(content_hash ~ '^[0-9a-f]{64}$'),
+  constraint mike_workflows_license_evidence_check
+    check (
+      license_evidence is null
+      or license_evidence in ('file', 'manifest-only')
+    ),
+  constraint mike_workflows_provenance_check
+    check (provenance is null or jsonb_typeof(provenance) = 'object')
 );
 
 create unique index if not exists mike_workflows_active_key_idx
@@ -1991,6 +2017,8 @@ begin
       jurisdictions, pack_key, pack_title, pack_description, pack_version,
       default_sort_order, quick_action_name, quick_action_prompt,
       document_upload, word_quick_action, word_quick_action_prompt,
+      license, license_evidence, author_confirmation, attribution,
+      provenance, notice_md, changes_md,
       source_commit, content_hash, active, updated_at
     ) values (
       item->>'workflow_key',
@@ -2017,6 +2045,14 @@ begin
       coalesce((item->>'document_upload')::boolean, false),
       coalesce((item->>'word_quick_action')::boolean, false),
       nullif(item->>'word_quick_action_prompt', ''),
+      nullif(item->>'license', ''),
+      nullif(item->>'license_evidence', ''),
+      nullif(item->>'author_confirmation', ''),
+      nullif(item->>'attribution', ''),
+      case when jsonb_typeof(item->'provenance') = 'object'
+        then item->'provenance' else null end,
+      nullif(item->>'notice_md', ''),
+      nullif(item->>'changes_md', ''),
       p_source_commit,
       item->>'content_hash',
       true,
@@ -2044,6 +2080,13 @@ begin
       document_upload = excluded.document_upload,
       word_quick_action = excluded.word_quick_action,
       word_quick_action_prompt = excluded.word_quick_action_prompt,
+      license = excluded.license,
+      license_evidence = excluded.license_evidence,
+      author_confirmation = excluded.author_confirmation,
+      attribution = excluded.attribution,
+      provenance = excluded.provenance,
+      notice_md = excluded.notice_md,
+      changes_md = excluded.changes_md,
       source_commit = excluded.source_commit,
       active = true,
       updated_at = now()
@@ -12129,6 +12172,7 @@ insert into public.schema_migrations (filename) values
   ('20261024_04_org_member_data_policy.sql'),
   ('20261027_01_document_text_failed_jobs.sql'),
   ('20261029_01_chat_overview_candidates.sql'),
+  ('20261031_52_workflow_provenance.sql'),
   ('20261031_53_request_desk.sql'),
   ('20261031_55_rate_limits.sql'),
   ('20261031_56_usage_events.sql')

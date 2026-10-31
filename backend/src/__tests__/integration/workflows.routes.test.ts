@@ -1063,4 +1063,278 @@ describe("workflows.routes", () => {
       expect(res.body.code).toBe("document_workspace_mismatch");
     });
   });
+
+  // ── Catalog licences, provenance and editable copies ────────────────────
+  describe("catalog licences and copies", () => {
+    const provenance = {
+      catalog_repository: "example/workflow-catalog",
+      catalog_path: "assistant-workflows/proofread",
+      license_file: "LICENSE",
+      source_repository: null,
+      source_path: null,
+      source_commit: null,
+      source_name: null,
+      source_version: null,
+      review_by: null,
+    };
+    const builtIn = {
+      id: "c0a7a1e1-0000-4000-8000-000000000001",
+      workflow_key: "proofread",
+      distribution: "default",
+      version: "1.1.0",
+      title: "Proofread",
+      description: "Proofread a document.",
+      type: "assistant",
+      prompt_md: "# Proofread",
+      columns_config: null,
+      contributors: [{ name: "Sample Author", organisation: null, role: null, linkedin: null }],
+      language: "English",
+      practice: "General Transactions",
+      jurisdictions: ["General"],
+      pack_key: null,
+      pack_title: null,
+      pack_description: null,
+      pack_version: null,
+      license: "MIT",
+      license_evidence: "file",
+      author_confirmation: null,
+      attribution: "Proofread by Sample Author (MIT).",
+      provenance,
+      notice_md: "Notice text",
+      changes_md: "## 1.1.0 - 2026-10-31",
+      source_commit: "a".repeat(40),
+      content_hash: "b".repeat(64),
+      active: true,
+      created_at: "2026-10-31T00:00:00.000Z",
+      updated_at: "2026-10-31T00:00:00.000Z",
+    };
+    const copy = {
+      id: "w-copy",
+      user_id: "u1",
+      org_id: null,
+      visibility: "private",
+      title: "Proofread",
+      type: "assistant",
+      prompt_md: "# Proofread",
+      columns_config: null,
+      language: "English",
+      practice: "General Transactions",
+      jurisdictions: ["General"],
+      created_at: "2026-10-31T00:00:00.000Z",
+      catalog_workflow_key: "proofread",
+      catalog_version: "1.0.0",
+      license: "MIT",
+      attribution: "Proofread by Sample Author (MIT).",
+      provenance: { ...provenance, catalog_commit: "a".repeat(40) },
+    };
+
+    it("returns a built-in's licence, evidence, confirmation, credit, provenance, NOTICE and CHANGES from the detail API", async () => {
+      supabaseState.tables.mike_workflows = { data: builtIn, error: null };
+
+      const res = await request(app)
+        .get("/workflows/builtin-proofread")
+        .set(...AUTH);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        id: "builtin-proofread",
+        is_system: true,
+        license: "MIT",
+        license_evidence: "file",
+        author_confirmation: null,
+        attribution: "Proofread by Sample Author (MIT).",
+        provenance,
+        notice_md: "Notice text",
+        changes_md: "## 1.1.0 - 2026-10-31",
+        source_commit: "a".repeat(40),
+      });
+    });
+
+    it("reports update_available for a copy behind the catalog, and withdrawn once its key has gone", async () => {
+      supabaseState.tables.workflows = { data: copy, error: null };
+      supabaseState.tables.mike_workflows = {
+        data: [{ workflow_key: "proofread", version: "1.1.0" }],
+        error: null,
+      };
+
+      const behind = await request(app).get("/workflows/w-copy").set(...AUTH);
+
+      expect(behind.status).toBe(200);
+      expect(behind.body).toMatchObject({
+        catalog_workflow_key: "proofread",
+        catalog_version: "1.0.0",
+        catalog_status: "update_available",
+        catalog_latest_version: "1.1.0",
+        license: "MIT",
+        attribution: "Proofread by Sample Author (MIT).",
+      });
+
+      supabaseState.tables.mike_workflows = { data: [], error: null };
+      const withdrawn = await request(app).get("/workflows/w-copy").set(...AUTH);
+      expect(withdrawn.body).toMatchObject({
+        catalog_status: "withdrawn",
+        catalog_latest_version: null,
+        license: "MIT",
+      });
+    });
+
+    it("duplicates a built-in into an editable copy with the same licence, credit and provenance", async () => {
+      supabaseState.tables.mike_workflows = { data: builtIn, error: null };
+      supabaseState.tables.mike_workflow_assets = { data: [], error: null };
+      supabaseState.tables.workflows = {
+        data: { ...copy, catalog_version: "1.1.0" },
+        error: null,
+      };
+
+      const res = await request(app)
+        .post("/workflows/builtin-proofread/duplicate")
+        .set(...AUTH);
+
+      expect(res.status).toBe(201);
+      const insert = supabaseState.inserts.find((i) => i.table === "workflows");
+      expect(insert?.payload).toMatchObject({
+        user_id: "u1",
+        catalog_workflow_key: "proofread",
+        catalog_version: "1.1.0",
+        license: "MIT",
+        attribution: "Proofread by Sample Author (MIT).",
+        provenance: expect.objectContaining({
+          ...provenance,
+          catalog_commit: "a".repeat(40),
+        }),
+      });
+      expect(res.body).toMatchObject({
+        id: "w-copy",
+        is_owner: true,
+        allow_edit: true,
+        is_default: false,
+        license: "MIT",
+        catalog_status: "current",
+      });
+    });
+
+    it("answers 404 for a duplicate of anything but a built-in the catalog serves", async () => {
+      const own = await request(app)
+        .post("/workflows/w-copy/duplicate")
+        .set(...AUTH);
+      expect(own.status).toBe(404);
+      expect(own.body).toEqual({ detail: "Built-in workflow not found" });
+
+      supabaseState.tables.mike_workflows = { data: null, error: null };
+      const withdrawn = await request(app)
+        .post("/workflows/builtin-retired-workflow/duplicate")
+        .set(...AUTH);
+      expect(withdrawn.status).toBe(404);
+      expect(supabaseState.inserts).toEqual([]);
+    });
+
+    it("answers 404 for an add-on's key, which only the add-on import route copies", async () => {
+      const addon: Record<string, unknown> = {
+        ...builtIn,
+        workflow_key: "sample-review",
+        distribution: "addon",
+      };
+      const filters: Array<[string, unknown]> = [];
+      vi.mocked(createServerSupabase).mockImplementationOnce(() => {
+        const db = mockSupabase();
+        const from = db.from;
+        db.from = vi.fn((table: string) => {
+          const query = from(table);
+          if (table !== "mike_workflows") return query;
+          // Answers as the database would: the row only when every equality
+          // filter of the lookup holds for it.
+          const eq = query.eq as (column: string, value: unknown) => unknown;
+          query.eq = vi.fn((column: string, value: unknown) => {
+            filters.push([column, value]);
+            return eq(column, value);
+          });
+          query.maybeSingle = vi.fn(async () => ({
+            data: filters.every(([column, value]) => addon[column] === value)
+              ? addon
+              : null,
+            error: null,
+          }));
+          return query;
+        });
+        return db as unknown as Db;
+      });
+
+      const res = await request(app)
+        .post("/workflows/builtin-sample-review/duplicate")
+        .set(...AUTH);
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ detail: "Built-in workflow not found" });
+      expect(filters).toContainEqual(["workflow_key", "sample-review"]);
+      expect(filters).toContainEqual(["distribution", "default"]);
+      expect(supabaseState.inserts).toEqual([]);
+    });
+
+    it("keeps a copy's licence and credit through an edit of its body and marks it modified", async () => {
+      supabaseState.tables.workflows = {
+        data: {
+          ...copy,
+          catalog_version: "1.1.0",
+          prompt_md: "Our own instructions.",
+          provenance: {
+            ...copy.provenance,
+            // The body as copied.
+            content_sha256: "0".repeat(64),
+          },
+        },
+        error: null,
+      };
+      supabaseState.tables.mike_workflows = {
+        data: [{ workflow_key: "proofread", version: "1.1.0" }],
+        error: null,
+      };
+
+      const res = await request(app)
+        .patch("/workflows/w-copy")
+        .set(...AUTH)
+        .send({ skill_md: "Our own instructions.", license: "Unlicense" });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        license: "MIT",
+        attribution: "Proofread by Sample Author (MIT).",
+        catalog_workflow_key: "proofread",
+        catalog_status: "current",
+        catalog_modified: true,
+        modification_notice: "Modified by your organisation",
+      });
+    });
+
+    it("answers 200 for a saved edit when only the catalog status lookup fails", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      supabaseState.tables.workflows = {
+        data: { ...copy, prompt_md: "Our own instructions." },
+        error: null,
+      };
+      supabaseState.tables.mike_workflows = {
+        data: null,
+        error: { message: "catalog lookup failed" },
+      };
+
+      const res = await request(app)
+        .patch("/workflows/w-copy")
+        .set(...AUTH)
+        .send({ skill_md: "Our own instructions." });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        skill_md: "Our own instructions.",
+        license: "MIT",
+        attribution: "Proofread by Sample Author (MIT).",
+        catalog_workflow_key: "proofread",
+        catalog_status: null,
+        catalog_latest_version: null,
+      });
+      expect(warn).toHaveBeenCalledWith(
+        "[best-effort] workflow-catalog-status failed",
+        expect.anything(),
+      );
+      warn.mockRestore();
+    });
+  });
 });

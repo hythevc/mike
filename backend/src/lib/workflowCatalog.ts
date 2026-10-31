@@ -1,3 +1,10 @@
+import type {
+  WorkflowCatalogLicensing,
+  WorkflowLicense,
+  WorkflowLicenseEvidence,
+  WorkflowProvenance,
+} from "@mike/contracts";
+import { chunkArray } from "./arrays";
 import type { Db } from "./supabase";
 
 export type WorkflowCatalogContributor = {
@@ -33,6 +40,15 @@ export type WorkflowCatalogRow = {
   pack_title: string | null;
   pack_description: string | null;
   pack_version: string | null;
+  // Licence and provenance (20261031_52_workflow_provenance.sql). Null on
+  // rows synced before that migration; the sync writes only accepted values.
+  license?: WorkflowLicense | null;
+  license_evidence?: WorkflowLicenseEvidence | null;
+  author_confirmation?: string | null;
+  attribution?: string | null;
+  provenance?: WorkflowProvenance | null;
+  notice_md?: string | null;
+  changes_md?: string | null;
   source_commit: string | null;
   content_hash: string;
   active: boolean;
@@ -40,7 +56,10 @@ export type WorkflowCatalogRow = {
   updated_at: string;
 };
 
-export type LegacyCatalogWorkflow = {
+// The built-in detail (GET /workflows/builtin-<key>): the legacy system
+// workflow shape plus the catalog's licence, credit and notices as the wire
+// contract declares them.
+export type LegacyCatalogWorkflow = WorkflowCatalogLicensing & {
   id: string;
   user_id: null;
   is_system: true;
@@ -66,6 +85,25 @@ export type LegacyCatalogWorkflow = {
     version: string;
   } | null;
 };
+
+/**
+ * A catalog row's licence, credit, notices and source commit in the wire
+ * shape, each null on a row synced before the field existed.
+ */
+export function catalogLicensing(
+  workflow: WorkflowCatalogRow,
+): WorkflowCatalogLicensing {
+  return {
+    license: workflow.license ?? null,
+    license_evidence: workflow.license_evidence ?? null,
+    author_confirmation: workflow.author_confirmation ?? null,
+    attribution: workflow.attribution ?? null,
+    provenance: workflow.provenance ?? null,
+    notice_md: workflow.notice_md ?? null,
+    changes_md: workflow.changes_md ?? null,
+    source_commit: workflow.source_commit ?? null,
+  };
+}
 
 export function catalogWorkflowId(workflowKey: string): string {
   return `builtin-${workflowKey}`;
@@ -108,6 +146,7 @@ export function catalogWorkflowToLegacy(
           version: workflow.pack_version ?? "",
         }
       : null,
+    ...catalogLicensing(workflow),
   };
 }
 
@@ -144,6 +183,38 @@ export async function listActiveCatalogWorkflows(
   const { data, error } = await query.order("title", { ascending: true });
   if (error) throw error;
   return (data ?? []) as WorkflowCatalogRow[];
+}
+
+// Keys travel in the query string, as in the add-on asset lookup.
+const ACTIVE_VERSION_LOOKUP_BATCH_SIZE = 50;
+
+/**
+ * The version the active catalog serves for each of `workflowKeys`. A key
+ * missing from the result is no longer in the catalog (withdrawn).
+ */
+export async function findActiveCatalogVersions(
+  db: Db,
+  workflowKeys: string[],
+): Promise<Map<string, string | null>> {
+  const keys = [...new Set(workflowKeys)].filter((key) =>
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key),
+  );
+  const versions = new Map<string, string | null>();
+  for (const batch of chunkArray(keys, ACTIVE_VERSION_LOOKUP_BATCH_SIZE)) {
+    const { data, error } = await db
+      .from("mike_workflows")
+      .select("workflow_key, version")
+      .eq("active", true)
+      .in("workflow_key", batch);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<{
+      workflow_key: string;
+      version: string | null;
+    }>) {
+      versions.set(row.workflow_key, row.version ?? null);
+    }
+  }
+  return versions;
 }
 
 // Installation markers make the database function a no-op after a user's
