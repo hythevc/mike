@@ -582,3 +582,26 @@ export function TableEmptyState({
         </div>
     );
 }
+
+/**
+ * `TableEmptyState` for a table built with ARIA table roles (`role="table"`).
+ * Such a table may own only row groups and rows, so the message and its
+ * actions sit in one row and cell that fill the table body.
+ */
+export function TableEmptyRow({
+    children,
+    className,
+}: {
+    children: ReactNode;
+    className?: string;
+}) {
+    return (
+        <div role="rowgroup" className="flex flex-1 flex-col">
+            <div role="row" className="flex flex-1 flex-col">
+                <div role="cell" className="flex flex-1 flex-col">
+                    <TableEmptyState className={className}>{children}</TableEmptyState>
+                </div>
+            </div>
+        </div>
+    );
+}

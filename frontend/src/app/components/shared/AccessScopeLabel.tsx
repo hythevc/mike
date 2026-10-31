@@ -42,13 +42,18 @@ export function AccessScopeLabel({
           ? "Shared with individuals"
           : "Private";
 
+  const label = ACCESS_SCOPE_LABELS[scope];
+  // ARIA does not allow a name on a plain span, so the visible label is what
+  // a screen reader reads, followed by the hover detail when it adds one.
   return (
     <span
-      aria-label={description}
       className="inline-flex min-w-0 items-center text-xs text-gray-600"
       title={description}
     >
-      <span className="truncate">{ACCESS_SCOPE_LABELS[scope]}</span>
+      <span className="truncate">{label}</span>
+      {description !== label ? (
+        <span className="sr-only"> ({description})</span>
+      ) : null}
     </span>
   );
 }

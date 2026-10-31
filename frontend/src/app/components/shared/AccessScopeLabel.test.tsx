@@ -55,4 +55,23 @@ describe("AccessScopeLabel", () => {
     render(<AccessScopeLabel scope="shared" />);
     expect(screen.getByTitle("Shared with individuals")).toBeVisible();
   });
+
+  // ARIA prohibits aria-label on a span without a role, so the label is
+  // its text, and the hover detail is read after it.
+  it("puts no aria-label on the span and reads the detail after the label", () => {
+    const { container } = render(
+      <AccessScopeLabel scope="organization" organizationName="Elite Law LLP" />,
+    );
+    const label = screen.getByTitle("Shared with everyone in Elite Law LLP");
+
+    expect(container.querySelector("[aria-label]")).toBeNull();
+    expect(label).toHaveTextContent(
+      "Public (Shared with everyone in Elite Law LLP)",
+    );
+  });
+
+  it("does not repeat a detail that only restates the label", () => {
+    render(<AccessScopeLabel scope="private" />);
+    expect(screen.getByTitle("Private")).toHaveTextContent(/^Private$/);
+  });
 });

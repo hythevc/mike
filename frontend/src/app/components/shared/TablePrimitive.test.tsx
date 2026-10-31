@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import {
     SkeletonCheckbox,
+    TableEmptyRow,
     TableFilters,
     TableHeaderRow,
     TableStickyCell,
@@ -236,6 +237,32 @@ describe("table surface", () => {
         render(<TableStickyCell header>Header</TableStickyCell>);
 
         expect(screen.getByText("Header")).toHaveClass("table-sticky-cell");
+    });
+});
+
+describe("table empty row", () => {
+    // A `role="table"` may own only row groups and rows. An empty state with
+    // buttons placed straight inside it is axe's critical
+    // aria-required-children violation.
+    it("puts an ARIA table's empty state in a row and cell", () => {
+        render(
+            <div role="table" aria-label="Playbooks">
+                <TableEmptyRow>
+                    <p>No playbooks yet</p>
+                    <button type="button">Create</button>
+                </TableEmptyRow>
+            </div>,
+        );
+
+        const table = screen.getByRole("table", { name: "Playbooks" });
+        const group = table.firstElementChild as HTMLElement;
+        expect(group).toHaveAttribute("role", "rowgroup");
+        expect(group.firstElementChild).toHaveAttribute("role", "row");
+        const cell = screen.getByRole("cell");
+        expect(cell).toContainElement(screen.getByText("No playbooks yet"));
+        expect(cell).toContainElement(
+            screen.getByRole("button", { name: "Create" }),
+        );
     });
 });
 

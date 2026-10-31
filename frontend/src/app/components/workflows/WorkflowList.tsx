@@ -821,6 +821,7 @@ function WorkflowTable({
                 onChange={toggleAll}
                 className={TABLE_CHECKBOX_CLASS}
                 title="Select all deletable workflows"
+                aria-label="Select all deletable workflows"
               />
             )}
             <span className="mr-1">Name</span>
@@ -1350,6 +1351,7 @@ function AddonTable({
                 onChange={toggleAll}
                 className={TABLE_CHECKBOX_CLASS}
                 title="Select all add-ons"
+                aria-label="Select all add-ons"
               />
             )}
             Name

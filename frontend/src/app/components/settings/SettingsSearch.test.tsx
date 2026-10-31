@@ -25,6 +25,22 @@ describe("SettingsSearch", () => {
         expect(screen.queryByRole("group", { name: "Settings search results" })).toBeNull();
     });
 
+    // aria-expanded is not allowed on a searchbox, and axe reports it as a
+    // critical violation. The box points at its results with aria-controls.
+    it("points the searchbox at its results without aria-expanded", async () => {
+        const user = userEvent.setup();
+        render(<SettingsSearch entries={SETTINGS_SEARCH_ENTRIES} />);
+        const input = screen.getByRole("searchbox", { name: "Search settings" });
+        expect(input).not.toHaveAttribute("aria-expanded");
+        expect(input).not.toHaveAttribute("aria-controls");
+
+        await user.type(input, "memory");
+
+        const results = screen.getByRole("group", { name: "Settings search results" });
+        expect(input).toHaveAttribute("aria-controls", results.closest("[id]")?.id);
+        expect(input).not.toHaveAttribute("aria-expanded");
+    });
+
     it("lists name matches before related ones, each under its own heading", async () => {
         const user = userEvent.setup();
         render(<SettingsSearch entries={SETTINGS_SEARCH_ENTRIES} />);

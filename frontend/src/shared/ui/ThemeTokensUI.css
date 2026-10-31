@@ -209,9 +209,12 @@
     background-color: var(--liquid-glass-modal-row-selected-background);
 }
 
-/* Keyboard focus. In the base layer so a control's own Tailwind ring or
-   `outline-none` still wins; this is the fallback for controls that set
-   nothing, which would otherwise get the browser's grey outline. */
+/* Keyboard focus. Both entry stylesheets import this file into the
+   components layer, which makes this block `components.base`: above
+   Tailwind's preflight, below every other rule here and below the utilities
+   layer, so a control's own Tailwind ring or `outline-none` still wins. This
+   is the fallback for controls that set nothing, which would otherwise get
+   the browser's grey outline. */
 @layer base {
     :focus-visible {
         outline: 2px solid var(--focus-ring-color);

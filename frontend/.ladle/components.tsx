@@ -1,5 +1,9 @@
 import { useEffect } from "react";
 import { type GlobalProvider, ThemeState } from "@ladle/react";
+// The app's self-hosted faces, imported from script as the app's layout.tsx
+// does: imported from ladle.css instead, their relative font URLs would not
+// resolve in the catalog build.
+import "../src/app/fonts/fonts.css";
 import "./ladle.css";
 
 /**

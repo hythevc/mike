@@ -129,8 +129,10 @@ export function SettingsSearch({
                 placeholder="Search settings"
                 maxLength={200}
                 autoComplete="off"
+                // A searchbox may not carry aria-expanded (ARIA allows it on
+                // a combobox, which this is not: focus moves into the
+                // results). The status line below announces them instead.
                 aria-controls={showResults ? listId : undefined}
-                aria-expanded={showResults}
                 onKeyDown={(event) => {
                     if (event.key === "Escape" && query) {
                         event.preventDefault();
