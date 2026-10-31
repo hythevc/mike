@@ -3,13 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SsoLoginPage from "./page";
 
-const { startSso, replace } = vi.hoisted(() => ({
+const { startSso, replace, navigation } = vi.hoisted(() => ({
     startSso: vi.fn(),
     replace: vi.fn(),
+    navigation: { searchParams: new URLSearchParams() },
 }));
 
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ replace }),
+    useSearchParams: () => navigation.searchParams,
 }));
 
 vi.mock("@/app/lib/authApi", () => ({ startSso }));
@@ -24,6 +26,7 @@ vi.mock("@/app/components/site-logo", () => ({
 
 describe("SsoLoginPage", () => {
     beforeEach(() => {
+        navigation.searchParams = new URLSearchParams();
         startSso.mockReset();
         replace.mockReset();
         startSso.mockResolvedValue({ url: "https://idp.example/saml" });
@@ -48,6 +51,25 @@ describe("SsoLoginPage", () => {
         expect(
             screen.getByRole("button", { name: "Continuing…" }),
         ).toBeDisabled();
+    });
+
+    it("returns to the page carried from the login screen", async () => {
+        navigation.searchParams = new URLSearchParams({
+            next: "/projects/project-1",
+        });
+        const user = userEvent.setup();
+        render(<SsoLoginPage />);
+
+        await user.type(
+            screen.getByRole("textbox", { name: "Email" }),
+            "lawyer@example.com",
+        );
+        await user.click(screen.getByRole("button", { name: "Continue" }));
+
+        expect(startSso).toHaveBeenCalledWith(
+            "/projects/project-1",
+            "lawyer@example.com",
+        );
     });
 
     it("shows an intentional error and allows retry", async () => {

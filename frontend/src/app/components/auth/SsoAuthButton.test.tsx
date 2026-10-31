@@ -25,6 +25,17 @@ describe("SsoAuthButton", () => {
         expect(push).toHaveBeenCalledWith("/login/sso");
     });
 
+    it("carries the page the user asked for to the SSO screen", async () => {
+        render(<SsoAuthButton next="/projects/project-1?tab=chats" />);
+
+        await userEvent.click(
+            screen.getByRole("button", { name: "Continue with SSO" }),
+        );
+        expect(push).toHaveBeenCalledWith(
+            `/login/sso?next=${encodeURIComponent("/projects/project-1?tab=chats")}`,
+        );
+    });
+
     it("respects the parent loading state", () => {
         render(<SsoAuthButton disabled />);
         expect(

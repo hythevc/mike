@@ -4,6 +4,7 @@ import { useState } from "react";
 import { GoogleIconUI } from "@/shared/ui/GoogleIconUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { startGoogleOAuth } from "@/app/lib/authApi";
+import { ONBOARDING_START_PATH } from "@/app/lib/authRedirects";
 import {
     describeError,
     type UserFacingError,
@@ -22,12 +23,15 @@ interface GoogleAuthButtonProps {
     onError: (error: UserFacingError | null) => void;
     disabled?: boolean;
     onLoadingChange?: (loading: boolean) => void;
+    /** Where the OAuth callback lands once signed in. */
+    next?: string;
 }
 
 export function GoogleAuthButton({
     onError,
     disabled = false,
     onLoadingChange,
+    next = ONBOARDING_START_PATH,
 }: GoogleAuthButtonProps) {
     const [loading, setLoading] = useState(false);
 
@@ -37,7 +41,7 @@ export function GoogleAuthButton({
         onError(null);
 
         try {
-            const { url } = await startGoogleOAuth("/onboarding/profile");
+            const { url } = await startGoogleOAuth(next);
             window.location.assign(url);
         } catch (error: unknown) {
             // A provider error message ("invalid_client", a stack line) is

@@ -13,6 +13,7 @@ import { preloadSidebarIcons } from "@/app/components/shared/AppSidebarSkeuoIcon
 import { FullScreenLoader } from "@/app/components/shared/FullScreenLoader";
 import { HeaderButtonUI, HeaderButtonsUI } from "@/shared/ui/HeaderButtonsUI";
 import { cn } from "@/app/lib/utils";
+import { loginPathFor } from "@/app/lib/authRedirects";
 
 export default function MikeLayout({
     children,
@@ -111,9 +112,14 @@ export default function MikeLayout({
 
     useEffect(() => {
         if (!authLoading && !isAuthenticated) {
-            router.push("/login");
+            // The page asked for rides along as ?next, so signing in returns
+            // to it. Replace, not push: Back must not land on a page that
+            // only bounces to the login screen again.
+            router.replace(
+                loginPathFor(`${pathname}${window.location.search}`),
+            );
         }
-    }, [authLoading, isAuthenticated, router]);
+    }, [authLoading, isAuthenticated, pathname, router]);
 
     if (!hasMounted || authLoading) {
         return <FullScreenLoader />;

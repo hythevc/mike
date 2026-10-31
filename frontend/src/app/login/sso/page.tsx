@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { SiteLogo } from "@/app/components/site-logo";
 import {
@@ -14,6 +14,7 @@ import { InputUI } from "@/shared/ui/InputUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { startSso } from "@/app/lib/authApi";
+import { postLoginDestination } from "@/app/lib/authRedirects";
 import { reportFault,
     supportMailtoFor,
     type UserFacingError,
@@ -30,6 +31,8 @@ const SSO_ERROR_MESSAGES = authMessages({
 
 export default function SsoLoginPage() {
     const router = useRouter();
+    // Carried from /login?next=…, so single sign-on returns to that page too.
+    const destination = postLoginDestination(useSearchParams().get("next"));
     const { isAuthenticated, authLoading } = useAuth();
     const [email, setEmail] = useState("");
     const [loading, setLoading] = useState(false);
@@ -37,19 +40,16 @@ export default function SsoLoginPage() {
 
     useEffect(() => {
         if (!authLoading && isAuthenticated) {
-            router.replace("/onboarding/profile");
+            router.replace(destination);
         }
-    }, [authLoading, isAuthenticated, router]);
+    }, [authLoading, destination, isAuthenticated, router]);
 
     const startSsoFlow = async () => {
         setLoading(true);
         setError(null);
 
         try {
-            const { url } = await startSso(
-                "/onboarding/profile",
-                email.trim(),
-            );
+            const { url } = await startSso(destination, email.trim());
             window.location.assign(url);
         } catch (caught) {
             const described = reportFault(caught, {

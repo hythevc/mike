@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API_KEY_PROVIDERS } from "@/app/lib/apiKeyState";
+import { rememberPostOnboardingDestination } from "@/app/lib/authRedirects";
 import OnboardingModelsPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -54,6 +55,7 @@ describe("OnboardingModelsPage", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         window.localStorage.clear();
+        window.sessionStorage.clear();
         mocks.apiKeys = noKeys();
         mocks.completeOnboarding.mockResolvedValue(true);
         mocks.updateApiKey.mockResolvedValue(true);
@@ -77,6 +79,17 @@ describe("OnboardingModelsPage", () => {
         expect(mocks.completeOnboarding).toHaveBeenCalledExactlyOnceWith();
         expect(mocks.replace).toHaveBeenCalledWith("/assistant");
         expect(mocks.listOrgs).not.toHaveBeenCalled();
+    });
+
+    it("finishes on the page the user asked for before onboarding", async () => {
+        // What OnboardingGate stores when it sends a new user to onboarding.
+        rememberPostOnboardingDestination("user-1", "/projects/project-1");
+        const user = userEvent.setup();
+        render(<OnboardingModelsPage />);
+
+        await user.click(screen.getByRole("button", { name: "Finish" }));
+
+        expect(mocks.replace).toHaveBeenCalledWith("/projects/project-1");
     });
 
     it("saves a key through the same provider dialog as settings", async () => {

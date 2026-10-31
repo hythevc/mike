@@ -4,13 +4,31 @@
  *   2. Login: valid credentials redirect to /assistant
  *   3. Logout redirects to /login
  *   4. All protected routes redirect unauthenticated users to /login
+ *   5. A signed-out deep link returns to its page after login, and after
+ *      onboarding for a new account
  *
- * Tests 1, 2, and 4 run in a fresh browser context (no stored session).
+ * Tests 1, 2, 4 and 5 run in a fresh browser context (no stored session).
  * Test 3 logs in as the dedicated logout user that auth.setup.ts creates, so
  * the setup project must run first.
  */
-import { test, expect } from "./fixtures";
+import { randomUUID } from "node:crypto";
+import { test, expect, type Page } from "./fixtures";
 import { completeOnboardingIfRequired } from "./onboarding";
+import { ensureUser } from "./users";
+
+/** Sign in on the login page the deep link was sent to. */
+async function signIn(page: Page, email: string, password: string) {
+    await page.fill("#email", email);
+    await page.fill("#password", password);
+    await page.click('button[type="submit"]');
+}
+
+/** Visit `deepLink` signed out and check it rides along to the login page. */
+async function visitSignedOut(page: Page, deepLink: string) {
+    await page.goto(deepLink);
+    await expect(page).toHaveURL(/\/login\?next=/, { timeout: 10_000 });
+    expect(new URL(page.url()).searchParams.get("next")).toBe(deepLink);
+}
 
 /* ─── Unauthenticated tests ───────────────────────────────────────────────── */
 
@@ -102,9 +120,60 @@ test.describe("unauthenticated", () => {
         for (const route of protectedRoutes) {
             await page.goto(route);
             /* Auth check is client-side (Supabase getSession) — allow time for
-               the async check to resolve and for Next.js router.push to fire. */
+               the async check to resolve and for Next.js router.replace to
+               fire. The page asked for rides along as ?next. */
             await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
+            expect(new URL(page.url()).searchParams.get("next")).toBe(route);
         }
+    });
+
+    /* ── Test 5: deep links survive sign-in ─────────────────────────────── */
+
+    test("a signed-out deep link returns to the same page after login", async ({
+        page,
+        e2eAccount,
+        workerStorageState,
+    }) => {
+        /* As in test 2: the worker fixture creates and onboards this account
+           first, so it signs straight in. The project need not exist: the
+           page reports that in place and never redirects. */
+        void workerStorageState;
+        const deepLink = `/projects/${randomUUID()}`;
+
+        await visitSignedOut(page, deepLink);
+        await signIn(page, e2eAccount.email, e2eAccount.password);
+
+        await expect(page).toHaveURL(new RegExp(`${deepLink}$`), {
+            timeout: 15_000,
+        });
+    });
+
+    test("a new account's deep link survives sign-in and onboarding", async ({
+        page,
+    }) => {
+        test.setTimeout(90_000);
+        const email = `e2e-deep-link-${randomUUID()}@example.com`;
+        const password = "E2eDeepLink1!";
+        await ensureUser(email, password);
+        const deepLink = `/projects/${randomUUID()}`;
+
+        await visitSignedOut(page, deepLink);
+        await signIn(page, email, password);
+
+        /* A new account is sent through onboarding first... */
+        await page.waitForURL(/\/onboarding\/profile/, { timeout: 15_000 });
+        await page.getByRole("button", { name: "Continue" }).click();
+        await page.waitForURL(/\/onboarding\/practice/, { timeout: 15_000 });
+        await page.getByRole("button", { name: "Skip" }).click();
+        await page.waitForURL(/\/onboarding\/invitations/, { timeout: 15_000 });
+        await page.getByRole("button", { name: "Continue" }).click();
+        await page.waitForURL(/\/onboarding\/models/, { timeout: 15_000 });
+        await page.getByRole("button", { name: "Finish" }).click();
+
+        /* ...and the last step returns it to the page it asked for. */
+        await expect(page).toHaveURL(new RegExp(`${deepLink}$`), {
+            timeout: 15_000,
+        });
     });
 });
 
