@@ -96,6 +96,7 @@ vi.mock("../tabular.shared", async (importOriginal) => ({
 import {
     createTabularReview,
     deleteTabularReview,
+    getTabularQuoteChecks,
     getTabularReviewAccess,
     getTabularReviewDetail,
     getTabularReviewPeople,
@@ -495,6 +496,338 @@ describe("getTabularReviewDetail", () => {
             summary: "yes",
             flag: "green",
         });
+    });
+});
+
+describe("getTabularReviewDetail quote checks", () => {
+    const found = {
+        field: "summary",
+        quote: "pay rent",
+        document_id: "doc-a",
+        page: 1,
+        status: "found",
+        source_excerpt: "pay rent",
+    };
+    const notFound = { ...found, quote: "rent is waived", status: "not_found" };
+    delete (notFound as { source_excerpt?: string }).source_excerpt;
+    const readFrom = (versions: Record<string, [string, boolean]>) =>
+        Object.fromEntries(
+            Object.entries(versions).map(([id, [version, hasText]]) => [
+                id,
+                { version_id: version, content_sha256: null, has_text: hasText },
+            ]),
+        );
+
+    it("returns each cell's status and staleness, and counts the review", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Leases", source_document_ids: ["doc-a", "doc-b"] },
+            { id: "row-2", label: "Scan.pdf", source_document_ids: ["doc-c"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a", "doc-b", "doc-c"]);
+        // doc-c is a source that is no longer in the review's document list.
+        fetchSourceDocuments.mockResolvedValue([
+            { id: "doc-c", current_version_id: "c-v1", content_sha256: null },
+        ]);
+        const { db } = makeFakeDb({
+            tables: {
+                tabular_reviews: {
+                    data: { id: "rev-1", document_ids: ["doc-a", "doc-b"] },
+                    error: null,
+                },
+                documents: {
+                    data: [
+                        // A new version of doc-a was activated after c1 was answered.
+                        { id: "doc-a", current_version_id: "a-v2", content_sha256: null },
+                        { id: "doc-b", current_version_id: "b-v1", content_sha256: null },
+                    ],
+                    error: null,
+                },
+                tabular_cells: {
+                    data: [
+                        {
+                            id: "c1",
+                            row_id: "row-1",
+                            column_index: 0,
+                            status: "done",
+                            content: '{"summary":"Rent","flag":"green"}',
+                            quote_status: "found",
+                            quote_checks: [found],
+                            source_versions: readFrom({
+                                "doc-a": ["a-v1", true],
+                                "doc-b": ["b-v1", true],
+                            }),
+                        },
+                        {
+                            id: "c2",
+                            row_id: "row-1",
+                            column_index: 1,
+                            status: "done",
+                            content: '{"summary":"Waived","flag":"red"}',
+                            quote_status: "not_found",
+                            quote_checks: [notFound],
+                            source_versions: readFrom({
+                                "doc-a": ["a-v2", true],
+                                "doc-b": ["b-v1", true],
+                            }),
+                        },
+                        {
+                            id: "c3",
+                            row_id: "row-2",
+                            column_index: 0,
+                            status: "done",
+                            content: '{"summary":"","flag":"grey","reasoning":""}',
+                            quote_status: "no_text",
+                            quote_checks: [],
+                            source_versions: readFrom({ "doc-c": ["c-v1", false] }),
+                        },
+                        {
+                            id: "c4",
+                            row_id: "row-2",
+                            column_index: 1,
+                            status: "pending",
+                            content: null,
+                            quote_status: null,
+                            quote_checks: null,
+                            source_versions: null,
+                        },
+                    ],
+                    error: null,
+                },
+            },
+        });
+
+        const result = await getTabularReviewDetail(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        const byId = new Map(result.data.cells.map((cell) => [cell.id, cell]));
+        expect(byId.get("c1")).toMatchObject({
+            quote_status: "found",
+            quote_outcomes: [{ field: "summary", status: "found" }],
+            no_text_document_ids: [],
+            stale: true,
+            stale_document_ids: ["doc-a"],
+        });
+        expect(byId.get("c2")).toMatchObject({
+            quote_status: "not_found",
+            stale: false,
+            stale_document_ids: [],
+        });
+        expect(byId.get("c3")).toMatchObject({
+            content: { summary: "" },
+            quote_status: "no_text",
+            no_text_document_ids: ["doc-c"],
+            stale: false,
+        });
+        expect(byId.get("c4")).toMatchObject({
+            quote_status: null,
+            quote_outcomes: [],
+            stale: false,
+        });
+        // Source passages are read per cell from the quote-checks endpoint.
+        for (const cell of result.data.cells) {
+            expect(cell).not.toHaveProperty("source_versions");
+            expect(cell).not.toHaveProperty("quote_checks");
+        }
+        expect(fetchSourceDocuments).toHaveBeenCalledWith(db, ["doc-c"]);
+        expect(result.data.quote_summary).toEqual({
+            quotes: 2,
+            found: 1,
+            partly_found: 0,
+            not_found: 1,
+            cells_without_quote: 0,
+            cells_unchecked: 0,
+            cells_stale: 1,
+            rows_without_text: 1,
+        });
+    });
+});
+
+describe("getTabularQuoteChecks", () => {
+    const check = {
+        field: "summary",
+        quote: "pay rent",
+        document_id: "doc-a",
+        page: 1,
+        status: "found",
+        source_excerpt: "pay rent",
+        context_before: "The Tenant shall",
+        context_after: "of $10,000.00",
+    };
+    const doneCell = (row: string, column: number) => ({
+        row_id: row,
+        column_index: column,
+        status: "done",
+        quote_status: "found",
+        quote_checks: [check],
+        source_versions: {
+            "doc-a": { version_id: "a-v1", content_sha256: null, has_text: true },
+        },
+    });
+
+    it("returns each checked cell's quotes in full, for rows the caller may read", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Lease.pdf", source_document_ids: ["doc-a"] },
+            { id: "row-2", label: "Secret.pdf", source_document_ids: ["doc-x"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a"]);
+        const { db, calls } = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: { id: "rev-1" }, error: null },
+                tabular_cells: {
+                    data: [
+                        doneCell("row-1", 0),
+                        doneCell("row-2", 0),
+                        // Unchecked and unfinished cells have nothing to show.
+                        { ...doneCell("row-1", 1), quote_status: null, quote_checks: null },
+                        { row_id: "row-1", column_index: 2, status: "pending" },
+                    ],
+                    error: null,
+                },
+            },
+        });
+
+        const result = await getTabularQuoteChecks(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result).toEqual({
+            ok: true,
+            data: {
+                cells: [
+                    {
+                        row_id: "row-1",
+                        column_index: 0,
+                        quote_status: "found",
+                        quote_checks: [check],
+                        no_text_document_ids: [],
+                    },
+                ],
+            },
+        });
+        expect(callTo(calls, "tabular_cells", 0)?.filters).toEqual({
+            review_id: "rev-1",
+        });
+    });
+
+    it("reads one cell when asked", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Lease.pdf", source_document_ids: ["doc-a"] },
+            { id: "row-2", label: "Other.pdf", source_document_ids: ["doc-b"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a", "doc-b"]);
+        const { db, calls } = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: { id: "rev-1" }, error: null },
+                tabular_cells: { data: [doneCell("row-1", 3)], error: null },
+            },
+        });
+
+        const result = await getTabularQuoteChecks(db, {
+            reviewId: "rev-1",
+            ...WHO,
+            rowId: "row-1",
+            columnIndex: 3,
+        });
+
+        expect(result.ok && result.data.cells).toHaveLength(1);
+        expect(callTo(calls, "tabular_cells", 0)?.filters).toEqual({
+            review_id: "rev-1",
+            row_id: "row-1",
+            column_index: 3,
+        });
+        // Only the asked row's sources are checked for access.
+        expect(filterAccessibleDocumentIds).toHaveBeenCalledWith(
+            ["doc-a"],
+            WHO.userId,
+            WHO.userEmail,
+            db,
+        );
+    });
+
+    it("reads a review with more cells than one response holds, a page at a time", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Lease.pdf", source_document_ids: ["doc-a"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a"]);
+        const cells = Array.from({ length: 1001 }, (_, column) =>
+            doneCell("row-1", column),
+        );
+        const { db, calls } = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: { id: "rev-1" }, error: null },
+                tabular_cells: [
+                    { data: cells.slice(0, 1000), error: null },
+                    { data: cells.slice(1000), error: null },
+                ],
+            },
+        });
+
+        const result = await getTabularQuoteChecks(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result.ok && result.data.cells.map((cell) => cell.column_index)).toEqual(
+            cells.map((cell) => cell.column_index),
+        );
+        expect(calls.filter((call) => call.table === "tabular_cells")).toEqual([
+            expect.objectContaining({ range: [0, 999] }),
+            expect.objectContaining({ range: [1000, 1999] }),
+        ]);
+    });
+
+    it("fails rather than returning part of a review when a later page cannot be read", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Lease.pdf", source_document_ids: ["doc-a"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a"]);
+        const { db } = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: { id: "rev-1" }, error: null },
+                tabular_cells: [
+                    {
+                        data: Array.from({ length: 1000 }, (_, column) =>
+                            doneCell("row-1", column),
+                        ),
+                        error: null,
+                    },
+                    { data: null, error: { message: "statement timeout" } },
+                ],
+            },
+        });
+
+        const result = await getTabularQuoteChecks(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result).toMatchObject({ ok: false });
+    });
+
+    it("returns nothing for a row the caller may not read, without reading cells", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-2", label: "Secret.pdf", source_document_ids: ["doc-x"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue([]);
+        const { db, calls } = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: { id: "rev-1" }, error: null },
+                tabular_cells: { data: [doneCell("row-2", 0)], error: null },
+            },
+        });
+
+        const result = await getTabularQuoteChecks(db, {
+            reviewId: "rev-1",
+            ...WHO,
+            rowId: "row-2",
+        });
+
+        expect(result).toEqual({ ok: true, data: { cells: [] } });
+        expect(callTo(calls, "tabular_cells", 0)).toBeUndefined();
+    });
+
+    it("answers not found for a review the caller cannot open", async () => {
+        ensureReviewAccess.mockResolvedValue({ ok: false });
+        const { db } = makeFakeDb({
+            tables: { tabular_reviews: { data: { id: "rev-1" }, error: null } },
+        });
+
+        const result = await getTabularQuoteChecks(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result).toMatchObject({ ok: false, kind: "not_found" });
     });
 });
 

@@ -522,6 +522,37 @@ describe("prepareTabularChat", () => {
         );
     });
 
+    it("tells the model a row without readable text was not answered", async () => {
+        const fake = makeFakeDb({
+            tables: {
+                tabular_reviews: { data: REVIEW, error: null },
+                tabular_cells: {
+                    data: [
+                        {
+                            column_index: 0,
+                            row_id: "row-1",
+                            status: "done",
+                            content: '{"summary":"","flag":"grey","reasoning":""}',
+                            quote_status: "no_text",
+                        },
+                    ],
+                    error: null,
+                },
+                tabular_review_chats: {
+                    data: { id: "chat-new", title: null },
+                    error: null,
+                },
+            },
+        });
+        const result = await prepareTabularChat(fake.db, base);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        // An empty summary would read as "(not yet generated)" to the model.
+        expect(result.data.tabularStore.cells.get("0:row-1")?.summary).toMatch(
+            /^Not answered: a source document for this row has no extractable text/,
+        );
+    });
+
     it("keeps rows built from documents the caller cannot read out of the model's context", async () => {
         // Review access is not document access: the model answers the
         // caller, so it must not see filenames or extracted text from

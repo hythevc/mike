@@ -32,7 +32,18 @@ vi.mock("../../../lib/llm", () => ({
   },
 }));
 vi.mock("../tabular.rows", () => ({
-  loadRowDocumentText: async () => "healthy document text",
+  loadRowDocumentText: async () => ({
+    text: "healthy document text",
+    sources: [
+      {
+        documentId: "doc",
+        versionId: null,
+        contentSha256: null,
+        filename: "doc.pdf",
+        markdown: "healthy document text",
+      },
+    ],
+  }),
 }));
 import { streamTabularGenerateSync } from "../tabular.generateStream";
 import {

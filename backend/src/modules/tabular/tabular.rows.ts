@@ -35,6 +35,40 @@ export type SourceDocument = {
     project_id?: string | null;
     folder_id?: string | null;
     library_folder_id?: string | null;
+    /** Active version's stored file, attached by `attachActiveVersionPaths`. */
+    storage_path?: string | null;
+    /** Active version's content hash; changes when its bytes are rewritten. */
+    content_sha256?: string | null;
+};
+
+/** One source document's text, as a row's extraction read it. */
+export type RowSource = {
+    documentId: string;
+    /** The version whose text was read; null when the document had none. */
+    versionId: string | null;
+    contentSha256: string | null;
+    filename: string;
+    /**
+     * Extracted markdown. Empty when the file yielded no text: a scanned,
+     * encrypted or damaged file, or a document with no readable version.
+     */
+    markdown: string;
+    /**
+     * Extraction failed (a conversion error, or the stored file could not be
+     * read), so whether the file has text is unknown. Such a row is not
+     * answered, and its cells end in error for the next run to retry.
+     */
+    extractionFailed?: true;
+};
+
+/**
+ * A row's source text: `text` is what the model reads (each source's section
+ * headed by its filename and id), `sources` the same text per document, which
+ * the quote checks match each citation against.
+ */
+export type RowDocumentText = {
+    text: string;
+    sources: RowSource[];
 };
 
 export async function fetchSourceDocuments(
@@ -165,16 +199,36 @@ export async function loadRowDocumentText(
     row: ReviewRow,
     /** Told the row's page count once its documents are loaded (usage ledger). */
     onPageCount?: (pages: number | null) => void,
-): Promise<string> {
-    const sourceIds =
-        row.source_document_ids ?? (row.document_id ? [row.document_id] : []);
+): Promise<RowDocumentText> {
+    const sourceIds = [
+        ...new Set(
+            row.source_document_ids ??
+                (row.document_id ? [row.document_id] : []),
+        ),
+    ];
     const docs = await fetchSourceDocuments(db, sourceIds);
     onPageCount?.(knownPageCount(docs));
+    const docsById = new Map(docs.map((doc) => [doc.id, doc]));
     const sections: string[] = [];
-    for (const doc of docs) {
-        const storagePath = (doc as SourceDocument & { storage_path?: string })
-            .storage_path;
+    const sources: RowSource[] = [];
+    for (const documentId of sourceIds) {
+        const doc = docsById.get(documentId);
+        if (!doc) {
+            // Deleted between listing the row and reading it: there is no
+            // text to read, which the quote checks must not mistake for an
+            // answer drawn from every source.
+            sources.push({
+                documentId,
+                versionId: null,
+                contentSha256: null,
+                filename: "Untitled document",
+                markdown: "",
+            });
+            continue;
+        }
+        const storagePath = doc.storage_path;
         let markdown = "";
+        let extractionFailed = false;
         if (storagePath) {
             try {
                 markdown = await extractDocumentMarkdown(
@@ -184,10 +238,13 @@ export async function loadRowDocumentText(
             } catch (error) {
                 // Do not ask the model to fill cells from a source we refused.
                 if (error instanceof ExtractionBusyError || error instanceof ExtractionLimitError) throw error;
-                // The row goes on with an empty source section; the
-                // parser's or converter's error is the cause, so its
-                // class and code say what failed. Logging the reported
-                // object keeps the console bridge from filing it twice.
+                // The source is marked failed, which is not the same as
+                // empty: the caller fails the row rather than answering it
+                // or recording it as a file without text. The parser's or
+                // converter's error is the cause, so its class and code say
+                // what failed. Logging the reported object keeps the console
+                // bridge from filing it twice.
+                extractionFailed = true;
                 const failure = new AppError(
                     "extraction.failed",
                     "Tabular source document text extraction failed",
@@ -203,6 +260,14 @@ export async function loadRowDocumentText(
         sections.push(
             `## Source document: ${doc.filename}\nSource document ID: ${doc.id}\n\n${markdown}`,
         );
+        sources.push({
+            documentId: doc.id,
+            versionId: doc.current_version_id ?? null,
+            contentSha256: doc.content_sha256 ?? null,
+            filename: doc.filename,
+            markdown,
+            ...(extractionFailed ? { extractionFailed: true as const } : {}),
+        });
     }
-    return sections.join("\n\n---\n\n");
+    return { text: sections.join("\n\n---\n\n"), sources };
 }

@@ -769,6 +769,12 @@ export function TRView({ reviewId, projectId }: Props) {
             try {
                 const data = frame as Record<string, unknown>;
                 if (data.type === "cell_update") {
+                    // A finished cell's frame carries its quote-check status;
+                    // any other frame means the cell has no finished answer.
+                    const quoteStatus =
+                        data.status === "done"
+                            ? ((data.quote_status as TabularCell["quote_status"]) ?? null)
+                            : null;
                     setCells((prev) =>
                         prev.map((c) =>
                             c.row_id === data.row_id &&
@@ -777,6 +783,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                       ...c,
                                       content: data.content as TabularCell["content"],
                                       status: data.status as TabularCell["status"],
+                                      quote_status: quoteStatus,
                                   }
                                 : c,
                         ),

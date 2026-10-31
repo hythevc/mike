@@ -3337,7 +3337,23 @@ create table if not exists public.tabular_cells (
   citations jsonb,
   status text not null default 'pending',
   generation_id uuid,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- What the answer's quotes were checked against: the cell-level outcome,
+  -- one entry per quote, and the version of each source the answer was drawn
+  -- from (see backend/src/modules/tabular/tabular.verify.ts).
+  quote_status text,
+  quote_checks jsonb,
+  source_versions jsonb,
+  constraint tabular_cells_quote_status_check check (
+    quote_status is null
+    or quote_status in ('found', 'partly_found', 'not_found', 'no_quote', 'no_text')
+  ),
+  constraint tabular_cells_quote_checks_check check (
+    quote_checks is null or jsonb_typeof(quote_checks) = 'array'
+  ),
+  constraint tabular_cells_source_versions_check check (
+    source_versions is null or jsonb_typeof(source_versions) = 'object'
+  )
 );
 
 create or replace function public.begin_tabular_review_generation(
@@ -12172,6 +12188,7 @@ insert into public.schema_migrations (filename) values
   ('20261024_04_org_member_data_policy.sql'),
   ('20261027_01_document_text_failed_jobs.sql'),
   ('20261029_01_chat_overview_candidates.sql'),
+  ('20261031_51_tabular_quote_status.sql'),
   ('20261031_52_workflow_provenance.sql'),
   ('20261031_53_request_desk.sql'),
   ('20261031_55_rate_limits.sql'),

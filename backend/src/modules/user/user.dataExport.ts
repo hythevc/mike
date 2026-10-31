@@ -117,6 +117,19 @@ async function readableRows(
     return rows.filter((_, index) => allowed[index]);
 }
 
+/**
+ * Review cells as exported: without the record of which document versions an
+ * answer was drawn from (server bookkeeping the app never shows either) and
+ * without the source passages stored with each quote check, which can come
+ * from documents the person may no longer read. The answer and its quote
+ * status stay.
+ */
+function exportableTabularCells(cells: Record<string, unknown>[]) {
+    return cells.map(
+        ({ source_versions: _versions, quote_checks: _checks, ...cell }) => cell,
+    );
+}
+
 async function loadUserReviews(
     db: Db,
     userId: string,
@@ -524,7 +537,7 @@ export async function buildUserTabularReviewsExport(
         user: { id: userId, email: userEmail ?? null },
         workspace: workspaceLabel(orgId),
         tabular_reviews: tabularReviews,
-        tabular_cells: cells,
+        tabular_cells: exportableTabularCells(cells),
         tabular_review_chats: {
             chats,
             messages,
@@ -940,7 +953,7 @@ export async function buildUserAccountExport(
         ),
         chats: assistantChats,
         tabular_reviews: tabularReviews,
-        tabular_cells: tabularCells,
+        tabular_cells: exportableTabularCells(tabularCells),
         tabular_review_chats: tabularChats,
         ...playbooks,
         request_desk: requestDesk,

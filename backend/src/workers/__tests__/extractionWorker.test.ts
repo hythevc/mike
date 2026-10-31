@@ -146,7 +146,18 @@ beforeEach(() => {
     loadReviewRow.mockReset();
     loadReviewRow.mockResolvedValue(ROW);
     loadRowDocumentText.mockReset();
-    loadRowDocumentText.mockResolvedValue("extracted text");
+    loadRowDocumentText.mockResolvedValue({
+        text: "extracted text",
+        sources: [
+            {
+                documentId: "doc-1",
+                versionId: "ver-1",
+                contentSha256: null,
+                filename: "Contract.pdf",
+                markdown: "extracted text",
+            },
+        ],
+    });
     queryTabularAllColumns.mockReset();
     validateSelectedModel.mockReset();
     validateSelectedModel.mockResolvedValue({
@@ -197,6 +208,59 @@ describe("runExtractionJob", () => {
         const statuses = frames.map((f) => f.status);
         expect(statuses.filter((s) => s === "generating")).toHaveLength(2);
         expect(statuses.filter((s) => s === "done")).toHaveLength(2);
+    });
+
+    it("publishes each finished cell with its quote status, not its source passages", async () => {
+        const publish = vi.fn(
+            async (_reviewId: string, _update: unknown) => {},
+        );
+        const db = makeDb({
+            tabular_reviews: {
+                select: {
+                    data: { columns_config: COLUMNS, model: "claude-test" },
+                },
+            },
+            tabular_cells: { select: { data: [] } },
+        });
+        queryTabularAllColumns.mockImplementation(
+            async (_m, _f, _t, cols, onResult) => {
+                for (const c of cols)
+                    await onResult(
+                        c.index,
+                        CELL(c.index, {
+                            summary:
+                                c.index === 0
+                                    ? "[[document:doc-1||page:1||quote:extracted text]]"
+                                    : "[[document:doc-1||page:1||quote:invented words]]",
+                        }),
+                    );
+            },
+        );
+
+        await runExtractionJob(DATA, { db: db as never, publish });
+
+        const done = publish.mock.calls
+            .map((c) => c[1] as Record<string, unknown>)
+            .filter((frame) => frame.status === "done");
+        expect(done.map((frame) => frame.quote_status)).toEqual([
+            "found",
+            "not_found",
+        ]);
+        expect(done[0]).toMatchObject({
+            quote_outcomes: [{ field: "summary", status: "found" }],
+        });
+        expect(done[0]).not.toHaveProperty("quote_checks");
+        const doneUpdates = db.calls.filter(
+            (c) => c.op === "update" && c.payload?.status === "done",
+        );
+        expect(doneUpdates.map((c) => c.payload?.quote_status)).toEqual([
+            "found",
+            "not_found",
+        ]);
+        // The stored check keeps the passage the quote matched.
+        expect(doneUpdates[0].payload?.quote_checks).toEqual([
+            expect.objectContaining({ document_id: "doc-1", status: "found" }),
+        ]);
     });
 
     it("reuses existing cell records (update, not insert) when they already exist", async () => {

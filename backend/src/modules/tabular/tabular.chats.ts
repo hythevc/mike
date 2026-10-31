@@ -57,6 +57,7 @@ import {
     type TabularResult,
     REVIEW_EDIT_FORBIDDEN,
 } from "./tabular.shared";
+import { NO_TEXT_CELL_NOTE } from "./tabular.verify";
 
 // ---------------------------------------------------------------------------
 // Tabular citation parsing
@@ -643,7 +644,11 @@ export async function prepareTabularChat(
         cells: new Map(
             (cells ?? []).map((c: any) => [
                 `${c.column_index}:${c.row_id}`,
-                parseCellContent(c.content),
+                // A row whose source has no extractable text was never
+                // answered; say so instead of showing an empty cell.
+                c.quote_status === "no_text"
+                    ? { summary: NO_TEXT_CELL_NOTE, reasoning: "" }
+                    : parseCellContent(c.content),
             ]),
         ),
     };

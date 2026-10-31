@@ -7,11 +7,16 @@ import type {
     TabularReviewRow,
 } from "../shared/types";
 import { preprocessCitations } from "./citation-utils";
+import {
+    NO_READABLE_TEXT_LABEL,
+    isUnansweredForLackOfText,
+} from "./tabularQuoteLabels";
 
-function formatCellForExport(cell: TabularCell | undefined): string {
+export function formatCellForExport(cell: TabularCell | undefined): string {
     if (!cell) return "";
     if (cell.status === "pending" || cell.status === "generating") return "";
     if (cell.status === "error") return "Error";
+    if (isUnansweredForLackOfText(cell)) return NO_READABLE_TEXT_LABEL;
     const summary = cell.content?.summary;
     if (!summary) return "";
     const { processed } = preprocessCitations(summary);

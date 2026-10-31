@@ -73,9 +73,23 @@ function sinkSpy() {
     };
 }
 
+// The row's text as loadRowDocumentText returns it: combined, and per source.
+const ROW_TEXT = {
+    text: "## Source document: Contract.pdf\ntext",
+    sources: [
+        {
+            documentId: "doc-1",
+            versionId: "ver-1",
+            contentSha256: null,
+            filename: "Contract.pdf",
+            markdown: "text",
+        },
+    ],
+};
+
 beforeEach(() => {
     loadRowDocumentText.mockReset();
-    loadRowDocumentText.mockResolvedValue("## Source document: Contract.pdf\ntext");
+    loadRowDocumentText.mockResolvedValue(ROW_TEXT);
     queryTabularAllColumns.mockReset();
 });
 

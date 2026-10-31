@@ -220,13 +220,14 @@ export async function runExtractionJob(
                         content: null,
                         status: "generating",
                     }),
-                done: (id, columnIndex, result) =>
+                done: (id, columnIndex, result, quote) =>
                     publish(reviewId, {
                         type: "cell_update",
                         row_id: id,
                         column_index: columnIndex,
                         content: result,
                         status: "done",
+                        ...quote,
                     }),
             },
         });

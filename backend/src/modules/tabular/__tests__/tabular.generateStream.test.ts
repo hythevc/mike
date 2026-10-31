@@ -27,6 +27,8 @@ vi.mock("ioredis", () => ({
 import { AppError } from "../../../lib/appError";
 import {
     awaitCellTerminal,
+    cellUpdateRowId,
+    streamTabularRunView,
     targetPendingCells,
 } from "../tabular.generateStream";
 
@@ -39,6 +41,19 @@ const ROWS = [{ id: "row-1" }, { id: "row-2" }];
 function cellMapOf(entries: [string, Record<string, unknown>][]) {
     return new Map(entries);
 }
+
+describe("cellUpdateRowId", () => {
+    it("names the row of a cell frame and nothing else", () => {
+        expect(
+            cellUpdateRowId(
+                'id: 3\ndata: {"type":"cell_update","row_id":"row-1","column_index":0,"content":null,"status":"generating"}\n\n',
+            ),
+        ).toBe("row-1");
+        expect(cellUpdateRowId('id: 4\ndata: {"type":"error","message":"x"}\n\n')).toBeNull();
+        expect(cellUpdateRowId("id: 5\ndata: [DONE]\n\n")).toBeNull();
+        expect(cellUpdateRowId(": keepalive\n\n")).toBeNull();
+    });
+});
 
 describe("targetPendingCells", () => {
     it("treats every cell as pending when there are no cells yet", () => {
@@ -228,5 +243,146 @@ describe("awaitCellTerminal", () => {
 
         // Flag unset above — the DB poll alone resolved it.
         expect(process.env.ASYNC_TABULAR_EXTRACTION).toBeUndefined();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// The DB-poll backstop of a tailing view (no pub/sub here: the flag is off).
+// ---------------------------------------------------------------------------
+
+describe("the run view's database backstop", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    function makeResponse() {
+        const chunks: string[] = [];
+        const res = {
+            writableEnded: false,
+            setHeader: vi.fn(),
+            flushHeaders: vi.fn(),
+            on: vi.fn(),
+            write(chunk: string) {
+                chunks.push(chunk);
+                return true;
+            },
+            end() {
+                res.writableEnded = true;
+            },
+        };
+        const frames = () =>
+            chunks
+                .filter((chunk) => chunk.startsWith("data: {"))
+                .map((chunk) => JSON.parse(chunk.slice("data: ".length)));
+        return { res, chunks, frames };
+    }
+
+    function makeCellsDb(cells: Record<string, unknown>[]) {
+        const queries: { columns: string; filters: Record<string, unknown> }[] = [];
+        const from = (_table: string) => {
+            const query = { columns: "", filters: {} as Record<string, unknown> };
+            const builder = {
+                select(columns: string) {
+                    query.columns = columns;
+                    return builder;
+                },
+                eq(column: string, value: unknown) {
+                    query.filters[column] = value;
+                    return builder;
+                },
+                in(column: string, values: unknown[]) {
+                    query.filters[column] = values;
+                    queries.push(query);
+                    return Promise.resolve({ data: cells, error: null });
+                },
+            };
+            return builder;
+        };
+        return { db: { from } as never, queries };
+    }
+
+    it("resolves pending cells from the database, a done frame with its quote status only", async () => {
+        vi.useFakeTimers();
+        const { res, chunks, frames } = makeResponse();
+        const { db, queries } = makeCellsDb([
+            {
+                row_id: "row-1",
+                column_index: 0,
+                status: "done",
+                content: JSON.stringify({ summary: "Rent", flag: "green", reasoning: "" }),
+                quote_status: "partly_found",
+                quote_checks: [
+                    {
+                        field: "summary",
+                        quote: "pay rent",
+                        document_id: "doc-a",
+                        status: "found",
+                        source_excerpt: "pay rent",
+                        context_before: "The Tenant shall",
+                    },
+                    {
+                        field: "reasoning",
+                        quote: "rent is waived",
+                        document_id: "doc-a",
+                        status: "not_found",
+                    },
+                ],
+            },
+            {
+                row_id: "row-1",
+                column_index: 1,
+                status: "error",
+                content: null,
+                quote_status: null,
+                quote_checks: null,
+            },
+            // A cell this view is not waiting for is not forwarded.
+            { row_id: "row-1", column_index: 2, status: "done", content: "{}" },
+        ]);
+
+        const viewing = streamTabularRunView({
+            res: res as never,
+            db,
+            reviewId: "rev-1",
+            columns: [
+                { index: 0, name: "Rent", prompt: "rent" },
+                { index: 1, name: "Term", prompt: "term" },
+            ],
+            rows: [{ id: "row-1" } as never],
+            cellMap: new Map([["row-1:2", { status: "done", content: "{}" }]]),
+            log: console,
+        });
+        await viewing;
+        await vi.advanceTimersByTimeAsync(3_000);
+
+        // Only the rows with a pending cell are read, without source versions.
+        expect(queries).toHaveLength(1);
+        expect(queries[0].filters).toEqual({ review_id: "rev-1", row_id: ["row-1"] });
+        expect(queries[0].columns).toContain("quote_status");
+        expect(queries[0].columns).not.toContain("source_versions");
+
+        const [done, failed] = frames();
+        expect(done).toEqual({
+            type: "cell_update",
+            row_id: "row-1",
+            column_index: 0,
+            content: { summary: "Rent", flag: "green", reasoning: "" },
+            status: "done",
+            quote_status: "partly_found",
+            quote_outcomes: [
+                { field: "summary", status: "found" },
+                { field: "reasoning", status: "not_found" },
+            ],
+        });
+        expect(failed).toEqual({
+            type: "cell_update",
+            row_id: "row-1",
+            column_index: 1,
+            content: null,
+            status: "error",
+        });
+        expect(frames()).toHaveLength(2);
+        expect(chunks.at(-1)).toBe("data: [DONE]\n\n");
+        expect(res.writableEnded).toBe(true);
     });
 });

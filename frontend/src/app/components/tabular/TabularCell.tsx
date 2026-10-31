@@ -10,6 +10,11 @@ import { getPillClass } from "./pillUtils";
 import { SkeletonLine } from "../shared/TablePrimitive";
 import { TRExpandedCellSurface } from "./TRExpandedCellSurface";
 import { CitationPillUI } from "@/shared/ui/CitationPillUI";
+import {
+    NO_READABLE_TEXT_DESCRIPTION,
+    NO_READABLE_TEXT_LABEL,
+    isUnansweredForLackOfText,
+} from "./tabularQuoteLabels";
 
 interface Props {
     cell: TCell;
@@ -222,6 +227,17 @@ export function TabularCell({
         return (
             <div className="h-8 flex items-center justify-center text-gray-300">
                 <AlertCircle className="h-4 w-4 text-red-300" />
+            </div>
+        );
+    }
+
+    if (isUnansweredForLackOfText(cell)) {
+        return (
+            <div
+                className="h-8 flex items-center px-2 text-xs text-gray-500"
+                title={NO_READABLE_TEXT_DESCRIPTION}
+            >
+                {NO_READABLE_TEXT_LABEL}
             </div>
         );
     }

@@ -361,6 +361,9 @@ export function getActiveStreamRun<Meta = Record<string, unknown>>(
 /**
  * Stream a run into an Express response as SSE, from `from` onwards, and end
  * the response when the run finishes. Closing the response only detaches.
+ * `visible`, when given, decides which frames (replayed or live) this reader
+ * may see: a reader with narrower access than the run's starter skips the
+ * rest, and its sequence numbers simply have gaps.
  *
  * Returns the same `{ signal, write, finish }` shape `openAssistantSse` gives
  * the streaming routes, so a route that starts a run drives the generation
@@ -371,6 +374,7 @@ export function attachStreamRunSse(
     res: Response,
     run: StreamRun<unknown>,
     from = 1,
+    visible?: (chunk: string) => boolean,
 ): {
     signal: AbortSignal;
     write: (line: string, opts?: StreamRunWriteOptions) => boolean;
@@ -386,6 +390,7 @@ export function attachStreamRunSse(
     const detach = run.subscribe(from, {
         write: (chunk) => {
             if (ended || res.writableEnded) return;
+            if (visible && !visible(chunk)) return;
             res.write(chunk);
         },
         end: () => {

@@ -14,6 +14,13 @@
 // `missing` and lets each caller apply its own policy (the sync route resets
 // them to "pending" when the run was stopped and "error" otherwise).
 //
+// QUOTE CHECKS: each finished cell is checked against the same per-source text
+// the model read for the row (tabular.verify.ts) and the check is written with
+// the answer. A row with a source that yields no text is not sent to the model
+// at all: its cells finish with no answer and the status `no_text`. A row with
+// a source whose extraction failed is not sent either; its columns come back
+// `missing`, like any other failed row, so the next run retries them.
+//
 // GENERATION ISOLATION: every write here is stamped with the caller's
 // `generationId` and guarded by it (`.eq("generation_id", generationId)`) —
 // the mark-generating write as much as the terminal one, because marking also
@@ -24,6 +31,8 @@
 // used by both the sync and async entry points. See tabular.shared.ts for the
 // lease itself.
 
+import type { TabularCellQuoteStatus } from "@mike/contracts";
+import { AppError } from "../../lib/appError";
 import { ExtractionBusyError, ExtractionLimitError } from "../../lib/extraction/limits";
 import { type UserApiKeys } from "../../lib/llm";
 import {
@@ -34,8 +43,23 @@ import {
 } from "../../lib/llm/usageContext";
 import { deploymentQuotaError } from "../../lib/usage";
 import { queryTabularAllColumns } from "./tabular.extract";
-import { loadRowDocumentText, type ReviewRow } from "./tabular.rows";
+import {
+    loadRowDocumentText,
+    type ReviewRow,
+    type RowDocumentText,
+} from "./tabular.rows";
 import { type CellResult, type Column, type Db } from "./tabular.shared";
+import {
+    CLEARED_QUOTE_CHECK,
+    NO_TEXT_RESULT,
+    checkAnswerQuotes,
+    createCellQuoteChecker,
+    noTextQuoteCheck,
+    quoteStatusOfCheck,
+    rowExtractionFailed,
+    rowHasNoText,
+    type CellQuoteCheck,
+} from "./tabular.verify";
 
 /**
  * Where per-cell transitions are announced. Sync uses this to write SSE frames;
@@ -45,10 +69,15 @@ import { type CellResult, type Column, type Db } from "./tabular.shared";
 export interface CellSink {
     activity?: () => void;
     generating(rowId: string, columnIndex: number): void | Promise<void>;
+    /**
+     * `quote` is the cell's quote-check status and each quote's outcome, as
+     * `cell_update` frames carry them (no quote text or source passages).
+     */
     done(
         rowId: string,
         columnIndex: number,
         result: CellResult,
+        quote: TabularCellQuoteStatus,
     ): void | Promise<void>;
 }
 
@@ -84,6 +113,7 @@ export async function finalizeCell(
             status: args.status,
             content: null,
             generation_id: null,
+            ...CLEARED_QUOTE_CHECK,
         })
         .eq("review_id", args.reviewId)
         .eq("row_id", args.rowId)
@@ -157,10 +187,10 @@ export async function extractRowColumns(args: {
     // prefixed with its source document id so citations can name it). Loaded
     // before anything is marked "generating" so a run stopped during the (slow)
     // download leaves the grid exactly as it found it.
-    let markdown: string;
+    let rowText: RowDocumentText;
     let documentPages: number | null = null;
     try {
-        markdown = await loadRowDocumentText(db, row, (pages) => {
+        rowText = await loadRowDocumentText(db, row, (pages) => {
             documentPages = pages;
         });
     } catch (error) {
@@ -170,6 +200,19 @@ export async function extractRowColumns(args: {
         return { processed, received: new Set(), missing: processed.map((col) => col.index), error };
     }
     if (abortSignal?.aborted) return untouched();
+    // A source that could not be read is not a source without text: fail the
+    // row (already reported per document) so a later run tries again.
+    if (rowExtractionFailed(rowText)) {
+        return {
+            processed,
+            received: new Set(),
+            missing: processed.map((col) => col.index),
+            error: new AppError(
+                "extraction.failed",
+                "A source document of the row could not be read",
+            ),
+        };
+    }
 
     // Mark each outstanding column "generating" (insert the cell if it's new)
     // and announce it, so the grid shows spinners immediately.
@@ -194,6 +237,7 @@ export async function extractRowColumns(args: {
                     status: "generating",
                     content: null,
                     generation_id: generationId ?? null,
+                    ...CLEARED_QUOTE_CHECK,
                 })
                 .eq("id", existing.id);
             await (generationId
@@ -211,7 +255,46 @@ export async function extractRowColumns(args: {
         }
     }
 
+    // Persist + announce one finished cell, its quote check written with it
+    // (a failed check leaves the answer unchecked, its sources' versions
+    // still recorded).
+    const finishCell = async (
+        columnIndex: number,
+        result: CellResult,
+        check: CellQuoteCheck,
+    ) => {
+        const query = db
+            .from("tabular_cells")
+            .update({
+                content: JSON.stringify(result),
+                status: "done",
+                generation_id: null,
+                ...check,
+            })
+            .eq("review_id", reviewId)
+            .eq("row_id", row.id)
+            .eq("column_index", columnIndex);
+        await (generationId ? query.eq("generation_id", generationId) : query);
+        await sink.done(row.id, columnIndex, result, quoteStatusOfCheck(check));
+    };
+
+    // A source with no extractable text (a scanned, encrypted or damaged
+    // file): answering from the rest would record "Not Found" for anything
+    // the unreadable file holds, so no column is sent to the model.
+    if (rowHasNoText(rowText)) {
+        const check = noTextQuoteCheck(rowText);
+        for (const col of processed) {
+            await finishCell(col.index, NO_TEXT_RESULT, check);
+        }
+        return {
+            processed,
+            received: new Set(processed.map((col) => col.index)),
+            missing: [],
+        };
+    }
+
     // One LLM call for all outstanding columns; persist + announce each result.
+    const checkCell = createCellQuoteChecker(rowText);
     const received = new Set<number>();
     let error: unknown;
     const sourceIds =
@@ -226,24 +309,15 @@ export async function extractRowColumns(args: {
         queryTabularAllColumns(
             model,
             row.label,
-            markdown,
+            rowText.text,
             processed,
             async (columnIndex, result) => {
                 received.add(columnIndex);
-                const query = db
-                    .from("tabular_cells")
-                    .update({
-                        content: JSON.stringify(result),
-                        status: "done",
-                        generation_id: null,
-                    })
-                    .eq("review_id", reviewId)
-                    .eq("row_id", row.id)
-                    .eq("column_index", columnIndex);
-                await (generationId
-                    ? query.eq("generation_id", generationId)
-                    : query);
-                await sink.done(row.id, columnIndex, result);
+                await finishCell(
+                    columnIndex,
+                    result,
+                    checkAnswerQuotes(rowText, checkCell, result),
+                );
             },
             apiKeys,
             abortSignal,

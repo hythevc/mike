@@ -32,6 +32,8 @@
 
 import IORedis from "ioredis";
 import type { Response } from "express";
+import type { TabularCellQuoteStatus } from "@mike/contracts";
+import { chunkArray } from "../../lib/arrays";
 import { REDIS_URL } from "../../lib/queue/connection";
 import { redisEnabled } from "../../lib/dbq/driver";
 import { startSseHeartbeat } from "../../lib/sseHeartbeat";
@@ -55,6 +57,7 @@ import {
     type Db,
     type Log,
 } from "./tabular.shared";
+import { quoteStatusOf } from "./tabular.verify";
 
 /**
  * The progress channel could not be subscribed: the stream falls back to
@@ -74,11 +77,35 @@ function reportStreamFailure(cause: unknown): AppError {
 
 /** How often the DB-poll backstop reconciles cell state (ms). */
 const RECONCILE_INTERVAL_MS = 3_000;
+/** Rows read per backstop query, so the row filter stays a short URL. */
+const RECONCILE_ROW_BATCH = 100;
 /** Hard ceiling on a single stream so a vanished job can't hold it open forever. */
 const STREAM_MAX_MS = 15 * 60 * 1000;
 
 const cellKey = (rowId: string, columnIndex: number) =>
     `${rowId}:${columnIndex}`;
+const rowIdOfKey = (key: string) => key.slice(0, key.lastIndexOf(":"));
+
+/**
+ * The row a run's `cell_update` frame is about, or null for any other record
+ * (an error, the stop outcome, `[DONE]`). A buffered run frame reads
+ * "id: N\ndata: {...}\n\n".
+ */
+export function cellUpdateRowId(chunk: string): string | null {
+    const data = chunk.indexOf("data: ");
+    if (data < 0) return null;
+    try {
+        const frame = JSON.parse(chunk.slice(data + "data: ".length)) as {
+            type?: unknown;
+            row_id?: unknown;
+        } | null;
+        return frame?.type === "cell_update" && typeof frame.row_id === "string"
+            ? frame.row_id
+            : null;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Given the review's columns, its rows, and current cell state, compute the
@@ -292,37 +319,46 @@ async function tailTabularRun(args: {
 
     // Backstop: reconcile against the DB in case a pub/sub frame was missed (or,
     // for a reconnecting view, to replay progress that happened while away).
+    // Only the rows that still have a pending cell are read, a batch at a time.
     poll = setInterval(() => {
         if (finished) return;
         void (async () => {
-            const { data: cells } = await db
-                .from("tabular_cells")
-                .select("row_id, column_index, status, content")
-                .eq("review_id", reviewId);
-            for (const c of (cells ?? []) as {
-                row_id: string;
-                column_index: number;
-                status: string;
-                content: unknown;
-            }[]) {
-                const key = cellKey(c.row_id, c.column_index);
-                if (!pending.has(key)) continue;
-                if (c.status === "done" && c.content) {
-                    resolve(key, {
-                        type: "cell_update",
-                        row_id: c.row_id,
-                        column_index: c.column_index,
-                        content: parseCellContent(c.content),
-                        status: "done",
-                    });
-                } else if (c.status === "error") {
-                    resolve(key, {
-                        type: "cell_update",
-                        row_id: c.row_id,
-                        column_index: c.column_index,
-                        content: null,
-                        status: "error",
-                    });
+            const pendingRowIds = [...new Set([...pending].map(rowIdOfKey))];
+            for (const rowIds of chunkArray(pendingRowIds, RECONCILE_ROW_BATCH)) {
+                if (finished) return;
+                const { data: cells } = await db
+                    .from("tabular_cells")
+                    .select(
+                        "row_id, column_index, status, content, quote_status, quote_checks",
+                    )
+                    .eq("review_id", reviewId)
+                    .in("row_id", rowIds);
+                for (const c of (cells ?? []) as {
+                    row_id: string;
+                    column_index: number;
+                    status: string;
+                    content: unknown;
+                }[]) {
+                    const key = cellKey(c.row_id, c.column_index);
+                    if (!pending.has(key)) continue;
+                    if (c.status === "done" && c.content) {
+                        resolve(key, {
+                            type: "cell_update",
+                            row_id: c.row_id,
+                            column_index: c.column_index,
+                            content: parseCellContent(c.content),
+                            status: "done",
+                            ...quoteStatusOf(c),
+                        });
+                    } else if (c.status === "error") {
+                        resolve(key, {
+                            type: "cell_update",
+                            row_id: c.row_id,
+                            column_index: c.column_index,
+                            content: null,
+                            status: "error",
+                        });
+                    }
                 }
             }
         })().catch((err) =>
@@ -625,14 +661,17 @@ export async function streamTabularGenerateSync(args: {
     // Set once a row is refused for the deployment-key allowance: every row
     // after it would be refused the same way, so no further row is started.
     let refused = false;
+    // A finished cell's frame also carries its quote-check status and each
+    // quote's outcome; the others keep the bare shape.
     const cellFrame = (
         rowId: string,
         columnIndex: number,
         content: unknown,
         status: "generating" | "done" | "error" | "pending",
+        quote?: TabularCellQuoteStatus,
     ): void => {
         write(
-            `data: ${JSON.stringify({ type: "cell_update", row_id: rowId, column_index: columnIndex, content, status })}\n\n`,
+            `data: ${JSON.stringify({ type: "cell_update", row_id: rowId, column_index: columnIndex, content, status, ...quote })}\n\n`,
         );
     };
 
@@ -663,8 +702,8 @@ export async function streamTabularGenerateSync(args: {
                 activity: args.onActivity,
                 generating: (rowId, columnIndex) =>
                     cellFrame(rowId, columnIndex, null, "generating"),
-                done: (rowId, columnIndex, result) =>
-                    cellFrame(rowId, columnIndex, result, "done"),
+                done: (rowId, columnIndex, result, quote) =>
+                    cellFrame(rowId, columnIndex, result, "done", quote),
             },
         });
 

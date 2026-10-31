@@ -7,10 +7,15 @@ import {
     streamTabularGenerationResume,
 } from "@/app/lib/mikeApi";
 import type {
+    TabularCell,
     TabularReview,
     TabularReviewRow,
 } from "@/app/components/shared/types";
 import { TRView } from "./TabularReviewView";
+
+const { tableProps } = vi.hoisted(() => ({
+    tableProps: { cells: [] as unknown[] },
+}));
 
 const { apiKeyState } = vi.hoisted(() => ({
     apiKeyState: {
@@ -83,7 +88,12 @@ vi.mock("../assistant/ModelToggle", async (importOriginal) => ({
     ...(await importOriginal<typeof import("../assistant/ModelToggle")>()),
     ModelToggle: () => null,
 }));
-vi.mock("./TRTable", () => ({ TRTable: () => <div /> }));
+vi.mock("./TRTable", () => ({
+    TRTable: (props: { cells: unknown[] }) => {
+        tableProps.cells = props.cells;
+        return <div />;
+    },
+}));
 vi.mock("./TRSidePanel", () => ({ TRSidePanel: () => null }));
 vi.mock("./TRChatPanel", () => ({ TRChatPanel: () => null }));
 vi.mock("./AddColumnModal", () => ({ AddColumnModal: () => null }));
@@ -127,10 +137,11 @@ function review(over: Partial<TabularReview> = {}): TabularReview {
 function mockDetail(over: {
     review?: Partial<TabularReview>;
     active_generation?: { id: string; seq: number } | null;
+    cells?: TabularCell[];
 }) {
     vi.mocked(getTabularReview).mockResolvedValue({
         review: review(over.review),
-        cells: [],
+        cells: over.cells ?? [],
         rows: [ROW],
         documents: [],
         active_generation: over.active_generation ?? null,
@@ -332,6 +343,48 @@ describe("TabularReviewView server-owned generation", () => {
         );
         expect(screen.queryByTitle("Stop generation")).toBeNull();
         stream.done();
+    });
+
+    it("keeps a finished cell's quote status from its frame, and drops it on the next", async () => {
+        mockDetail({
+            cells: [
+                {
+                    id: "cell-1",
+                    review_id: "r1",
+                    row_id: "row-1",
+                    document_id: "doc-1",
+                    column_index: 0,
+                    content: null,
+                    status: "pending",
+                    created_at: "2026-01-01T00:00:00Z",
+                },
+            ],
+        });
+        const stream = openStream();
+        vi.mocked(streamTabularGeneration).mockResolvedValueOnce(stream.response);
+        render(<TRView reviewId="r1" />);
+        fireEvent.click(await screen.findByTitle("Run review"));
+        await screen.findByTitle("Stop generation");
+
+        stream.push(
+            'id: 1\ndata: {"type":"cell_update","row_id":"row-1","column_index":0,"content":{"summary":"","flag":"grey","reasoning":""},"status":"done","quote_status":"no_text","quote_outcomes":[]}\n\n',
+        );
+        await waitFor(() =>
+            expect(tableProps.cells).toEqual([
+                expect.objectContaining({ status: "done", quote_status: "no_text" }),
+            ]),
+        );
+
+        stream.push(
+            'id: 2\ndata: {"type":"cell_update","row_id":"row-1","column_index":0,"content":null,"status":"generating"}\n\n',
+        );
+        await waitFor(() =>
+            expect(tableProps.cells).toEqual([
+                expect.objectContaining({ status: "generating", quote_status: null }),
+            ]),
+        );
+        stream.done();
+        await screen.findByTitle("Run review");
     });
 
     it("reconnects from the last frame it saw, not from the start", async () => {

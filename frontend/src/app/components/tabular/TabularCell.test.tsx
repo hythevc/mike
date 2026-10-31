@@ -36,4 +36,34 @@ describe("TabularCell", () => {
             "doc-2",
         );
     });
+
+    it("says why a cell of a row without readable text has no answer", () => {
+        const cell = {
+            id: "cell-1",
+            status: "done",
+            quote_status: "no_text",
+            content: { summary: "", flag: "grey", reasoning: "" },
+        } as TabularCellData;
+
+        render(<TabularCell cell={cell} onExpand={vi.fn()} />);
+
+        expect(screen.getByText("No readable text")).toHaveAttribute(
+            "title",
+            expect.stringContaining("no extractable text"),
+        );
+    });
+
+    it("shows an answer over a stale no-text status", () => {
+        const cell = {
+            id: "cell-1",
+            status: "done",
+            quote_status: "no_text",
+            content: { summary: "Five years", flag: "green", reasoning: "" },
+        } as TabularCellData;
+
+        render(<TabularCell cell={cell} onExpand={vi.fn()} />);
+
+        expect(screen.getByText("Five years")).toBeInTheDocument();
+        expect(screen.queryByText("No readable text")).not.toBeInTheDocument();
+    });
 });

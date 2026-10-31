@@ -42,10 +42,20 @@ import {
     validateSelectedModel,
     TABULAR_GENERATION_HEARTBEAT_MS,
     TABULAR_GENERATION_LEASE_SECONDS,
+    type CellResult,
     type Db,
     type Log,
     type TabularResult,
 } from "./tabular.shared";
+import {
+    CLEARED_QUOTE_CHECK,
+    NO_TEXT_RESULT,
+    checkAnswerQuotes,
+    createCellQuoteChecker,
+    noTextQuoteCheck,
+    rowExtractionFailed,
+    rowHasNoText,
+} from "./tabular.verify";
 
 /** The 409/404/500 answers `begin_tabular_review_generation` can produce. */
 const RUNNING_CONFLICT = failure(
@@ -150,6 +160,7 @@ export async function clearTabularReviewCells(
                 content: null,
                 status: "pending",
                 generation_id: null,
+                ...CLEARED_QUOTE_CHECK,
             })
             .eq("review_id", reviewId)
             .in("row_id", rowIds);
@@ -341,6 +352,7 @@ export async function regenerateTabularCell(
                 status: "generating",
                 content: null,
                 generation_id: generationId,
+                ...CLEARED_QUOTE_CHECK,
             })
             .eq("review_id", reviewId)
             .eq("row_id", row.id)
@@ -427,32 +439,43 @@ export async function regenerateTabularCell(
             return { ok: true, data: { status: 200, body: terminal.content } };
         }
 
+        // A source with no extractable text: the cell is not sent to the
+        // model and finishes with no answer (see tabular.verify.ts). A source
+        // whose extraction failed (reported per document) fails the cell, so
+        // it can be retried.
         let documentPages: number | null = null;
-        const markdown = await loadRowDocumentText(db, row, (pages) => {
+        const rowText = await loadRowDocumentText(db, row, (pages) => {
             documentPages = pages;
         });
-        const result = await runWithUsageContext(
-            {
-                ...cellUsage,
-                runId: generationId,
-                documentId: sourceIds.length === 1 ? sourceIds[0] : null,
-                documentPages,
-            },
-            () =>
-                queryTabularCell(
-                    tabular_model,
-                    row.label,
-                    markdown,
-                    column.prompt,
-                    column.format,
-                    column.tags,
-                    api_keys,
-                ),
-        );
+        const extractionFailed = rowExtractionFailed(rowText);
+        const noText = !extractionFailed && rowHasNoText(rowText);
+        let result: CellResult | null = null;
+        if (noText) result = NO_TEXT_RESULT;
+        else if (!extractionFailed) {
+            result = await runWithUsageContext(
+                {
+                    ...cellUsage,
+                    runId: generationId,
+                    documentId: sourceIds.length === 1 ? sourceIds[0] : null,
+                    documentPages,
+                },
+                () =>
+                    queryTabularCell(
+                        tabular_model,
+                        row.label,
+                        rowText.text,
+                        column.prompt,
+                        column.format,
+                        column.tags,
+                        api_keys,
+                    ),
+            );
+        }
 
         if (!result) {
-            // queryTabularCell reported the provider failure itself; this is
-            // the same failure, so it only becomes the 500.
+            // queryTabularCell reported the provider failure itself (and
+            // loadRowDocumentText an extraction failure); this is the same
+            // failure, so it only becomes the 500.
             await db
                 .from("tabular_cells")
                 .update({ status: "error", generation_id: null })
@@ -463,12 +486,20 @@ export async function regenerateTabularCell(
             return GENERATION_FAILED;
         }
 
+        const check = noText
+            ? noTextQuoteCheck(rowText)
+            : checkAnswerQuotes(
+                  rowText,
+                  createCellQuoteChecker(rowText),
+                  result,
+              );
         const { error: completedError } = await db
             .from("tabular_cells")
             .update({
                 content: JSON.stringify(result),
                 status: "done",
                 generation_id: null,
+                ...check,
             })
             .eq("review_id", reviewId)
             .eq("row_id", row.id)

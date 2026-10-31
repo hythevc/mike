@@ -1,4 +1,7 @@
-import type { AssistantErrorCode } from "@mike/contracts";
+import type {
+    AssistantErrorCode,
+    TabularCellQuoteStatus,
+} from "@mike/contracts";
 import { getRedisProducerConnection, withRedisTimeout } from "./connection";
 import { redisEnabled } from "../dbq/driver";
 
@@ -17,8 +20,12 @@ export function runProgressChannel(reviewId: string): string {
     return `tabular-run:${reviewId}`;
 }
 
-/** One progress frame — the same shape the SSE `cell_update` event carries. */
-export interface CellUpdate {
+/**
+ * One progress frame — the same shape the SSE `cell_update` event carries. A
+ * "done" frame also carries the cell's quote-check status and each quote's
+ * outcome, never quote text or source passages.
+ */
+export interface CellUpdate extends Partial<TabularCellQuoteStatus> {
     type: "cell_update";
     row_id: string;
     column_index: number;

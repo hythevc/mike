@@ -1002,6 +1002,155 @@ describe("tabular.routes", () => {
         });
     });
 
+    describe("GET /tabular-review/:reviewId/quote-checks", () => {
+        const seedReview = () => {
+            supabaseState.tables.tabular_reviews = {
+                data: { id: "r1", user_id: "u1", project_id: null, document_ids: ["d1"] },
+                error: null,
+            };
+            supabaseState.tables.tabular_review_rows = {
+                data: [
+                    {
+                        id: "row-1",
+                        review_id: "r1",
+                        label: "Agreement.pdf",
+                        row_type: "document",
+                        folder_id: null,
+                        document_id: "d1",
+                        sort_index: 0,
+                    },
+                ],
+                error: null,
+            };
+            supabaseState.tables.tabular_cells = {
+                data: [
+                    {
+                        row_id: "row-1",
+                        column_index: 0,
+                        status: "done",
+                        quote_status: "found",
+                        quote_checks: [
+                            {
+                                field: "summary",
+                                quote: "pay rent",
+                                document_id: "d1",
+                                status: "found",
+                                source_excerpt: "pay rent",
+                                context_before: "The Tenant shall",
+                            },
+                        ],
+                        source_versions: {
+                            d1: { version_id: "v1", content_sha256: null, has_text: true },
+                        },
+                    },
+                ],
+                error: null,
+            };
+        };
+
+        it("returns each checked cell's quotes with the passages they matched", async () => {
+            seedReview();
+
+            const res = await request(app)
+                .get("/tabular-review/r1/quote-checks?row_id=row-1&column_index=0")
+                .set(...AUTH);
+
+            expect(res.status).toBe(200);
+            expect(res.body).toEqual({
+                cells: [
+                    {
+                        row_id: "row-1",
+                        column_index: 0,
+                        quote_status: "found",
+                        quote_checks: [
+                            expect.objectContaining({
+                                source_excerpt: "pay rent",
+                                context_before: "The Tenant shall",
+                            }),
+                        ],
+                        no_text_document_ids: [],
+                    },
+                ],
+            });
+        });
+
+        it("withholds the checks of rows built from documents the caller cannot read", async () => {
+            seedReview();
+            filterAccessibleDocumentIds.mockResolvedValue([]);
+
+            const res = await request(app)
+                .get("/tabular-review/r1/quote-checks")
+                .set(...AUTH);
+
+            expect(res.status).toBe(200);
+            expect(res.body).toEqual({ cells: [] });
+        });
+
+        it("serves no passage from a recorded source that is no longer a source of the row", async () => {
+            seedReview();
+            // The answer also quoted d2, deleted since: the row now has only d1.
+            const [cell] = (
+                supabaseState.tables.tabular_cells as QueryResult
+            ).data as Record<string, unknown>[];
+            cell.quote_checks = [
+                ...(cell.quote_checks as unknown[]),
+                {
+                    field: "reasoning",
+                    quote: "the side letter",
+                    document_id: "d2",
+                    status: "found",
+                    source_excerpt: "the side letter",
+                    context_before: "Words only d2 held",
+                    context_after: "and more of them",
+                },
+            ];
+            cell.source_versions = {
+                ...(cell.source_versions as Record<string, unknown>),
+                d2: { version_id: "v1", content_sha256: null, has_text: true },
+            };
+
+            const res = await request(app)
+                .get("/tabular-review/r1/quote-checks")
+                .set(...AUTH);
+
+            expect(res.status).toBe(200);
+            expect(res.body.cells[0].quote_checks).toEqual([
+                expect.objectContaining({ document_id: "d1", source_excerpt: "pay rent" }),
+                { field: "reasoning", quote: "the side letter", document_id: null, status: "found" },
+            ]);
+            expect(res.text).not.toContain("Words only d2 held");
+            expect(res.text).not.toContain("d2");
+        });
+
+        it.each(["-1", "1.5", "first", "1234567"])(
+            "rejects column_index=%s",
+            async (column) => {
+                seedReview();
+
+                const res = await request(app)
+                    .get(`/tabular-review/r1/quote-checks?column_index=${column}`)
+                    .set(...AUTH);
+
+                expect(res.status).toBe(400);
+                expect(res.body.detail).toBe(
+                    "column_index must be a non-negative integer",
+                );
+            },
+        );
+
+        it("returns 404 when review access is denied", async () => {
+            seedReview();
+            ensureReviewAccess.mockResolvedValue({ ok: false });
+
+            const res = await request(app)
+                .get("/tabular-review/r1/quote-checks")
+                .set(...AUTH);
+
+            expect(res.status).toBe(404);
+            expect(res.body.detail).toBe("Review not found");
+        });
+    });
+
     describe("tabular review access grants", () => {
         it("returns the role-aware grant list to an admin", async () => {
             supabaseState.tables.tabular_reviews = {
@@ -2365,6 +2514,27 @@ describe("tabular.routes", () => {
                 .get("/tabular-review/r1")
                 .set(...AUTH);
             expect(after.body.active_generation).toBeNull();
+        });
+
+        it("does not show a row's frames to a reader who cannot read its sources", async () => {
+            const held = heldExtraction();
+            const first = startGeneration();
+            const firstDone = first.then((res) => res);
+            await held.started;
+
+            // A second editor of the review without access to d1.
+            filterAccessibleDocumentIds.mockResolvedValue([]);
+            const tail = request(app)
+                .get("/tabular-review/r1/generate/stream?from=1")
+                .set(...AUTH);
+            setTimeout(() => held.release(), 30);
+            const watched = await tail;
+
+            expect(watched.status).toBe(200);
+            expect(watched.text).not.toContain('"type":"cell_update"');
+            expect(watched.text).toContain("data: [DONE]");
+            // The starter's own stream still carries them.
+            expect((await firstDone).text).toContain('"status":"done"');
         });
 
         it("replays only from the requested sequence number", async () => {

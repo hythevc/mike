@@ -62,6 +62,7 @@ import {
     prepareTabularRunView,
 } from "./tabular.generate";
 import {
+    cellUpdateRowId,
     claimCellsForGeneration,
     streamTabularGenerateAsync,
     streamTabularGenerateSync,
@@ -72,6 +73,7 @@ import {
     createTabularReview,
     deleteTabularReview,
     getTabularReviewAccess,
+    getTabularQuoteChecks,
     getTabularReviewDetail,
     getTabularReviewPeople,
     getTabularReviewHistoryStatuses,
@@ -307,6 +309,38 @@ tabularRouter.get("/:reviewId", requireAuth, asyncRoute(async (req, res) => {
         active_generation:
             run && !run.finished ? { id: run.id, seq: run.seq } : null,
     });
+}));
+
+// GET /tabular-review/:reviewId/quote-checks[?row_id=&column_index=]
+// The checked cells' quotes in full: the source passage each quote matched
+// and the text around it. The review response carries only each quote's
+// outcome; this is read when a cell's evidence is opened or exported.
+tabularRouter.get("/:reviewId/quote-checks", requireAuth, asyncRoute(async (req, res) => {
+    const { row_id: rowParam, column_index: columnParam } = req.query;
+    if (rowParam !== undefined && (typeof rowParam !== "string" || !rowParam)) {
+        return void res.status(400).json({ detail: "row_id must be a row id" });
+    }
+    let columnIndex: number | undefined;
+    if (columnParam !== undefined) {
+        columnIndex =
+            typeof columnParam === "string" && /^\d{1,6}$/.test(columnParam)
+                ? Number(columnParam)
+                : undefined;
+        if (columnIndex === undefined) {
+            return void res
+                .status(400)
+                .json({ detail: "column_index must be a non-negative integer" });
+        }
+    }
+    const result = await getTabularQuoteChecks(createServerSupabase(), {
+        reviewId: req.params.reviewId,
+        userId: res.locals.userId as string,
+        userEmail: res.locals.userEmail as string | undefined,
+        rowId: rowParam,
+        columnIndex,
+    });
+    if (!result.ok) return void sendTabularFailure(res, result);
+    res.json(result.data);
 }));
 
 // GET /tabular-review/:reviewId/people
@@ -796,7 +830,13 @@ tabularRouter.get(
         if (run) {
             const rawFrom = Number.parseInt(String(req.query.from ?? "1"), 10);
             const from = Number.isFinite(rawFrom) && rawFrom > 0 ? rawFrom : 1;
-            return void attachStreamRunSse(res, run, from);
+            // The run is its starter's; this reader sees the cells of the
+            // rows whose every source it may read, as its review load does.
+            const readableRows = new Set(view.data.rows.map((row) => row.id));
+            return void attachStreamRunSse(res, run, from, (chunk) => {
+                const rowId = cellUpdateRowId(chunk);
+                return rowId === null || readableRows.has(rowId);
+            });
         }
 
         // No run here: the async path (the work is the queue's), another

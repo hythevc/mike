@@ -6,7 +6,11 @@
 
 import { recordAudit } from "../../lib/audit";
 import { chunkArray } from "../../lib/arrays";
-import type { TabularReviewHistoryStatus } from "@mike/contracts";
+import type {
+    TabularQuoteChecksResponse,
+    TabularQuoteSummary,
+    TabularReviewHistoryStatus,
+} from "@mike/contracts";
 import {
     checkProjectAccess,
     creatorScopedAllowed,
@@ -61,6 +65,14 @@ import {
     type TabularFailure,
     type TabularResult,
 } from "./tabular.shared";
+import {
+    cellStaleness,
+    quoteChecksOf,
+    quoteFieldsOf,
+    recordedSourceIds,
+    summarizeQuoteChecks,
+    type ActiveSourceVersion,
+} from "./tabular.verify";
 
 export type DocumentGrouping = "document" | "folder";
 
@@ -686,6 +698,8 @@ export type ReviewDetail = {
     cells: Record<string, unknown>[];
     rows: ReviewRow[];
     documents: Record<string, unknown>[];
+    /** Review-wide quote-check counts over the cells returned. */
+    quote_summary: TabularQuoteSummary;
 };
 
 /** Load an accessible review with rows, cells and metadata limited to readable sources. */
@@ -752,6 +766,54 @@ export async function getTabularReviewDetail(
     delete clientReview.active_generation_id;
     delete clientReview.generation_lease_expires_at;
 
+    // Each answered cell reports whether a source it was drawn from has
+    // changed since. That needs the active version of every source the cells
+    // recorded; the review's documents cover them unless a source left the
+    // document list, which is looked up here among those the caller may read.
+    const visibleCells = (cells ?? []).filter((cell) =>
+        visibleRowIds.has(cell.row_id as string),
+    );
+    const activeVersions = new Map<string, ActiveSourceVersion>();
+    const noteActiveVersion = (doc: {
+        id: string;
+        current_version_id?: string | null;
+        content_sha256?: string | null;
+    }) =>
+        activeVersions.set(doc.id, {
+            version_id: doc.current_version_id ?? null,
+            content_sha256: doc.content_sha256 ?? null,
+        });
+    docs.forEach(noteActiveVersion);
+    const unlistedSourceIds = [
+        ...new Set(visibleCells.flatMap(recordedSourceIds)),
+    ].filter((id) => !activeVersions.has(id) && readableDocumentIds.has(id));
+    if (unlistedSourceIds.length) {
+        try {
+            (await fetchSourceDocuments(db, unlistedSourceIds)).forEach(
+                noteActiveVersion,
+            );
+        } catch (sourceError) {
+            return internalFailure(sourceError);
+        }
+    }
+    const clientCells = visibleCells.map((cell: Record<string, unknown>) => {
+        // Which version of each source the answer read is server bookkeeping,
+        // and each quote's source passages are read per cell from the
+        // quote-checks endpoint: a review-wide response carries only each
+        // quote's outcome.
+        const {
+            source_versions: _recorded,
+            quote_checks: _checks,
+            ...stored
+        } = cell;
+        return {
+            ...stored,
+            content: parseCellContent(cell.content),
+            ...quoteFieldsOf(cell, readableDocumentIds),
+            ...cellStaleness(cell, activeVersions, readableDocumentIds),
+        };
+    });
+
     return {
         ok: true,
         data: {
@@ -761,14 +823,94 @@ export async function getTabularReviewDetail(
                 access_role: access.projectRole,
                 is_running: isReviewGenerationRunning(review),
             },
-            cells: (cells ?? [])
-                .filter((cell) => visibleRowIds.has(cell.row_id as string))
-                .map((cell) => ({
-                    ...cell,
-                    content: parseCellContent(cell.content),
-                })),
+            cells: clientCells,
             rows,
             documents: docs as unknown as Record<string, unknown>[],
+            quote_summary: summarizeQuoteChecks(clientCells),
+        },
+    };
+}
+
+/** Cells per page of the quote-checks read: PostgREST's default `max_rows`. */
+const QUOTE_CHECK_CELL_PAGE_SIZE = 1000;
+
+/**
+ * The quote checks of a review's checked cells in full: each quote with the
+ * source passage it matched and the text around it. Limited to rows whose
+ * every source the caller may read (the rule the detail endpoint applies),
+ * and to one row, or one cell, when asked.
+ */
+export async function getTabularQuoteChecks(
+    db: Db,
+    args: {
+        reviewId: string;
+        userId: string;
+        userEmail: string | undefined;
+        rowId?: string;
+        columnIndex?: number;
+    },
+): Promise<TabularResult<TabularQuoteChecksResponse>> {
+    const { reviewId, userId, userEmail, rowId, columnIndex } = args;
+
+    const { data: review, error } = await db
+        .from("tabular_reviews")
+        .select("*")
+        .eq("id", reviewId)
+        .single();
+    if (error || !review) return failure("not_found", "Review not found");
+    const access = await ensureReviewAccess(review, userId, userEmail, db);
+    if (!access.ok) return failure("not_found", "Review not found");
+
+    let rows: ReviewRow[];
+    let readableDocumentIds: Set<string>;
+    try {
+        const allRows = await loadReviewRows(db, reviewId);
+        ({ rows, readableDocumentIds } = await filterReadableReviewRows(
+            db,
+            rowId ? allRows.filter((row) => row.id === rowId) : allRows,
+            [],
+            userId,
+            userEmail,
+        ));
+    } catch (lookupError) {
+        return internalFailure(lookupError);
+    }
+    if (!rows.length) return { ok: true, data: { cells: [] } };
+    const visibleRowIds = new Set(rows.map((row) => row.id));
+
+    // A review can have more cells than one response carries: PostgREST
+    // returns at most `max_rows` rows (1,000 by default, and in
+    // supabase/config.toml) and cuts a longer result short without an error.
+    // The cells are read a page at a time, in a fixed order, until a page
+    // comes back short.
+    const cells: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += QUOTE_CHECK_CELL_PAGE_SIZE) {
+        let query = db
+            .from("tabular_cells")
+            .select(
+                "row_id, column_index, status, quote_status, quote_checks, source_versions",
+            )
+            .eq("review_id", reviewId);
+        if (rowId) query = query.eq("row_id", rowId);
+        if (columnIndex !== undefined) query = query.eq("column_index", columnIndex);
+        const { data, error: cellsError } = await query
+            .order("row_id", { ascending: true })
+            .order("column_index", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, from + QUOTE_CHECK_CELL_PAGE_SIZE - 1);
+        if (cellsError) return internalFailure(cellsError);
+        const page = (data ?? []) as Record<string, unknown>[];
+        cells.push(...page);
+        if (page.length < QUOTE_CHECK_CELL_PAGE_SIZE) break;
+    }
+
+    return {
+        ok: true,
+        data: {
+            cells: cells
+                .filter((cell) => visibleRowIds.has(cell.row_id as string))
+                .map((cell) => quoteChecksOf(cell, readableDocumentIds))
+                .filter((cell) => cell.quote_status !== null),
         },
     };
 }
