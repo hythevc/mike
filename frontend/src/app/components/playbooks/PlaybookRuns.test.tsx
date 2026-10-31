@@ -1,5 +1,6 @@
 import {
   act,
+  fireEvent,
   render,
   renderHook,
   screen,
@@ -32,10 +33,14 @@ const api = vi.hoisted(() => ({
 const viewer = vi.hoisted(() => ({ docx: vi.fn() }));
 const download = vi.hoisted(() => ({ downloadBlob: vi.fn() }));
 vi.mock("@/app/lib/downloadDocument", () => download);
-const toasts = vi.hoisted(() => ({ notifySuccess: vi.fn() }));
+const toasts = vi.hoisted(() => ({
+  notifySuccess: vi.fn(),
+  notifyInfo: vi.fn(),
+}));
 vi.mock("@/app/lib/userFacingError", async (original) => ({
   ...(await original<typeof import("@/app/lib/userFacingError")>()),
   notifySuccess: toasts.notifySuccess,
+  notifyInfo: toasts.notifyInfo,
 }));
 // The real viewer lazy-loads a Word renderer that jsdom cannot run.
 vi.mock("@/app/components/shared/views/DocxView", () => ({
@@ -248,7 +253,7 @@ describe("playbook runs", () => {
     await waitFor(() =>
       expect(api.getPlaybookRunDecisions).toHaveBeenLastCalledWith("old"),
     );
-    expect(await screen.findByText("0 of 2 findings decided")).toBeVisible();
+    expect(await screen.findByText("0 of 2 issues decided")).toBeVisible();
   });
 
   it("opens the hidden document when a tracked change asks to be viewed", async () => {
@@ -629,7 +634,7 @@ const decide = (runId: string, findingId: string, payload: { decision: PlaybookF
   decision(findingId, { decision: payload.decision, note: payload.note ?? null });
 
 describe("finding decisions", () => {
-  it("counts decided findings as decisions are recorded, changed and cleared", async () => {
+  it("counts decided issues as decisions are recorded, changed and cleared", async () => {
     api.listPlaybookRuns.mockResolvedValue([run()]);
     api.recordPlaybookDecision.mockImplementation(async (...args) =>
       decide(...(args as Parameters<typeof decide>)),
@@ -637,7 +642,7 @@ describe("finding decisions", () => {
     api.clearPlaybookDecision.mockResolvedValue(undefined);
     render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
 
-    const counter = await screen.findByText("0 of 2 findings decided");
+    const counter = await screen.findByText("0 of 2 issues decided");
     expect(counter).toHaveAttribute("role", "status");
     expect(api.getPlaybookRunDecisions).toHaveBeenCalledWith("run-1");
     // AI output reaches the reviewer as a draft, with the disclaimer.
@@ -654,7 +659,7 @@ describe("finding decisions", () => {
     expect(api.recordPlaybookDecision).toHaveBeenCalledWith("run-1", "f-1", {
       decision: "accepted",
     });
-    expect(await screen.findByText("1 of 2 findings decided")).toBe(counter);
+    expect(await screen.findByText("1 of 2 issues decided")).toBe(counter);
     expect(within(cap).getByText("Accepted by Jane Doe")).toBeVisible();
 
     // Changing it to an override keeps the count.
@@ -670,7 +675,7 @@ describe("finding decisions", () => {
     );
     await userEvent.click(within(cap).getByRole("button", { name: "Save override" }));
     expect(await within(cap).findByText("Overridden by Jane Doe")).toBeVisible();
-    expect(counter).toHaveTextContent("1 of 2 findings decided");
+    expect(counter).toHaveTextContent("1 of 2 issues decided");
 
     // Clearing it leaves the finding undecided again.
     await userEvent.click(
@@ -681,17 +686,118 @@ describe("finding decisions", () => {
     );
     expect(api.clearPlaybookDecision).toHaveBeenCalledWith("run-1", "f-1");
     await waitFor(() =>
-      expect(counter).toHaveTextContent("0 of 2 findings decided"),
+      expect(counter).toHaveTextContent("0 of 2 issues decided"),
     );
     expect(
       within(cap).getByRole("button", { name: "Accept finding: Liability cap" }),
     ).toBeVisible();
   });
 
+  it("counts the issues apart from the findings that need no decision", async () => {
+    api.listPlaybookRuns.mockResolvedValue([mixedRun()]);
+    api.getPlaybookRunDecisions.mockResolvedValue({
+      runId: "run-1",
+      project: null,
+      decisions: [decision("f-1"), decision("f-law")],
+    });
+    render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
+
+    // Three issues (unacceptable and two to review) among seven findings.
+    expect(
+      await screen.findByText("1 of 3 issues decided, 2 of 7 findings decided"),
+    ).toHaveAttribute("role", "status");
+  });
+
+  it("keeps focus in the card through every decision", async () => {
+    api.listPlaybookRuns.mockResolvedValue([run()]);
+    api.recordPlaybookDecision.mockImplementation(async (...args) =>
+      decide(...(args as Parameters<typeof decide>)),
+    );
+    api.clearPlaybookDecision.mockResolvedValue(undefined);
+    render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
+    const cap = await screen.findByRole("group", {
+      name: "Decision on Liability cap",
+    });
+    const button = (name: string) =>
+      within(cap).getByRole("button", { name: `${name}: Liability cap` });
+    await within(cap).findByRole("button", {
+      name: "Accept finding: Liability cap",
+    });
+
+    // Opening the override form puts focus in its note.
+    await userEvent.click(button("Override"));
+    const note = within(cap).getByLabelText("Why are you overriding this finding?");
+    expect(note).toHaveFocus();
+    expect(
+      within(cap).getByRole("form", { name: "Override Liability cap" }),
+    ).toContainElement(note);
+
+    // Cancelling it returns focus to the button that opened it.
+    await userEvent.click(within(cap).getByRole("button", { name: "Cancel" }));
+    expect(button("Override")).toHaveFocus();
+
+    // Accepting lands on Change decision, which reads out what was saved.
+    await userEvent.click(button("Accept finding"));
+    await waitFor(() => expect(button("Change decision")).toHaveFocus());
+    expect(button("Change decision")).toHaveAccessibleDescription(
+      "Accepted by Jane Doe",
+    );
+
+    // Changing it starts from the first choice; Cancel goes back.
+    await userEvent.click(button("Change decision"));
+    expect(button("Accept finding")).toHaveFocus();
+    await userEvent.click(within(cap).getByRole("button", { name: "Cancel" }));
+    expect(button("Change decision")).toHaveFocus();
+
+    // A saved override lands on Change decision too.
+    await userEvent.click(button("Change decision"));
+    await userEvent.click(button("Override"));
+    expect(
+      within(cap).getByLabelText("Why are you overriding this finding?"),
+    ).toHaveFocus();
+    await userEvent.keyboard("Agreed with the client.");
+    await userEvent.click(within(cap).getByRole("button", { name: "Save override" }));
+    await waitFor(() => expect(button("Change decision")).toHaveFocus());
+    expect(button("Change decision")).toHaveAccessibleDescription(
+      "Overridden by Jane Doe",
+    );
+
+    // Cancelling a form while a decision stands goes back to it.
+    await userEvent.click(button("Change decision"));
+    await userEvent.click(button("Override"));
+    await userEvent.click(within(cap).getByRole("button", { name: "Cancel" }));
+    expect(button("Change decision")).toHaveFocus();
+    expect(within(cap).getByText("Overridden by Jane Doe")).toBeVisible();
+
+    // Clearing it lands on Accept finding.
+    await userEvent.click(button("Change decision"));
+    await userEvent.click(button("Clear decision"));
+    await waitFor(() => expect(button("Accept finding")).toHaveFocus());
+    expect(within(cap).queryByText("Overridden by Jane Doe")).toBeNull();
+  });
+
+  it("puts focus back on a decision that could not be saved", async () => {
+    api.listPlaybookRuns.mockResolvedValue([run()]);
+    api.recordPlaybookDecision.mockRejectedValue(new Error("offline"));
+    render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
+    const cap = await screen.findByRole("group", {
+      name: "Decision on Liability cap",
+    });
+    const accept = await within(cap).findByRole("button", {
+      name: "Accept finding: Liability cap",
+    });
+
+    await userEvent.click(accept);
+
+    await waitFor(() => expect(accept).toBeEnabled());
+    expect(accept).toHaveFocus();
+    expect(within(cap).queryByText(/Accepted by/)).toBeNull();
+  });
+
   it("names every decision button after its finding", async () => {
     api.listPlaybookRuns.mockResolvedValue([run()]);
     render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
-    await screen.findByText("0 of 2 findings decided");
+    await screen.findByText("0 of 2 issues decided");
 
     for (const name of ["Liability cap", "Governing law"]) {
       const group = screen.getByRole("group", { name: `Decision on ${name}` });
@@ -707,7 +813,9 @@ describe("finding decisions", () => {
     expect(
       screen.getByRole("button", { name: "Accept matching findings" }),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: "Export decision record" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Download decision record" }),
+    ).toBeVisible();
   });
 
   it("asks for a note before it overrides a finding", async () => {
@@ -731,6 +839,8 @@ describe("finding decisions", () => {
     );
     const note = within(group).getByLabelText("Why are you overriding this finding?");
     expect(note).toHaveAttribute("aria-invalid", "true");
+    // Focus goes back to the note that needs filling in.
+    expect(note).toHaveFocus();
     expect(api.recordPlaybookDecision).not.toHaveBeenCalled();
 
     await userEvent.type(note, "The client accepts unlimited liability here.");
@@ -752,7 +862,12 @@ describe("finding decisions", () => {
       project: { id: "p-1", name: "Acme supply matter", canAddDocuments: true },
       decisions: [],
     });
-    api.listPlaybookEscalationMembers.mockResolvedValue([sam]);
+    let members!: (list: (typeof sam)[]) => void;
+    api.listPlaybookEscalationMembers.mockReturnValue(
+      new Promise((resolve) => {
+        members = resolve;
+      }),
+    );
     api.recordPlaybookDecision.mockImplementation(async (_runId, findingId) =>
       decision(findingId, { decision: "escalated", escalatedTo: sam }),
     );
@@ -764,9 +879,24 @@ describe("finding decisions", () => {
     await userEvent.click(
       await within(group).findByRole("button", { name: "Escalate: Governing law" }),
     );
-    await userEvent.selectOptions(
-      await within(group).findByLabelText("Escalate to"),
-      "u-sam",
+    // Focus waits on the status line while the members load.
+    const loading = within(group).getByRole("status");
+    expect(loading).toHaveTextContent("Loading the project's members…");
+    expect(loading).toHaveFocus();
+
+    await act(async () => members([sam]));
+    const colleague = within(group).getByLabelText("Escalate to");
+    expect(colleague).toHaveFocus();
+    expect(
+      within(group).getByRole("form", { name: "Escalate Governing law" }),
+    ).toContainElement(colleague);
+    // Radix opens the list on pointerdown.
+    fireEvent.pointerDown(colleague, { button: 0, ctrlKey: false });
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Sam Lee (sam@example.com)" }),
+    );
+    expect(colleague).toHaveAccessibleName(
+      "Escalate to: Sam Lee (sam@example.com)",
     );
     await userEvent.click(within(group).getByRole("button", { name: "Escalate finding" }));
 
@@ -777,6 +907,13 @@ describe("finding decisions", () => {
     });
     expect(await within(group).findByText("Escalated to Sam Lee")).toBeVisible();
     expect(within(group).getByText("Escalated by Jane Doe")).toBeVisible();
+    const change = within(group).getByRole("button", {
+      name: "Change decision: Governing law",
+    });
+    await waitFor(() => expect(change).toHaveFocus());
+    expect(change).toHaveAccessibleDescription(
+      "Escalated by Jane Doe Escalated to Sam Lee",
+    );
   });
 
   it("says why a finding cannot be escalated when the document is in no project", async () => {
@@ -790,9 +927,17 @@ describe("finding decisions", () => {
       await within(group).findByRole("button", { name: "Escalate: Governing law" }),
     );
 
-    expect(within(group).getByText(/not in a project you can open/)).toBeVisible();
+    const reason = within(group).getByText(/not in a project you can open/);
+    expect(reason).toBeVisible();
+    // The reason is where focus goes, so it is read out.
+    expect(reason).toHaveFocus();
     expect(within(group).queryByLabelText("Escalate to")).toBeNull();
     expect(api.listPlaybookEscalationMembers).not.toHaveBeenCalled();
+
+    await userEvent.click(within(group).getByRole("button", { name: "Cancel" }));
+    expect(
+      within(group).getByRole("button", { name: "Escalate: Governing law" }),
+    ).toHaveFocus();
   });
 
   it("shows the AI's recommendation and matched position, reading older runs as none", async () => {
@@ -830,7 +975,10 @@ describe("finding decisions", () => {
       }),
     );
     render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
-    const counter = await screen.findByText("0 of 7 findings decided");
+    const counter = await screen.findByText(
+      "0 of 3 issues decided, 0 of 7 findings decided",
+    );
+    expect(screen.queryByText("No undecided findings meet the standard position.")).toBeNull();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Accept matching findings" }),
@@ -852,15 +1000,25 @@ describe("finding decisions", () => {
       "f-law",
       "f-notices",
     ]);
-    await waitFor(() => expect(counter).toHaveTextContent("2 of 7 findings decided"));
+    await waitFor(() =>
+      expect(counter).toHaveTextContent(
+        "0 of 3 issues decided, 2 of 7 findings decided",
+      ),
+    );
     expect(
       within(screen.getByRole("article", { name: "Notices" })).getByText(
         "Accepted by Jane Doe, in bulk",
       ),
     ).toBeVisible();
+    // Nothing is left to accept, and the page says so in words.
+    const bulk = screen.getByRole("button", { name: "Accept matching findings" });
+    expect(bulk).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Accept matching findings" }),
-    ).toBeDisabled();
+      screen.getByText("No undecided findings meet the standard position."),
+    ).toBeVisible();
+    expect(bulk).toHaveAccessibleDescription(
+      "No undecided findings meet the standard position.",
+    );
     expect(
       screen.queryByRole("dialog", { name: "Accept matching findings?" }),
     ).toBeNull();
@@ -876,7 +1034,7 @@ describe("finding decisions", () => {
       ],
     });
     render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
-    await screen.findByText("1 of 7 findings decided");
+    await screen.findByText("0 of 3 issues decided, 1 of 7 findings decided");
 
     await userEvent.click(
       screen.getByRole("button", { name: "Accept matching findings" }),
@@ -892,15 +1050,44 @@ describe("finding decisions", () => {
     expect(api.acceptMatchingPlaybookFindings).not.toHaveBeenCalled();
   });
 
-  it("exports the decision record to the project, or downloads it", async () => {
+  it("downloads the decision record when the document is in no project", async () => {
     api.listPlaybookRuns.mockResolvedValue([run()]);
     const blob = new Blob(["PK"]);
-    api.exportPlaybookDecisionRecord
-      .mockResolvedValueOnce({
-        kind: "download",
+    api.exportPlaybookDecisionRecord.mockResolvedValue({
+      kind: "download",
+      blob,
+      filename: "Supply agreement - decision record.docx",
+    });
+    render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
+    await screen.findByText("0 of 2 issues decided");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Download decision record" }),
+    );
+
+    await waitFor(() =>
+      expect(download.downloadBlob).toHaveBeenCalledWith(
         blob,
-        filename: "Supply agreement - decision record.docx",
-      })
+        "Supply agreement - decision record.docx",
+      ),
+    );
+    // Never saved anywhere it was not asked to go.
+    expect(api.exportPlaybookDecisionRecord).toHaveBeenCalledWith("run-1", {
+      saveToProject: false,
+    });
+    expect(toasts.notifySuccess).not.toHaveBeenCalled();
+    expect(toasts.notifyInfo).not.toHaveBeenCalled();
+  });
+
+  it("names the project before saving the decision record there", async () => {
+    api.listPlaybookRuns.mockResolvedValue([run({ documentId: "doc-1" })]);
+    api.getPlaybookRunDecisions.mockResolvedValue({
+      runId: "run-1",
+      project: { id: "p-1", name: "Acme supply matter", canAddDocuments: true },
+      decisions: [],
+    });
+    const blob = new Blob(["PK"]);
+    api.exportPlaybookDecisionRecord
       .mockResolvedValueOnce({
         kind: "saved",
         saved: {
@@ -909,27 +1096,71 @@ describe("finding decisions", () => {
           projectName: "Acme supply matter",
           filename: "Supply agreement - decision record.docx",
         },
+      })
+      // The reviewer lost the right to add documents meanwhile.
+      .mockResolvedValueOnce({
+        kind: "download",
+        blob,
+        filename: "Supply agreement - decision record.docx",
       });
     render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
-    await screen.findByText("0 of 2 findings decided");
-    const exportButton = screen.getByRole("button", { name: "Export decision record" });
+    await screen.findByText("0 of 2 issues decided");
+    const save = screen.getByRole("button", {
+      name: "Save decision record to Acme supply matter",
+    });
 
-    await userEvent.click(exportButton);
+    await userEvent.click(save);
+    await waitFor(() =>
+      expect(toasts.notifySuccess).toHaveBeenCalledWith(
+        "Decision record saved to Acme supply matter.",
+      ),
+    );
+    expect(api.exportPlaybookDecisionRecord).toHaveBeenCalledWith("run-1", {
+      saveToProject: true,
+    });
+    expect(download.downloadBlob).not.toHaveBeenCalled();
+
+    await userEvent.click(save);
     await waitFor(() =>
       expect(download.downloadBlob).toHaveBeenCalledWith(
         blob,
         "Supply agreement - decision record.docx",
       ),
     );
-
-    await userEvent.click(exportButton);
-    await waitFor(() =>
-      expect(toasts.notifySuccess).toHaveBeenCalledWith(
-        "Decision record saved to Acme supply matter.",
-      ),
+    expect(toasts.notifyInfo).toHaveBeenCalledWith(
+      "The decision record could not be saved to the project, so it was downloaded instead.",
     );
-    expect(api.exportPlaybookDecisionRecord).toHaveBeenCalledWith("run-1");
-    expect(download.downloadBlob).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the cards' shape while decisions load, and stops pulsing if they fail", async () => {
+    api.listPlaybookRuns.mockResolvedValue([run()]);
+    let fail!: (error: Error) => void;
+    api.getPlaybookRunDecisions
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+      )
+      .mockResolvedValue({ runId: "run-1", project: null, decisions: [] });
+    const { container } = render(
+      <PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />,
+    );
+    await screen.findByText("Loading decisions…");
+    const card = screen.getByRole("article", { name: "Liability cap" });
+    // The panel's outline: the label line and the three buttons.
+    expect(card.querySelectorAll(".animate-pulse")).toHaveLength(4);
+    expect(
+      screen.getByRole("button", { name: "Download decision record" }),
+    ).toBeDisabled();
+
+    await act(async () => fail(new Error("offline")));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Decisions could not be loaded.",
+    );
+    expect(container.querySelector("article .animate-pulse")).toBeNull();
+    expect(within(card).getByText("Your decision")).toBeVisible();
+    expect(within(card).getByText("Could not be loaded.")).toBeVisible();
   });
 
   it("says when decisions could not be loaded, and reloads them", async () => {
@@ -948,9 +1179,13 @@ describe("finding decisions", () => {
     expect(
       screen.queryByRole("button", { name: "Accept finding: Liability cap" }),
     ).toBeNull();
+    // The record can still be downloaded: the server builds it.
+    expect(
+      screen.getByRole("button", { name: "Download decision record" }),
+    ).toBeEnabled();
 
     await userEvent.click(screen.getByRole("button", { name: "Reload decisions" }));
-    expect(await screen.findByText("0 of 2 findings decided")).toBeVisible();
+    expect(await screen.findByText("0 of 2 issues decided")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Accept finding: Liability cap" }),
     ).toBeVisible();
@@ -962,7 +1197,23 @@ describe("finding decisions", () => {
     ]);
     render(<PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />);
     expect(await screen.findByText("The model timed out.")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Export decision record" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Download decision record" }),
+    ).toBeNull();
+    expect(api.getPlaybookRunDecisions).not.toHaveBeenCalled();
+  });
+
+  it("shows a failed run's findings without decision controls or a placeholder", async () => {
+    api.listPlaybookRuns.mockResolvedValue([run({ status: "failed" })]);
+    const { container } = render(
+      <PlaybookRuns playbookId="pb" latestRun={null} {...resultsProps()} />,
+    );
+
+    expect(
+      await screen.findByRole("article", { name: "Liability cap" }),
+    ).toBeVisible();
+    expect(screen.queryByText("Your decision")).toBeNull();
+    expect(container.querySelector("article .animate-pulse")).toBeNull();
     expect(api.getPlaybookRunDecisions).not.toHaveBeenCalled();
   });
 
@@ -978,7 +1229,9 @@ describe("finding decisions", () => {
         "AI-generated draft for a lawyer to decide on. Legal information, not legal advice.",
       ),
     ).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Export decision record" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Download decision record" }),
+    ).toBeNull();
     expect(api.getPlaybookRunDecisions).not.toHaveBeenCalled();
   });
 });

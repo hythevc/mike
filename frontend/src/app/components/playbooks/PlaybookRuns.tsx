@@ -38,7 +38,11 @@ import {
 import { DECISION_TEXT } from "./decisionLabels";
 import { PlaybookPanels } from "./PlaybookPanels";
 import { RunDecisionToolbar } from "./RunDecisionToolbar";
-import { useRunDecisions, type RunDecisions } from "./useRunDecisions";
+import {
+  ISSUE_STATUSES,
+  useRunDecisions,
+  type RunDecisions,
+} from "./useRunDecisions";
 import {
   PLAYBOOK_PANE_BODY_CLASS,
   PLAYBOOK_PANE_EMPTY_CLASS,
@@ -578,13 +582,6 @@ function RunDetails({ run }: { run: PlaybookRun }) {
   );
 }
 
-/** What an issues-only review reports, and what the issues view shows. */
-const ISSUE_STATUSES = new Set<PlaybookFinding["status"]>([
-  "unacceptable",
-  "missing_required",
-  "needs_review",
-]);
-
 function RunResults({
   run,
   issuesOnly,
@@ -704,7 +701,7 @@ function FindingGroup({
 } & FindingEditHandlers) {
   const headingId = useId();
   const handlers: FindingDecisionHandlers = {
-    decisionsReady: decisions.status === "ready",
+    decisionsStatus: decisions.status,
     canEscalate: decisions.project !== null,
     onDecide: decisions.decide,
     onClear: decisions.clear,

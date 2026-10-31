@@ -313,9 +313,9 @@ playbooksRouter.delete(
   },
 );
 
-// Saves the run's decision record to its document's project (201 with where
-// it went), or answers with the Word file itself when it cannot be saved
-// there.
+// Exports the run's decision record. With { destination: "project" } it is
+// saved to its document's project (201 with where it went) when the caller
+// can add documents there; otherwise the answer is the Word file itself.
 playbooksRouter.post(
   "/runs/:runId/decision-record",
   requireMfaIfEnrolled,
@@ -324,7 +324,7 @@ playbooksRouter.post(
     try {
       const result = await exportPlaybookDecisionRecord(
         createServerSupabase(),
-        runCaller(req, res),
+        { ...runCaller(req, res), destination: req.body?.destination },
       );
       if (!result.ok) return void sendServiceFailure(res, result);
       if (result.data.kind === "saved")

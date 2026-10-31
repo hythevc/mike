@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const storage = vi.hoisted(() => ({ enabled: true }));
+vi.mock("../../../lib/storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/storage")>()),
+  get storageEnabled() {
+    return storage.enabled;
+  },
+}));
+
 import {
   BULK_ACCEPT_REFUSED,
   bulkAcceptableFindings,
@@ -477,6 +486,17 @@ describe("escalating a finding", () => {
         project: { id: PROJECT, name: "Acme supply matter", canAddDocuments: true },
       },
     });
+
+    // Without file storage nothing can be added, so no record is saved there.
+    storage.enabled = false;
+    try {
+      expect(await getPlaybookRunDecisions(db, reviewer)).toMatchObject({
+        ok: true,
+        data: { project: { id: PROJECT, canAddDocuments: false } },
+      });
+    } finally {
+      storage.enabled = true;
+    }
   });
 });
 

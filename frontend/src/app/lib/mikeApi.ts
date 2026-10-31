@@ -4728,17 +4728,27 @@ function dispositionFilename(header: string): string | null {
 }
 
 /**
- * Exports a run's decision record. The server saves it to the reviewed
- * document's project when the caller can add documents there, and otherwise
- * answers with the Word file for the caller to download.
+ * Exports a run's decision record. With `saveToProject`, the server saves it
+ * to the reviewed document's project when the caller can add documents
+ * there; otherwise, and whenever it cannot, it answers with the Word file
+ * for the caller to download. With `saveToProject` false it never saves the
+ * record anywhere.
  */
 export async function exportPlaybookDecisionRecord(
     runId: string,
+    options: { saveToProject: boolean },
 ): Promise<PlaybookDecisionRecordExport> {
     const path = `/playbooks/runs/${encodeURIComponent(runId)}/decision-record`;
     const response = await apiFetch(
         `${API_BASE}${path}`,
-        { method: "POST", cache: "no-store" },
+        {
+            method: "POST",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                destination: options.saveToProject ? "project" : "download",
+            }),
+        },
         "playbooks.export",
     );
     if (!response.ok) {

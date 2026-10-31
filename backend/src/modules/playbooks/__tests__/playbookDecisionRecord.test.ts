@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaybookFindingDecision } from "@mike/contracts";
 
 const storage = vi.hoisted(() => ({
+  enabled: true,
   uploadFile: vi.fn(async () => undefined),
   deleteFile: vi.fn(async () => undefined),
 }));
@@ -12,12 +13,15 @@ const documents = vi.hoisted(() => ({
 
 vi.mock("../../../lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../lib/storage")>()),
-  storageEnabled: true,
+  get storageEnabled() {
+    return storage.enabled;
+  },
   uploadFile: storage.uploadFile,
   deleteFile: storage.deleteFile,
 }));
 vi.mock("../../documents/documents.service", () => documents);
 
+import JSZip from "jszip";
 import { extractDocxBodyText } from "../../../lib/docxTrackedChanges";
 import {
   blankPlaybookContent,
@@ -27,6 +31,7 @@ import {
   buildPlaybookDecisionRecord,
   decisionRecordFilename,
   DECISION_RECORD_DISCLAIMER,
+  EXPORT_DESTINATION_REQUIRED,
   exportPlaybookDecisionRecord,
   formatRecordTime,
 } from "../playbooks.summaryExport";
@@ -223,7 +228,7 @@ describe("the decision record document", () => {
     expect(text).toContain("Deleted account");
   });
 
-  it("keeps control characters out of the file", async () => {
+  it("keeps control characters out of the file, its properties included", async () => {
     const bytes = await buildPlaybookDecisionRecord({
       documentName: "Odd\u0001name.docx",
       playbookName: "P",
@@ -233,12 +238,30 @@ describe("the decision record document", () => {
       startedAt: "2026-10-30T09:00:00.000Z",
       exportedAt: "2026-10-31T11:00:00.000Z",
       findings: [finding({ id: "x", ruleName: "Rule\u0002", quote: "a\u0000b" })],
-      decisions: [],
+      // A display name is only trimmed when a profile is saved.
+      decisions: [
+        {
+          ...DECISIONS[0],
+          findingId: "x",
+          note: "Agreed\u0003.",
+          decidedBy: { ...jane, displayName: "Jane\u0001 Doe" },
+        },
+      ],
     });
     const text = await extractDocxBodyText(bytes);
     expect(text).toContain("Issues only");
     expect(text).toContain("Permissive");
     expect(text).toContain("ab");
+    expect(text).toContain("Decisions recorded by Jane Doe.");
+
+    const zip = await JSZip.loadAsync(bytes);
+    const forbidden = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
+    for (const name of Object.keys(zip.files).filter((file) => file.endsWith(".xml"))) {
+      const xml = await zip.file(name)!.async("string");
+      expect(forbidden.test(xml), `${name} carries a control character`).toBe(false);
+    }
+    const core = await zip.file("docProps/core.xml")!.async("string");
+    expect(core).toContain("AI-generated draft. Decisions recorded by Jane Doe.");
   });
 
   it("formats times in one zone, and names its file after the document", () => {
@@ -328,10 +351,12 @@ const caller = {
   runId: RUN,
   now: new Date("2026-10-31T11:00:00.000Z"),
 };
+const toProject = { ...caller, destination: "project" };
 
 describe("exporting a run's decision record", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    storage.enabled = true;
     documents.createDocumentVersion.mockResolvedValue({
       data: { id: "version-1", version_number: 1 },
       error: null,
@@ -341,7 +366,7 @@ describe("exporting a run's decision record", () => {
   it("saves it to the reviewed document's project through the documents facade", async () => {
     const { db, tables } = exportSetup();
 
-    const result = await exportPlaybookDecisionRecord(db, caller);
+    const result = await exportPlaybookDecisionRecord(db, toProject);
 
     expect(result).toMatchObject({
       ok: true,
@@ -384,6 +409,65 @@ describe("exporting a run's decision record", () => {
     expect(text).toContain("Commercial playbook");
     expect(text).not.toContain("(renamed)");
     expect(text).toContain("AI-generated draft. Decisions recorded by Jane Doe.");
+
+    // The new document is in the project's history, by its ids alone.
+    expect(tables.audit_events).toEqual([
+      expect.objectContaining({
+        user_id: REVIEWER,
+        action: "document.generated",
+        surface: "playbooks",
+        title: null,
+        project_id: PROJECT,
+        document_id: saved?.documentId,
+        detail: { playbook_id: PLAYBOOK, run_id: RUN },
+      }),
+    ]);
+  });
+
+  it("downloads it unless asked to save it, even where it could be saved", async () => {
+    for (const destination of [undefined, "download"]) {
+      const { db, tables } = exportSetup();
+
+      const result = await exportPlaybookDecisionRecord(db, { ...caller, destination });
+
+      expect(result).toMatchObject({ ok: true, data: { kind: "download" } });
+      expect(tables.documents.map((row) => row.id)).toEqual([DOCUMENT]);
+      expect(storage.uploadFile).not.toHaveBeenCalled();
+      expect(tables.audit_events).toEqual([
+        expect.objectContaining({
+          action: "playbook.run.exported",
+          surface: "playbooks",
+          title: null,
+          project_id: null,
+          document_id: DOCUMENT,
+          detail: { playbook_id: PLAYBOOK, run_id: RUN, destination: "download" },
+        }),
+      ]);
+      // Ids and codes only: no note, finding text or name.
+      expect(JSON.stringify(tables.audit_events)).not.toMatch(
+        /Jane|Supply agreement|New York/,
+      );
+    }
+  });
+
+  it("refuses a destination it does not know", async () => {
+    const { db, tables } = exportSetup();
+    expect(
+      await exportPlaybookDecisionRecord(db, { ...caller, destination: "email" }),
+    ).toEqual({ ok: false, kind: "validation", detail: EXPORT_DESTINATION_REQUIRED });
+    expect(storage.uploadFile).not.toHaveBeenCalled();
+    expect(tables.audit_events ?? []).toEqual([]);
+  });
+
+  it("downloads it when file storage is off, and says the project cannot take it", async () => {
+    storage.enabled = false;
+    const { db, tables } = exportSetup();
+
+    const result = await exportPlaybookDecisionRecord(db, toProject);
+
+    expect(result).toMatchObject({ ok: true, data: { kind: "download" } });
+    expect(tables.documents.map((row) => row.id)).toEqual([DOCUMENT]);
+    expect(storage.uploadFile).not.toHaveBeenCalled();
   });
 
   it("downloads it when the document is in no project, or one the reviewer cannot add to", async () => {
@@ -394,7 +478,7 @@ describe("exporting a run's decision record", () => {
       const { db, tables } = exportSetup(options);
       const before = tables.documents.length;
 
-      const result = await exportPlaybookDecisionRecord(db, caller);
+      const result = await exportPlaybookDecisionRecord(db, toProject);
 
       expect(result).toMatchObject({
         ok: true,
@@ -414,10 +498,12 @@ describe("exporting a run's decision record", () => {
       error: { code: "23505", message: "conflict" },
     });
 
-    const result = await exportPlaybookDecisionRecord(db, caller);
+    const result = await exportPlaybookDecisionRecord(db, toProject);
 
     expect(result).toMatchObject({ ok: false, kind: "error" });
     expect(tables.documents.map((row) => row.id)).toEqual([DOCUMENT]);
+    // Nothing was exported, so nothing is recorded as exported.
+    expect(tables.audit_events ?? []).toEqual([]);
     expect(storage.deleteFile).toHaveBeenCalledWith(
       (storage.uploadFile.mock.calls[0] as unknown as [string])[0],
     );

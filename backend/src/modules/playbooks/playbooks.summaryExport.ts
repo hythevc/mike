@@ -9,9 +9,11 @@
 // named reviewer recorded, and that it is legal information, not legal
 // advice.
 //
-// When the reviewed document is in a project the caller can add documents
-// to, the record is saved there through the documents facade; otherwise the
-// route sends it to the browser as a download.
+// The caller says where it goes. Saved to the reviewed document's project,
+// through the documents facade, when they ask for that and can add
+// documents there; otherwise the route sends it to the browser as a
+// download, so a record is never saved where its reviewer did not ask. Each
+// export is audited with ids only (playbooks.audit.ts).
 
 import crypto from "node:crypto";
 import {
@@ -33,22 +35,18 @@ import type {
 } from "@mike/contracts";
 import { contentTypeForDocumentType } from "../../lib/documentTypes";
 import { contentSha256 } from "../../lib/documentVersions";
-import { can } from "../../lib/permissions";
 import {
   failure,
   internalFailure,
   ok,
   type ServiceResult,
 } from "../../lib/serviceResult";
-import {
-  deleteFile,
-  generatedDocKey,
-  storageEnabled,
-  uploadFile,
-} from "../../lib/storage";
+import { deleteFile, generatedDocKey, uploadFile } from "../../lib/storage";
 import type { Db } from "../../lib/supabase";
 import { createDocumentVersion } from "../documents/documents.service";
+import { recordDecisionRecordExportAudit } from "./playbooks.audit";
 import {
+  canSaveRecordToProject,
   openedRunDecisions,
   openPlaybookRun,
   playbookRunProject,
@@ -61,6 +59,8 @@ export const DECISION_RECORD_DISCLAIMER =
   "Legal information, not legal advice. Check each finding against the reviewed document before relying on it.";
 export const BULK_SECTION_INTRO =
   "These findings were acceptable, met the standard position, and were accepted together.";
+export const EXPORT_DESTINATION_REQUIRED =
+  "Choose whether to save the decision record to the project or download it.";
 
 const STATUS_LABELS: Record<PlaybookFinding["status"], string> = {
   unacceptable: "Unacceptable",
@@ -328,7 +328,8 @@ export async function buildPlaybookDecisionRecord(
   ];
   const document = new Document({
     title: DECISION_RECORD_TITLE,
-    description: decisionRecordDraftLabel(record.decisions),
+    // Names come from profiles; docProps/core.xml must stay valid XML too.
+    description: xmlSafe(decisionRecordDraftLabel(record.decisions)),
     sections: [{ children }],
   });
   return Packer.toBuffer(document);
@@ -397,9 +398,10 @@ async function saveDecisionRecord(
 }
 
 /**
- * Builds a run's decision record and saves it to the reviewed document's
- * project when the caller can add documents there, or hands it back for
- * download.
+ * Builds a run's decision record. With `destination` "project" it is saved
+ * to the reviewed document's project when the caller can add documents
+ * there; otherwise, and with "download" (the default), it is handed back
+ * for download.
  */
 export async function exportPlaybookDecisionRecord(
   db: Db,
@@ -407,6 +409,8 @@ export async function exportPlaybookDecisionRecord(
     userId: string;
     userEmail?: string | null;
     runId: string;
+    /** "project" or "download", as the caller asked. */
+    destination?: unknown;
     /** When the record was made; now by default. */
     now?: Date;
   },
@@ -414,6 +418,9 @@ export async function exportPlaybookDecisionRecord(
   const opened = await openPlaybookRun(db, args);
   if (!opened.ok) return opened;
   const { run, playbook, findings } = opened.data;
+  const destination = args.destination ?? "download";
+  if (destination !== "project" && destination !== "download")
+    return failure("validation", EXPORT_DESTINATION_REQUIRED);
   if (run.status !== "completed")
     return failure(
       "conflict",
@@ -422,7 +429,9 @@ export async function exportPlaybookDecisionRecord(
   try {
     const [decisions, project] = await Promise.all([
       openedRunDecisions(db, run.id),
-      playbookRunProject(db, run, args.userId, args.userEmail),
+      destination === "project"
+        ? playbookRunProject(db, run, args.userId, args.userEmail)
+        : Promise.resolve(null),
     ]);
     const filename = decisionRecordFilename(run.document_name);
     const bytes = await buildPlaybookDecisionRecord({
@@ -437,21 +446,32 @@ export async function exportPlaybookDecisionRecord(
       findings,
       decisions,
     });
-    if (
-      project &&
-      storageEnabled &&
-      can(project.access.projectRole, "content.edit")
-    ) {
-      return ok({
-        kind: "saved",
-        saved: await saveDecisionRecord(db, {
-          userId: args.userId,
-          project,
-          filename,
-          bytes,
-        }),
+    const audit = {
+      userId: args.userId,
+      userEmail: args.userEmail,
+      orgId: playbook.orgId,
+      playbookId: run.playbook_id,
+      runId: run.id,
+      documentId: run.document_id,
+    };
+    if (project && canSaveRecordToProject(project)) {
+      const saved = await saveDecisionRecord(db, {
+        userId: args.userId,
+        project,
+        filename,
+        bytes,
       });
+      await recordDecisionRecordExportAudit(db, {
+        ...audit,
+        saved: {
+          documentId: saved.documentId,
+          projectId: saved.projectId,
+          projectOrgId: project.access.project.org_id ?? null,
+        },
+      });
+      return ok({ kind: "saved", saved });
     }
+    await recordDecisionRecordExportAudit(db, { ...audit, saved: null });
     return ok({ kind: "download", filename, bytes });
   } catch (error) {
     return internalFailure(error);

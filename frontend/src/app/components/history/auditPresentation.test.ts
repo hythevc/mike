@@ -164,6 +164,37 @@ describe("audit event presentation", () => {
     );
   });
 
+  it("names an exported decision record from its ids alone", () => {
+    const downloaded = {
+      ...event,
+      action: "playbook.run.exported",
+      title: null,
+      surface: "playbooks",
+      detail: { playbook_id: "pb-1", run_id: "run-1", destination: "download" },
+    };
+    expect(auditAction(downloaded)).toBe("Decision record downloaded");
+    expect(auditSubject(downloaded)).toMatchObject({
+      type: "Playbook run",
+      name: "-",
+      context: "Playbooks",
+    });
+    // Saved to a project, it is a generated document there.
+    const saved = {
+      ...event,
+      action: "document.generated",
+      title: null,
+      surface: "playbooks",
+      project_id: "p-1",
+      detail: { playbook_id: "pb-1", run_id: "run-1" },
+    };
+    expect(auditAction(saved)).toBe("Document generated");
+    expect(auditSubject(saved)).toMatchObject({ type: "Document", name: "-" });
+    expect(auditDestination(saved)).toEqual({
+      href: "/projects/p-1",
+      label: "Open project",
+    });
+  });
+
   it("keeps failed actions from reading as successful changes", () => {
     const failed = { ...event, action: "document.uploaded", status: "failed" };
     expect(auditAction(failed)).toBe("Document upload");

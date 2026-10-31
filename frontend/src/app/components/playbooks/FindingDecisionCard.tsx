@@ -5,13 +5,14 @@ import {
     useEffect,
     useId,
     useMemo,
+    useRef,
     useState,
     type FormEvent,
     type ReactNode,
 } from "react";
 import { EditCard } from "@/app/components/assistant/EditCard";
+import { ModalSelect } from "@/app/components/modals/ModalSelect";
 import { ModalTextarea } from "@/app/components/modals/ModalTextarea";
-import { FORM_CONTROL_GLASS_CLASS } from "@/app/components/ui/form-field";
 import { LIQUID_GLASS_FLAT_CLASS } from "@/app/components/ui/liquid-surface";
 import { SkeletonLine } from "@/app/components/shared/TablePrimitive";
 import type { EditAnnotation } from "@/app/components/shared/types";
@@ -22,22 +23,24 @@ import type {
 } from "@/app/lib/mikeApi";
 import { notifyError } from "@/app/lib/userFacingError";
 import { diffWords } from "@/app/lib/wordDiff";
-import { cn } from "@/app/lib/utils";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { TextButtonUI } from "@/shared/ui/TextButtonUI";
 import { TextSlabUI } from "@/shared/ui/TextSlabUI";
 import {
+    DECISION_ACTIONS,
     DECISION_TEXT,
     MATCHED_POSITION_LABEL,
     RECOMMENDATION_LABEL,
     decisionByline,
     decisionGroupLabel,
+    escalateFormLabel,
     escalatedToLabel,
     formatDecisionTime,
     matchedPositionOf,
+    overrideFormLabel,
     personName,
 } from "./decisionLabels";
-import type { DecisionPayload } from "./useRunDecisions";
+import type { DecisionPayload, RunDecisions } from "./useRunDecisions";
 
 const STATUS_LABEL: Record<string, string> = {
     unacceptable: "Unacceptable",
@@ -66,8 +69,11 @@ export type FindingEditHandlers = {
 
 /** What a card needs to record the reviewer's decision on its finding. */
 export type FindingDecisionHandlers = {
-    /** False while the run's decisions load, or when they could not. */
-    decisionsReady: boolean;
+    /**
+     * Where the run's decisions are: "idle" for a run whose findings cannot
+     * be decided, which shows no decision controls at all.
+     */
+    decisionsStatus: RunDecisions["status"];
     /** False when the reviewed document is not in a project to escalate in. */
     canEscalate: boolean;
     onDecide: (findingId: string, payload: DecisionPayload) => Promise<void>;
@@ -233,11 +239,58 @@ export function FindingDecisionCard({
 
 type Mode = "view" | "choose" | "override" | "escalate";
 
+/**
+ * A control focus can be sent to, named by its `data-decision-focus`
+ * attribute.
+ */
+type FocusTarget =
+    | "accept"
+    | "override"
+    | "escalate"
+    | "change"
+    | "clear"
+    | "submit";
+
+const PANEL_CLASS = "min-w-0 space-y-2 border-t border-gray-200/70 pt-3";
+
+/**
+ * Whether focus may be moved without taking it from where the reviewer put
+ * it: it has been lost to the page (the control that had it was removed),
+ * or it is still on `previous`, the element that last had it on purpose.
+ */
+function focusIsFree(previous: Element | null): boolean {
+    const active = document.activeElement;
+    return (
+        !active ||
+        active === document.body ||
+        (previous !== null && active === previous)
+    );
+}
+
+/** The decision panel's shape while the run's decisions load. */
+function DecisionPanelSkeleton() {
+    return (
+        <div aria-hidden="true" className={PANEL_CLASS}>
+            <div className="flex h-4 items-center">
+                <SkeletonLine className="w-20" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+                {["w-28", "w-20", "w-20"].map((width, index) => (
+                    <SkeletonLine
+                        key={index}
+                        className={`h-7 rounded-full ${width}`}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
+
 /** The reviewer's decision on one finding, and the controls to make it. */
 function DecisionPanel({
     finding,
     decision,
-    decisionsReady,
+    decisionsStatus,
     canEscalate,
     onDecide,
     onClear,
@@ -248,27 +301,71 @@ function DecisionPanel({
 } & FindingDecisionHandlers) {
     const [mode, setMode] = useState<Mode>("view");
     const [busy, setBusy] = useState(false);
+    const panel = useRef<HTMLDivElement>(null);
+    // Every action replaces or disables the control that started it. Once
+    // the panel has drawn the result, focus goes to the control that takes
+    // its place: Change decision after a decision is recorded, Accept
+    // finding after one is cleared, the opening button after a form is
+    // cancelled, or the same control again after a failure.
+    const focusNext = useRef<{
+        target: FocusTarget;
+        from: Element | null;
+    } | null>(null);
+    useEffect(() => {
+        const next = focusNext.current;
+        if (!next) return;
+        focusNext.current = null;
+        const container = panel.current;
+        if (!container || !focusIsFree(next.from)) return;
+        (
+            container.querySelector<HTMLElement>(
+                `[data-decision-focus="${next.target}"]`,
+            ) ?? container
+        ).focus();
+    });
+
     const groupLabel = decisionGroupLabel(finding.ruleName);
     const shown: Mode = mode === "view" && !decision ? "choose" : mode;
 
-    if (!decisionsReady)
+    // A run whose findings cannot be decided shows no decision at all.
+    if (decisionsStatus === "idle") return null;
+    if (decisionsStatus === "loading") return <DecisionPanelSkeleton />;
+    if (decisionsStatus === "error")
+        // The toolbar says why, with a way to reload; this keeps the card's
+        // shape without pulsing as if it were still loading.
         return (
-            <div aria-hidden="true" className="pt-1">
-                <SkeletonLine className="w-1/3" />
+            <div className={PANEL_CLASS}>
+                <p className="text-xs font-medium text-gray-500">
+                    {DECISION_TEXT.yourDecision}
+                </p>
+                <p className="text-sm text-gray-500">
+                    {DECISION_TEXT.decisionNotLoaded}
+                </p>
             </div>
         );
 
-    async function save(payload: DecisionPayload) {
+    /** Shows `next`, then sends focus to `target` once it is drawn. */
+    function show(next: Mode, target?: FocusTarget) {
+        focusNext.current = target
+            ? { target, from: document.activeElement }
+            : null;
+        setMode(next);
+    }
+
+    async function save(payload: DecisionPayload, retryFrom: FocusTarget) {
+        const from = document.activeElement;
         setBusy(true);
         try {
             await onDecide(finding.id, payload);
+            focusNext.current = { target: "change", from };
             setMode("view");
             return true;
         } catch (error) {
             notifyError(error, {
-                action: "record the decision",
+                action: DECISION_ACTIONS.decide,
                 operation: "playbooks.decide",
             });
+            focusNext.current = { target: retryFrom, from };
             return false;
         } finally {
             setBusy(false);
@@ -276,25 +373,37 @@ function DecisionPanel({
     }
 
     async function clear() {
+        const from = document.activeElement;
         setBusy(true);
         try {
             await onClear(finding.id);
+            focusNext.current = { target: "accept", from };
             setMode("view");
         } catch (error) {
             notifyError(error, {
-                action: "clear the decision",
+                action: DECISION_ACTIONS.clear,
                 operation: "playbooks.decide",
             });
+            focusNext.current = { target: "clear", from };
         } finally {
             setBusy(false);
         }
     }
 
+    // A form cancelled goes back to what opened it.
+    function cancelForm(opener: FocusTarget) {
+        if (decision) show("view", "change");
+        else show("choose", opener);
+    }
+
     return (
         <div
+            ref={panel}
             role="group"
             aria-label={groupLabel}
-            className="min-w-0 space-y-2 border-t border-gray-200/70 pt-3"
+            // Focus lands here only when the control meant to take it is gone.
+            tabIndex={-1}
+            className={`${PANEL_CLASS} rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40`}
         >
             <p className="text-xs font-medium text-gray-500">
                 {DECISION_TEXT.yourDecision}
@@ -303,7 +412,7 @@ function DecisionPanel({
                 <DecisionSummary
                     decision={decision}
                     ruleName={finding.ruleName}
-                    onChange={() => setMode("choose")}
+                    onChange={() => show("choose", "accept")}
                 />
             ) : shown === "override" ? (
                 <OverrideForm
@@ -312,8 +421,10 @@ function DecisionPanel({
                     initialNote={
                         decision?.decision === "overridden" ? (decision.note ?? "") : ""
                     }
-                    onCancel={() => setMode(decision ? "view" : "choose")}
-                    onSave={(note) => save({ decision: "overridden", note })}
+                    onCancel={() => cancelForm("override")}
+                    onSave={(note) =>
+                        save({ decision: "overridden", note }, "submit")
+                    }
                 />
             ) : shown === "escalate" ? (
                 <EscalateForm
@@ -321,9 +432,9 @@ function DecisionPanel({
                     busy={busy}
                     canEscalate={canEscalate}
                     loadMembers={loadMembers}
-                    onCancel={() => setMode(decision ? "view" : "choose")}
+                    onCancel={() => cancelForm("escalate")}
                     onSave={(escalatedTo, note) =>
-                        save({ decision: "escalated", escalatedTo, note })
+                        save({ decision: "escalated", escalatedTo, note }, "submit")
                     }
                 />
             ) : (
@@ -332,7 +443,8 @@ function DecisionPanel({
                         tone="black"
                         size="sm"
                         loading={busy}
-                        onClick={() => void save({ decision: "accepted" })}
+                        data-decision-focus="accept"
+                        onClick={() => void save({ decision: "accepted" }, "accept")}
                     >
                         {DECISION_TEXT.accept}
                         <span className="sr-only">: {finding.ruleName}</span>
@@ -341,7 +453,8 @@ function DecisionPanel({
                         tone="white"
                         size="sm"
                         disabled={busy}
-                        onClick={() => setMode("override")}
+                        data-decision-focus="override"
+                        onClick={() => show("override")}
                     >
                         {DECISION_TEXT.override}
                         <span className="sr-only">: {finding.ruleName}</span>
@@ -350,7 +463,8 @@ function DecisionPanel({
                         tone="white"
                         size="sm"
                         disabled={busy}
-                        onClick={() => setMode("escalate")}
+                        data-decision-focus="escalate"
+                        onClick={() => show("escalate")}
                     >
                         {DECISION_TEXT.escalate}
                         <span className="sr-only">: {finding.ruleName}</span>
@@ -360,6 +474,7 @@ function DecisionPanel({
                             <TextButtonUI
                                 size="xs"
                                 disabled={busy}
+                                data-decision-focus="clear"
                                 onClick={() => void clear()}
                             >
                                 {DECISION_TEXT.clear}
@@ -368,7 +483,7 @@ function DecisionPanel({
                             <TextButtonUI
                                 size="xs"
                                 disabled={busy}
-                                onClick={() => setMode("view")}
+                                onClick={() => show("view", "change")}
                             >
                                 {DECISION_TEXT.cancel}
                             </TextButtonUI>
@@ -389,9 +504,12 @@ function DecisionSummary({
     ruleName: string;
     onChange: () => void;
 }) {
+    const bylineId = useId();
+    const escalatedId = useId();
+    const escalated = decision.decision === "escalated";
     return (
         <div className="space-y-1.5">
-            <p className="text-sm text-gray-900 [overflow-wrap:anywhere]">
+            <p id={bylineId} className="text-sm text-gray-900 [overflow-wrap:anywhere]">
                 {decisionByline(decision)}
             </p>
             <p className="text-xs text-gray-500">
@@ -399,8 +517,11 @@ function DecisionSummary({
                     {formatDecisionTime(decision.decidedAt)}
                 </time>
             </p>
-            {decision.decision === "escalated" && (
-                <p className="text-sm text-gray-700 [overflow-wrap:anywhere]">
+            {escalated && (
+                <p
+                    id={escalatedId}
+                    className="text-sm text-gray-700 [overflow-wrap:anywhere]"
+                >
                     {escalatedToLabel(decision.escalatedTo)}
                 </p>
             )}
@@ -411,7 +532,14 @@ function DecisionSummary({
                     </p>
                 </FindingPart>
             )}
-            <TextButtonUI size="xs" className="-ml-1" onClick={onChange}>
+            <TextButtonUI
+                size="xs"
+                className="-ml-1"
+                data-decision-focus="change"
+                // Focus lands here once a decision is saved: say what it is.
+                aria-describedby={escalated ? `${bylineId} ${escalatedId}` : bylineId}
+                onClick={onChange}
+            >
                 {DECISION_TEXT.change}
                 <span className="sr-only">: {ruleName}</span>
             </TextButtonUI>
@@ -438,6 +566,7 @@ function FormActions({
                 type="submit"
                 loading={busy}
                 disabled={submitDisabled}
+                data-decision-focus="submit"
             >
                 {submitLabel}
             </PillButtonUI>
@@ -463,13 +592,20 @@ function OverrideForm({
 }) {
     const noteId = useId();
     const errorId = useId();
+    const noteRef = useRef<HTMLTextAreaElement>(null);
     const [note, setNote] = useState(initialNote);
     const [missingNote, setMissingNote] = useState(false);
+
+    // The form opens in place of the button that asked for it.
+    useEffect(() => {
+        noteRef.current?.focus();
+    }, []);
 
     function submit(event: FormEvent) {
         event.preventDefault();
         if (!note.trim()) {
             setMissingNote(true);
+            noteRef.current?.focus();
             return;
         }
         void onSave(note.trim());
@@ -478,7 +614,7 @@ function OverrideForm({
     return (
         <form
             noValidate
-            aria-label={`Override ${ruleName}`}
+            aria-label={overrideFormLabel(ruleName)}
             onSubmit={submit}
             className="space-y-2"
         >
@@ -486,6 +622,7 @@ function OverrideForm({
                 {DECISION_TEXT.overrideNote}
             </label>
             <ModalTextarea
+                ref={noteRef}
                 id={noteId}
                 value={note}
                 required
@@ -517,17 +654,55 @@ type MembersState =
     | { status: "ready"; members: PlaybookDecisionPerson[] }
     | { status: "error" };
 
+/** Why a finding of this run cannot be escalated, in place of the form. */
+function EscalationUnavailable({ onCancel }: { onCancel: () => void }) {
+    const message = useRef<HTMLParagraphElement>(null);
+    // The reason is read out where the form would have opened.
+    useEffect(() => {
+        message.current?.focus();
+    }, []);
+    return (
+        <div className="space-y-2">
+            <p
+                ref={message}
+                tabIndex={-1}
+                className="rounded-sm text-sm text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            >
+                {DECISION_TEXT.noProject}
+            </p>
+            <TextButtonUI size="xs" className="-ml-1" onClick={onCancel}>
+                {DECISION_TEXT.cancel}
+            </TextButtonUI>
+        </div>
+    );
+}
+
 function EscalateForm({
     ruleName,
     busy,
     canEscalate,
+    ...props
+}: {
+    ruleName: string;
+    busy: boolean;
+    canEscalate: boolean;
+    loadMembers: () => Promise<PlaybookDecisionPerson[]>;
+    onCancel: () => void;
+    onSave: (escalatedTo: string, note: string | undefined) => Promise<boolean>;
+}) {
+    if (!canEscalate) return <EscalationUnavailable onCancel={props.onCancel} />;
+    return <EscalateMemberForm ruleName={ruleName} busy={busy} {...props} />;
+}
+
+function EscalateMemberForm({
+    ruleName,
+    busy,
     loadMembers,
     onCancel,
     onSave,
 }: {
     ruleName: string;
     busy: boolean;
-    canEscalate: boolean;
     loadMembers: () => Promise<PlaybookDecisionPerson[]>;
     onCancel: () => void;
     onSave: (escalatedTo: string, note: string | undefined) => Promise<boolean>;
@@ -538,10 +713,15 @@ function EscalateForm({
     const [attempt, setAttempt] = useState(0);
     const [colleague, setColleague] = useState("");
     const [note, setNote] = useState("");
+    const messageRef = useRef<HTMLParagraphElement>(null);
+    const retryRef = useRef<HTMLButtonElement>(null);
+    const selectWrap = useRef<HTMLDivElement>(null);
+    // What this form last sent focus to, so a later step moves it on only
+    // while the reviewer has left it there.
+    const focused = useRef<Element | null>(null);
 
     // Asked for once the form is open; a project's roster is not needed before.
     useEffect(() => {
-        if (!canEscalate) return;
         let current = true;
         loadMembers().then(
             (list) => {
@@ -556,7 +736,23 @@ function EscalateForm({
         return () => {
             current = false;
         };
-    }, [canEscalate, loadMembers, attempt]);
+    }, [loadMembers, attempt]);
+
+    const choosing = members.status === "ready" && members.members.length > 0;
+    // Each step of opening the form replaces what had focus: the status
+    // line while the members load, then the colleague list, or the message
+    // or Try again that takes its place.
+    useEffect(() => {
+        if (!focusIsFree(focused.current)) return;
+        const target =
+            members.status === "error"
+                ? retryRef.current
+                : choosing
+                  ? selectWrap.current?.querySelector<HTMLElement>("button")
+                  : messageRef.current;
+        target?.focus();
+        focused.current = target ?? null;
+    }, [members.status, choosing]);
 
     function submit(event: FormEvent) {
         event.preventDefault();
@@ -564,31 +760,43 @@ function EscalateForm({
         void onSave(colleague, note.trim() || undefined);
     }
 
-    if (!canEscalate)
-        return (
-            <div className="space-y-2">
-                <p className="text-sm text-gray-700">{DECISION_TEXT.noProject}</p>
-                <TextButtonUI size="xs" className="-ml-1" onClick={onCancel}>
-                    {DECISION_TEXT.cancel}
-                </TextButtonUI>
-            </div>
-        );
+    const options = members.status === "ready"
+        ? members.members.map((member) => ({
+              value: member.userId,
+              label: personName(member),
+              // Both, in full, so two colleagues of one name stay apart.
+              suffix:
+                  member.displayName?.trim() && member.email
+                      ? `(${member.email})`
+                      : undefined,
+          }))
+        : [];
+    const chosen = options.find((option) => option.value === colleague);
+    const messageClass =
+        "rounded-sm text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40";
 
     return (
         <form
             noValidate
-            aria-label={`Escalate ${ruleName}`}
+            aria-label={escalateFormLabel(ruleName)}
             onSubmit={submit}
             className="space-y-2"
         >
             {members.status === "loading" ? (
-                <p role="status" className="text-sm text-gray-500">
+                <p
+                    key="loading"
+                    ref={messageRef}
+                    role="status"
+                    tabIndex={-1}
+                    className={`${messageClass} text-gray-500`}
+                >
                     {DECISION_TEXT.loadingMembers}
                 </p>
             ) : members.status === "error" ? (
-                <p role="alert" className="text-sm text-red-600">
+                <p key="error" role="alert" className="text-sm text-red-600">
                     {DECISION_TEXT.membersUnavailable}{" "}
                     <button
+                        ref={retryRef}
                         type="button"
                         onClick={() => {
                             setMembers({ status: "loading" });
@@ -599,8 +807,15 @@ function EscalateForm({
                         {DECISION_TEXT.tryAgain}
                     </button>
                 </p>
-            ) : members.members.length === 0 ? (
-                <p className="text-sm text-gray-700">{DECISION_TEXT.noMembers}</p>
+            ) : !choosing ? (
+                <p
+                    key="none"
+                    ref={messageRef}
+                    tabIndex={-1}
+                    className={`${messageClass} text-gray-700`}
+                >
+                    {DECISION_TEXT.noMembers}
+                </p>
             ) : (
                 <>
                     <label
@@ -609,22 +824,22 @@ function EscalateForm({
                     >
                         {DECISION_TEXT.escalateTo}
                     </label>
-                    <select
-                        id={memberId}
-                        value={colleague}
-                        required
-                        onChange={(event) => setColleague(event.target.value)}
-                        className={cn(FORM_CONTROL_GLASS_CLASS, "h-10")}
-                    >
-                        <option value="">{DECISION_TEXT.chooseColleague}</option>
-                        {members.members.map((member) => (
-                            <option key={member.userId} value={member.userId}>
-                                {member.displayName && member.email
-                                    ? `${personName(member)} (${member.email})`
-                                    : personName(member)}
-                            </option>
-                        ))}
-                    </select>
+                    <div ref={selectWrap} className="min-w-0">
+                        <ModalSelect
+                            id={memberId}
+                            // The trigger shows the choice; its name says it too.
+                            aria-label={
+                                chosen
+                                    ? `${DECISION_TEXT.escalateTo}: ${chosen.label}${chosen.suffix ? ` ${chosen.suffix}` : ""}`
+                                    : undefined
+                            }
+                            value={colleague}
+                            options={options}
+                            placeholder={DECISION_TEXT.chooseColleague}
+                            wrapLabels
+                            onChange={setColleague}
+                        />
+                    </div>
                     <label
                         htmlFor={noteId}
                         className="block text-xs font-medium text-gray-700"
@@ -643,7 +858,7 @@ function EscalateForm({
             <FormActions
                 busy={busy}
                 submitLabel={DECISION_TEXT.saveEscalation}
-                submitDisabled={members.status !== "ready" || !colleague}
+                submitDisabled={!choosing || !colleague}
                 onCancel={onCancel}
             />
         </form>

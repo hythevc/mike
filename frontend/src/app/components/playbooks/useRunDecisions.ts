@@ -19,7 +19,11 @@ import {
     type PlaybookRunDecisions,
 } from "@/app/lib/mikeApi";
 import { reportFault } from "@/app/lib/userFacingError";
-import { matchedPositionOf } from "./decisionLabels";
+import {
+    DECISION_ACTIONS,
+    matchedPositionOf,
+    type DecisionProgress,
+} from "./decisionLabels";
 
 export type DecisionPayload = {
     decision: PlaybookFindingDecisionKind;
@@ -38,6 +42,31 @@ export type RunDecisions = {
     acceptMatching: (findingIds: string[]) => Promise<void>;
     loadMembers: () => Promise<PlaybookDecisionPerson[]>;
 };
+
+/**
+ * The findings a lawyer has to look at: what an issues-only review reports,
+ * what the issues view shows, and what the decision counter counts first.
+ */
+export const ISSUE_STATUSES: ReadonlySet<PlaybookFinding["status"]> = new Set<
+    PlaybookFinding["status"]
+>(["unacceptable", "missing_required", "needs_review"]);
+
+/** How many of the run's issues, and of all its findings, are decided. */
+export function decisionProgress(
+    findings: readonly PlaybookFinding[],
+    decided: ReadonlyMap<string, unknown>,
+): DecisionProgress {
+    const issues = findings.filter((finding) =>
+        ISSUE_STATUSES.has(finding.status),
+    );
+    const isDecided = (finding: PlaybookFinding) => decided.has(finding.id);
+    return {
+        issues: issues.length,
+        issuesDecided: issues.filter(isDecided).length,
+        findings: findings.length,
+        findingsDecided: findings.filter(isDecided).length,
+    };
+}
 
 /**
  * The findings "Accept matching findings" accepts: acceptable, met the
@@ -79,9 +108,9 @@ export function useRunDecisions(runId: string | null): RunDecisions {
             },
             (error) => {
                 if (!current) return;
-                // Shown inline beside the counter, with Try again.
+                // Shown inline in place of the counter, with a way to reload.
                 reportFault(error, {
-                    action: "load the decisions",
+                    action: DECISION_ACTIONS.loadDecisions,
                     operation: "playbooks.decide",
                 });
                 setLoaded({ runId, status: "error", data: null });

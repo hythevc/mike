@@ -5,14 +5,17 @@ import {
     DECISION_TEXT,
     MATCHED_POSITION_LABEL,
     bulkConfirmLabel,
-    decidedCountLabel,
     decisionByline,
+    decisionProgressLabel,
+    escalateFormLabel,
     escalatedToLabel,
     exportSavedMessage,
     matchedPositionOf,
+    overrideFormLabel,
     personName,
+    saveRecordLabel,
 } from "./decisionLabels";
-import { bulkAcceptableFindings } from "./useRunDecisions";
+import { bulkAcceptableFindings, decisionProgress } from "./useRunDecisions";
 
 function finding(overrides: Partial<PlaybookFinding>): PlaybookFinding {
     return {
@@ -55,11 +58,55 @@ describe("decision labels", () => {
         expect(MATCHED_POSITION_LABEL[matchedPositionOf(finding({}))]).toBe("None");
     });
 
-    it("counts decided findings and names the bulk confirmation", () => {
-        expect(decidedCountLabel(0, 1)).toBe("0 of 1 finding decided");
-        expect(decidedCountLabel(3, 7)).toBe("3 of 7 findings decided");
+    it("counts the decided issues first, then every finding", () => {
+        const progress = (
+            issuesDecided: number,
+            issues: number,
+            findingsDecided: number,
+            findings: number,
+        ) =>
+            decisionProgressLabel({
+                issuesDecided,
+                issues,
+                findingsDecided,
+                findings,
+            });
+        expect(progress(2, 3, 5, 12)).toBe(
+            "2 of 3 issues decided, 5 of 12 findings decided",
+        );
+        expect(progress(0, 1, 0, 4)).toBe(
+            "0 of 1 issue decided, 0 of 4 findings decided",
+        );
+        // Every finding is an issue, as in an issues-only review.
+        expect(progress(1, 3, 1, 3)).toBe("1 of 3 issues decided");
+        // No issues: only the findings are left to count.
+        expect(progress(0, 0, 3, 7)).toBe("3 of 7 findings decided");
+        expect(progress(0, 0, 0, 1)).toBe("0 of 1 finding decided");
+    });
+
+    it("counts issues as the issues view shows them", () => {
+        const findings = [
+            finding({ id: "a", status: "unacceptable" }),
+            finding({ id: "b", status: "missing_required" }),
+            finding({ id: "c", status: "needs_review" }),
+            finding({ id: "d", status: "acceptable" }),
+            finding({ id: "e", status: "not_applicable" }),
+        ];
+        expect(
+            decisionProgress(findings, new Map([["a", true], ["d", true]])),
+        ).toEqual({ issues: 3, issuesDecided: 1, findings: 5, findingsDecided: 2 });
+    });
+
+    it("names the bulk confirmation, the forms and where the record goes", () => {
         expect(bulkConfirmLabel(1)).toBe("Accept 1 finding");
         expect(bulkConfirmLabel(4)).toBe("Accept 4 findings");
+        expect(overrideFormLabel("Liability cap")).toBe("Override Liability cap");
+        expect(escalateFormLabel("Liability cap")).toBe("Escalate Liability cap");
+        expect(saveRecordLabel("Acme matter")).toBe(
+            "Save decision record to Acme matter",
+        );
+        expect(saveRecordLabel("")).toBe("Save decision record to the project");
+        expect(DECISION_TEXT.downloadRecord).toBe("Download decision record");
     });
 
     it("says who decided and how, without inventing a name", () => {

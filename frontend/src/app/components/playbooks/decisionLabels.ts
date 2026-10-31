@@ -56,6 +56,7 @@ export const DECISION_TEXT = {
     matchedPosition: "Matched position",
     reasons: "Assessment",
     yourDecision: "Your decision",
+    decisionNotLoaded: "Could not be loaded.",
     accept: "Accept finding",
     override: "Override",
     escalate: "Escalate",
@@ -86,8 +87,23 @@ export const DECISION_TEXT = {
     bulkTitle: "Accept matching findings?",
     bulkMessage:
         "These findings are acceptable and meet the standard position. Each is recorded as accepted in bulk, under your name.",
+    bulkList: "Findings to accept",
     bulkNone: "No undecided findings meet the standard position.",
-    exportRecord: "Export decision record",
+    downloadRecord: "Download decision record",
+    recordDownloadedInstead:
+        "The decision record could not be saved to the project, so it was downloaded instead.",
+} as const;
+
+/**
+ * What each decision action failed to do, for its notice's title ("Couldn't
+ * record the decision"), in the imperative `notifyError` expects.
+ */
+export const DECISION_ACTIONS = {
+    decide: "record the decision",
+    clear: "clear the decision",
+    acceptMatching: "accept the matching findings",
+    exportRecord: "export the decision record",
+    loadDecisions: "load the decisions",
 } as const;
 
 /** "Decision on Liability cap": names a finding's decision controls. */
@@ -95,14 +111,60 @@ export function decisionGroupLabel(ruleName: string): string {
     return `Decision on ${ruleName}`;
 }
 
+/** "Override Liability cap": names the form that records an override. */
+export function overrideFormLabel(ruleName: string): string {
+    return `Override ${ruleName}`;
+}
+
+/** "Escalate Liability cap": names the form that escalates a finding. */
+export function escalateFormLabel(ruleName: string): string {
+    return `Escalate ${ruleName}`;
+}
+
 /** "Accept 2 findings": the confirmation's button. */
 export function bulkConfirmLabel(count: number): string {
     return `Accept ${count} ${count === 1 ? "finding" : "findings"}`;
 }
 
-/** "3 of 7 findings decided": the run's decision counter. */
-export function decidedCountLabel(decided: number, total: number): string {
-    return `${decided} of ${total} ${total === 1 ? "finding" : "findings"} decided`;
+function countDecided(decided: number, total: number, noun: string): string {
+    return `${decided} of ${total} ${noun}${total === 1 ? "" : "s"} decided`;
+}
+
+/** How far the reviewer has got, as the run's decision counter counts it. */
+export type DecisionProgress = {
+    /** Findings a lawyer has to look at: unacceptable, missing or to review. */
+    issues: number;
+    issuesDecided: number;
+    findings: number;
+    findingsDecided: number;
+};
+
+/**
+ * "2 of 3 issues decided, 5 of 12 findings decided": the issues first,
+ * since they are what needs a lawyer's decision, then every finding. A run
+ * whose findings are all issues, or that has none, gives one count.
+ */
+export function decisionProgressLabel(progress: DecisionProgress): string {
+    const findings = countDecided(
+        progress.findingsDecided,
+        progress.findings,
+        "finding",
+    );
+    if (progress.issues === 0) return findings;
+    const issues = countDecided(progress.issuesDecided, progress.issues, "issue");
+    return progress.issues === progress.findings
+        ? issues
+        : `${issues}, ${findings}`;
+}
+
+/**
+ * "Save decision record to Acme supply matter": the export button, naming
+ * where the record goes before anything is saved there.
+ */
+export function saveRecordLabel(projectName: string): string {
+    return projectName
+        ? `Save decision record to ${projectName}`
+        : "Save decision record to the project";
 }
 
 export function exportSavedMessage(projectName: string): string {

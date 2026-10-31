@@ -23,6 +23,7 @@ export type PlaybookAuditAction =
   | "playbook.deleted"
   | "playbook.run"
   | "playbook.run.deleted"
+  | "playbook.run.exported"
   | "playbook.decision";
 
 export function recordPlaybookAudit(
@@ -163,6 +164,59 @@ export async function recordPlaybookDecisionAudit(
       method: event.method,
       ...(event.escalatedTo ? { escalated_to: event.escalatedTo } : {}),
     },
+  });
+}
+
+/**
+ * A run's decision record exported. Saved to a project, it is a new document
+ * there, recorded as `document.generated` in the project's organization with
+ * the project and document ids, as generated documents are, so the
+ * project's history shows where it came from. Downloaded, it is recorded as
+ * `playbook.run.exported`. Ids only, like the decision rows: the record's
+ * notes and the people it names stay out of the audit log, and the row
+ * carries no title.
+ */
+export async function recordDecisionRecordExportAudit(
+  db: Db,
+  event: {
+    userId: string;
+    userEmail?: string | null;
+    /** The playbook's organization, for a download. */
+    orgId: string | null;
+    playbookId: string;
+    runId: string;
+    /** The document the run reviewed, if any. */
+    documentId: string | null;
+    saved: {
+      documentId: string;
+      projectId: string;
+      projectOrgId: string | null;
+    } | null;
+  },
+): Promise<void> {
+  const detail = { playbook_id: event.playbookId, run_id: event.runId };
+  if (event.saved) {
+    await recordAudit(db, {
+      userId: event.userId,
+      userEmail: event.userEmail,
+      orgId: event.saved.projectOrgId,
+      action: "document.generated",
+      surface: PLAYBOOK_AUDIT_SURFACE,
+      title: null,
+      projectId: event.saved.projectId,
+      documentId: event.saved.documentId,
+      detail,
+    });
+    return;
+  }
+  await recordPlaybookAudit(db, {
+    userId: event.userId,
+    userEmail: event.userEmail,
+    orgId: event.orgId,
+    action: "playbook.run.exported",
+    title: null,
+    documentId: event.documentId,
+    detail: { ...detail, destination: "download" },
   });
 }
 

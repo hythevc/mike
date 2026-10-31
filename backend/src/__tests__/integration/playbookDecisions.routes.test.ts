@@ -243,12 +243,12 @@ describe("playbook decision routes", () => {
     ]);
   });
 
-  it("saves the decision record to the document's project", async () => {
+  it("saves the decision record to the document's project when asked to", async () => {
     const { tables } = seed();
 
-    const response = await request(app).post(
-      `/playbooks/runs/${RUN}/decision-record`,
-    );
+    const response = await request(app)
+      .post(`/playbooks/runs/${RUN}/decision-record`)
+      .send({ destination: "project" });
 
     expect(response.status).toBe(201);
     expect(response.body).toEqual({
@@ -263,6 +263,51 @@ describe("playbook decision routes", () => {
       expect.objectContaining({ id: response.body.saved.documentId, project_id: PROJECT }),
     );
     expect(documents.createDocumentVersion).toHaveBeenCalledTimes(1);
+    expect(tables.audit_events).toEqual([
+      expect.objectContaining({
+        action: "document.generated",
+        project_id: PROJECT,
+        document_id: response.body.saved.documentId,
+      }),
+    ]);
+  });
+
+  it("downloads the decision record unless asked to save it", async () => {
+    const { tables } = seed();
+
+    for (const call of [
+      request(app).post(`/playbooks/runs/${RUN}/decision-record`),
+      request(app)
+        .post(`/playbooks/runs/${RUN}/decision-record`)
+        .send({ destination: "download" }),
+    ]) {
+      const response = await call.buffer(true).parse((res, done) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => done(null, Buffer.concat(chunks)));
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers["content-disposition"]).toContain("attachment");
+    }
+    expect(storage.uploadFile).not.toHaveBeenCalled();
+    expect(tables.documents).toHaveLength(1);
+    expect(tables.audit_events.map((row) => row.action)).toEqual([
+      "playbook.run.exported",
+      "playbook.run.exported",
+    ]);
+  });
+
+  it("refuses an export destination it does not know", async () => {
+    seed();
+
+    const response = await request(app)
+      .post(`/playbooks/runs/${RUN}/decision-record`)
+      .send({ destination: "email" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      detail: "Choose whether to save the decision record to the project or download it.",
+    });
   });
 
   it("downloads the decision record when the document is not in a project", async () => {
@@ -270,6 +315,7 @@ describe("playbook decision routes", () => {
 
     const response = await request(app)
       .post(`/playbooks/runs/${RUN}/decision-record`)
+      .send({ destination: "project" })
       .buffer(true)
       .parse((res, done) => {
         const chunks: Buffer[] = [];

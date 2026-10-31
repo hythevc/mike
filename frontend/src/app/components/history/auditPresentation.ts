@@ -75,6 +75,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "playbook.deleted": "Playbook deleted",
   "playbook.run": "Playbook review run",
   "playbook.run.deleted": "Playbook run deleted",
+  "playbook.run.exported": "Decision record downloaded",
   "playbook.decision": "Playbook decision recorded",
   "export.chats": "Chats exported",
   "export.account": "Account data exported",

@@ -582,14 +582,14 @@ describe("Playbook decisions", () => {
     };
     fetchMock.mockResolvedValueOnce(json({ saved }, 201));
 
-    await expect(exportPlaybookDecisionRecord("run/1")).resolves.toEqual({
-      kind: "saved",
-      saved,
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      `${run}/decision-record`,
-      expect.objectContaining({ method: "POST" }),
-    );
+    await expect(
+      exportPlaybookDecisionRecord("run/1", { saveToProject: true }),
+    ).resolves.toEqual({ kind: "saved", saved });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${run}/decision-record`);
+    expect(init.method).toBe("POST");
+    // The server saves to the project only when asked to.
+    expect(JSON.parse(String(init.body))).toEqual({ destination: "project" });
   });
 
   it("hands back a decision record to download, named as the server named it", async () => {
@@ -605,8 +605,13 @@ describe("Playbook decisions", () => {
       }),
     );
 
-    const result = await exportPlaybookDecisionRecord("run/1");
+    const result = await exportPlaybookDecisionRecord("run/1", {
+      saveToProject: false,
+    });
 
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)),
+    ).toEqual({ destination: "download" });
     expect(result.kind).toBe("download");
     if (result.kind === "download") {
       expect(result.filename).toBe("Vertr\u00e4ge - decision record.docx");
@@ -616,8 +621,8 @@ describe("Playbook decisions", () => {
 
   it("raises the server's refusal instead of downloading it", async () => {
     fetchMock.mockResolvedValueOnce(json({ detail: "Run not found." }, 404));
-    await expect(exportPlaybookDecisionRecord("run/1")).rejects.toThrow(
-      "Run not found.",
-    );
+    await expect(
+      exportPlaybookDecisionRecord("run/1", { saveToProject: false }),
+    ).rejects.toThrow("Run not found.");
   });
 });

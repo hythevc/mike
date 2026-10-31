@@ -30,6 +30,7 @@ import {
   ok,
   type ServiceResult,
 } from "../../lib/serviceResult";
+import { storageEnabled } from "../../lib/storage";
 import type { Db } from "../../lib/supabase";
 import { loadCreatorProfiles } from "../../lib/userLookup";
 import { recordPlaybookDecisionAudit } from "./playbooks.audit";
@@ -271,6 +272,16 @@ export async function playbookRunProject(
 }
 
 /**
+ * Whether the run's decision record can be saved to the project: the caller
+ * may add documents there, and file storage is configured to hold them. The
+ * web app names the project on its export button only when this holds, and
+ * the export saves there only when asked to and this still holds.
+ */
+export function canSaveRecordToProject(project: PlaybookRunProject): boolean {
+  return storageEnabled && can(project.access.projectRole, "content.edit");
+}
+
+/**
  * The people a finding can be escalated to: everyone who can open the
  * project, except the reviewer and anyone denied it. Ordered by name.
  */
@@ -317,7 +328,7 @@ async function runDecisions(
       ? {
           id: project.id,
           name: project.name,
-          canAddDocuments: can(project.access.projectRole, "content.edit"),
+          canAddDocuments: canSaveRecordToProject(project),
         }
       : null,
     decisions: await publicDecisions(db, rows),

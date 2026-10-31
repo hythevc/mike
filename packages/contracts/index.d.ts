@@ -777,7 +777,11 @@ export interface PlaybookFindingDecision {
 /** A run's decisions, and the project its reviewed document is in, if any. */
 export interface PlaybookRunDecisions {
     runId: string;
-    /** Escalation and saving the decision record need this project. */
+    /**
+     * Escalation and saving the decision record need this project.
+     * `canAddDocuments` says whether the caller can add documents to it (file
+     * storage included), so the decision record can be saved there.
+     */
     project: { id: string; name: string; canAddDocuments: boolean } | null;
     decisions: PlaybookFindingDecision[];
 }
