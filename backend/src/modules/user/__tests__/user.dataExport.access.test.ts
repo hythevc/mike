@@ -66,6 +66,50 @@ function fixtures(): Record<string, Row[]> {
     };
 }
 
+describe("exported review cells", () => {
+    it("keep the answer and its quote status, not source passages or versions", async () => {
+        const { db } = makeExportDb({
+            ...fixtures(),
+            tabular_cells: [
+                {
+                    id: "cell-review-personal",
+                    review_id: "review-personal",
+                    status: "done",
+                    content: '{"summary":"Rent"}',
+                    quote_status: "found",
+                    quote_checks: [
+                        {
+                            field: "summary",
+                            quote: "pay rent",
+                            document_id: "document-personal",
+                            status: "found",
+                            source_excerpt: "pay rent",
+                            context_before: "The Tenant shall",
+                        },
+                    ],
+                    source_versions: {
+                        "document-personal": { version_id: "v1", content_sha256: null, has_text: true },
+                    },
+                },
+            ],
+        });
+        const reviews = await buildUserTabularReviewsExport(db, userId, email, null);
+        const account = await buildUserAccountExport(db, userId, email, null);
+
+        for (const cells of [reviews.tabular_cells, account.tabular_cells]) {
+            expect(cells).toEqual([
+                {
+                    id: "cell-review-personal",
+                    review_id: "review-personal",
+                    status: "done",
+                    content: '{"summary":"Rent"}',
+                    quote_status: "found",
+                },
+            ]);
+        }
+    });
+});
+
 describe("exports enforce current read access", () => {
     it("excludes departed, denied and archived content and its descendants from account exports", async () => {
         const { db } = makeExportDb(fixtures());

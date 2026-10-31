@@ -210,7 +210,7 @@ describe("runExtractionJob", () => {
         expect(statuses.filter((s) => s === "done")).toHaveLength(2);
     });
 
-    it("publishes each finished cell with its quote check", async () => {
+    it("publishes each finished cell with its quote status, not its source passages", async () => {
         const publish = vi.fn(
             async (_reviewId: string, _update: unknown) => {},
         );
@@ -247,17 +247,19 @@ describe("runExtractionJob", () => {
             "not_found",
         ]);
         expect(done[0]).toMatchObject({
-            quote_checks: [
-                expect.objectContaining({ document_id: "doc-1", status: "found" }),
-            ],
-            no_text_document_ids: [],
+            quote_outcomes: [{ field: "summary", status: "found" }],
         });
+        expect(done[0]).not.toHaveProperty("quote_checks");
         const doneUpdates = db.calls.filter(
             (c) => c.op === "update" && c.payload?.status === "done",
         );
         expect(doneUpdates.map((c) => c.payload?.quote_status)).toEqual([
             "found",
             "not_found",
+        ]);
+        // The stored check keeps the passage the quote matched.
+        expect(doneUpdates[0].payload?.quote_checks).toEqual([
+            expect.objectContaining({ document_id: "doc-1", status: "found" }),
         ]);
     });
 

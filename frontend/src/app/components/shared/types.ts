@@ -6,6 +6,7 @@ import type {
   SourceDocumentQuote,
   SourceDocumentType,
   SourceSubdocument,
+  TabularQuoteStatus,
 } from "@mike/contracts";
 import type {
   AskInputItem as SharedAskInputItem,
@@ -774,6 +775,8 @@ export interface TabularCell {
     reasoning?: string;
   } | null;
   status: "pending" | "generating" | "done" | "error";
+  /** The quote-check status of a finished answer (docs/tabular-quote-checks.md). */
+  quote_status?: TabularQuoteStatus | null;
   created_at: string;
 }
 

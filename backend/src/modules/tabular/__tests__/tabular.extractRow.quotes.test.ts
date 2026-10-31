@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // Quote checks in the shared row-extraction core: every finished cell is
-// written with its check, and a row whose source yields no text is never sent
-// to the model.
+// written with its check, a row whose source yields no text is never sent to
+// the model, and a row whose source could not be read is failed, not finished.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -137,7 +137,7 @@ describe("extractRowColumns quote checks", () => {
             "row-1",
             1,
             expect.objectContaining({ summary: expect.stringContaining("10 Main Street") }),
-            expect.objectContaining({ quote_status: "not_found", no_text_document_ids: [] }),
+            { quote_status: "not_found", quote_outcomes: [{ field: "summary", status: "not_found" }] },
         );
     });
 
@@ -153,7 +153,7 @@ describe("extractRowColumns quote checks", () => {
         ],
     ])(
         "does not ask the model about %s and records no Not Found answers",
-        async (_label, sources, unreadable) => {
+        async (_label, sources) => {
             loadRowDocumentText.mockResolvedValue(rowText(sources));
             const fake = makeFakeDb();
             const sink = sinkSpy();
@@ -193,11 +193,45 @@ describe("extractRowColumns quote checks", () => {
             expect(sink.done).toHaveBeenCalledTimes(2);
             expect(sink.done.mock.calls[0][3]).toEqual({
                 quote_status: "no_text",
-                quote_checks: [],
-                no_text_document_ids: unreadable,
+                quote_outcomes: [],
             });
         },
     );
+
+    it("fails a row whose source could not be read, without asking the model", async () => {
+        const text = rowText([
+            { id: "doc-a", markdown: LEASE },
+            { id: "doc-b", markdown: "" },
+        ]);
+        text.sources[1].extractionFailed = true;
+        loadRowDocumentText.mockResolvedValue(text);
+        const fake = makeFakeDb();
+        const sink = sinkSpy();
+
+        const out = await extractRowColumns({
+            db: fake.db,
+            reviewId: "rev-1",
+            row: FOLDER_ROW,
+            columns: COLUMNS,
+            existingByColumn: new Map([
+                [0, { id: "c0", status: "pending", content: null }],
+                [1, { id: "c1", status: "pending", content: null }],
+            ]),
+            model: "m",
+            apiKeys: {},
+            sink,
+            generationId: "gen-1",
+        });
+
+        // Not finished as no_text: reported missing, so the caller marks the
+        // cells error (or retries the job) and a later run tries again.
+        expect(queryTabularAllColumns).not.toHaveBeenCalled();
+        expect(out.missing).toEqual([0, 1]);
+        expect(out.received.size).toBe(0);
+        expect(out.error).toMatchObject({ kind: "extraction.failed" });
+        expect(doneWrites(fake.calls)).toHaveLength(0);
+        expect(sink.done).not.toHaveBeenCalled();
+    });
 
     it("clears an earlier check when a cell is marked generating or finalized", async () => {
         loadRowDocumentText.mockResolvedValue(rowText([{ id: "doc-a", markdown: LEASE }]));
@@ -236,7 +270,7 @@ describe("extractRowColumns quote checks", () => {
 });
 
 describe("streamTabularGenerateSync frames", () => {
-    it("carries the quote check on a finished cell's frame only", async () => {
+    it("carries the quote status, without quote text or passages, on a finished cell's frame only", async () => {
         loadRowDocumentText.mockResolvedValue(rowText([{ id: "doc-a", markdown: LEASE }]));
         queryTabularAllColumns.mockImplementation(async (_m, _f, _t, _cols, onResult) => {
             await onResult(0, {
@@ -271,9 +305,10 @@ describe("streamTabularGenerateSync frames", () => {
             type: "cell_update",
             status: "done",
             quote_status: "found",
-            quote_checks: [expect.objectContaining({ status: "found", document_id: "doc-a" })],
-            no_text_document_ids: [],
+            quote_outcomes: [{ field: "summary", status: "found" }],
         });
-        expect(frames[1]).not.toHaveProperty("source_versions");
+        for (const key of ["quote_checks", "source_versions", "no_text_document_ids"]) {
+            expect(frames[1]).not.toHaveProperty(key);
+        }
     });
 });

@@ -115,7 +115,9 @@ away costs nothing.
 
 - `GET /tabular-review/:reviewId/generate/stream?from=<seq>` attaches to the
   run when this process has one, replaying `cell_update` frames from `from`
-  (replaying them is idempotent) and then tailing. With no in-process run — the
+  (replaying them is idempotent) and then tailing. A reader sees only the
+  frames of rows whose every source document it may read, as its review load
+  does; the run's starter may read more. With no in-process run — the
   async path, another replica, a lease with nothing attached — it falls back
   to the DB-tailing view it always was. A review *viewer* is refused, as at
   `POST /generate`.

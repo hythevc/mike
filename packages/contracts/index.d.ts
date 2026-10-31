@@ -17,7 +17,8 @@ export type TabularQuoteMatchStatus = "found" | "partly_found" | "not_found";
  * Outcome of a tabular cell's quote checks:
  * - `found`: every quote was found in its cited source's text;
  * - `partly_found`: some quoted text was found and some was not, or the parts
- *   of a quote with omissions ("..." or "…") were not found together, in order;
+ *   of a quote with omissions ("...", "…" or "[...]") were not found together,
+ *   in order;
  * - `not_found`: no quote was found;
  * - `no_quote`: the answer carries no quote;
  * - `no_text`: a source of the row yielded no extractable text (a scanned,
@@ -35,13 +36,18 @@ export type TabularQuoteCheck = {
   /** The quote as the cell gives it. */
   quote: string;
   /**
-   * The source document the quote was checked against: the one it cites, or
-   * the row's source it was found in when the citation names none. When a
-   * citation names a document outside the row, this is that reference and
-   * the status is `not_found`. Null when the quote names no document and was
-   * found in none of the row's several sources.
+   * The source document of the row the quote was checked against: the one it
+   * cites, or the one it was found in when the citation names none. Null when
+   * the citation names a document that is not a source of the row (see
+   * `cited_reference`), and when a quote that names no document was found in
+   * none of the row's several sources.
    */
   document_id: string | null;
+  /**
+   * The document reference a citation gives when it names no source of the
+   * row, as the answer wrote it. For display only: it is not a document id.
+   */
+  cited_reference?: string;
   /** Where the citation says the quote is. Not checked. */
   page?: number;
   sheet?: string;
@@ -60,16 +66,58 @@ export type TabularQuoteCheck = {
   context_after?: string;
 };
 
-/** Quote-check fields on every tabular cell the API returns, and on `cell_update` frames for finished cells. */
-export type TabularCellQuoteFields = {
+/** A quote's outcome without its text or the source passage it matched. */
+export type TabularQuoteOutcome = Pick<
+  TabularQuoteCheck,
+  "field" | "status" | "segments" | "segments_found"
+>;
+
+/** A cell's quote-check status, as `cell_update` frames carry it for finished cells. */
+export type TabularCellQuoteStatus = {
   /**
-   * Null while the cell has no finished answer, and for answers finished
-   * before quote checks existed (regenerating such a cell checks it).
+   * Null while the cell has no finished answer, for answers finished before
+   * quote checks existed (regenerating such a cell checks it), and for an
+   * answer whose check could not run.
    */
   quote_status: TabularQuoteStatus | null;
-  quote_checks: TabularQuoteCheck[];
-  /** Sources of the cell's row that yielded no extractable text. Set when `quote_status` is `no_text`. */
+  /**
+   * One entry per quote, in the order the citations appear in the summary and
+   * then in the reasoning, skipping citations whose quote has no letters or
+   * digits.
+   */
+  quote_outcomes: TabularQuoteOutcome[];
+};
+
+/** Quote-check fields on every cell of `GET /tabular-review/:reviewId`. */
+export type TabularCellQuoteFields = TabularCellQuoteStatus & {
+  /**
+   * Sources of the cell's row that yielded no extractable text, among those
+   * the caller may read. Set when `quote_status` is `no_text`.
+   */
   no_text_document_ids: string[];
+};
+
+/**
+ * One checked cell's quotes in full, from
+ * `GET /tabular-review/:reviewId/quote-checks`: each quote with the source
+ * passage it matched and the text around it.
+ */
+export type TabularCellQuoteChecks = {
+  row_id: string;
+  column_index: number;
+  quote_status: TabularQuoteStatus | null;
+  /** In the same order as the cell's `quote_outcomes`. */
+  quote_checks: TabularQuoteCheck[];
+  no_text_document_ids: string[];
+};
+
+/**
+ * `GET /tabular-review/:reviewId/quote-checks[?row_id=&column_index=]`: the
+ * checked cells of rows whose sources the caller may read, or the one cell
+ * asked for.
+ */
+export type TabularQuoteChecksResponse = {
+  cells: TabularCellQuoteChecks[];
 };
 
 /** Detail endpoint only: whether a source has changed since the cell was answered. */
@@ -93,9 +141,16 @@ export type TabularQuoteSummary = {
   not_found: number;
   /** Finished cells whose answer carries no quote. */
   cells_without_quote: number;
-  /** Finished cells answered before quote checks existed. */
+  /**
+   * Finished cells without a check: answered before quote checks existed, or
+   * whose check could not run.
+   */
   cells_unchecked: number;
-  /** Checked cells with a source that has changed since. */
+  /**
+   * Finished cells with a source that has changed since they were answered.
+   * Answers from before quote checks existed recorded no versions and are
+   * never counted.
+   */
   cells_stale: number;
   /**
    * Rows not answered because a source yielded no extractable text. They add

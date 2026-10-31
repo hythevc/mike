@@ -53,6 +53,12 @@ export type RowSource = {
      * encrypted or damaged file, or a document with no readable version.
      */
     markdown: string;
+    /**
+     * Extraction failed (a conversion error, or the stored file could not be
+     * read), so whether the file has text is unknown. Such a row is not
+     * answered, and its cells end in error for the next run to retry.
+     */
+    extractionFailed?: true;
 };
 
 /**
@@ -203,6 +209,7 @@ export async function loadRowDocumentText(
         }
         const storagePath = doc.storage_path;
         let markdown = "";
+        let extractionFailed = false;
         if (storagePath) {
             try {
                 markdown = await extractDocumentMarkdown(
@@ -212,10 +219,13 @@ export async function loadRowDocumentText(
             } catch (error) {
                 // Do not ask the model to fill cells from a source we refused.
                 if (error instanceof ExtractionBusyError || error instanceof ExtractionLimitError) throw error;
-                // The row goes on with an empty source section; the
-                // parser's or converter's error is the cause, so its
-                // class and code say what failed. Logging the reported
-                // object keeps the console bridge from filing it twice.
+                // The source is marked failed, which is not the same as
+                // empty: the caller fails the row rather than answering it
+                // or recording it as a file without text. The parser's or
+                // converter's error is the cause, so its class and code say
+                // what failed. Logging the reported object keeps the console
+                // bridge from filing it twice.
+                extractionFailed = true;
                 const failure = new AppError(
                     "extraction.failed",
                     "Tabular source document text extraction failed",
@@ -237,6 +247,7 @@ export async function loadRowDocumentText(
             contentSha256: doc.content_sha256 ?? null,
             filename: doc.filename,
             markdown,
+            ...(extractionFailed ? { extractionFailed: true as const } : {}),
         });
     }
     return { text: sections.join("\n\n---\n\n"), sources };

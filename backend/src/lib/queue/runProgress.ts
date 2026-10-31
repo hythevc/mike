@@ -1,4 +1,4 @@
-import type { TabularCellQuoteFields } from "@mike/contracts";
+import type { TabularCellQuoteStatus } from "@mike/contracts";
 import { getRedisProducerConnection, withRedisTimeout } from "./connection";
 import { redisEnabled } from "../dbq/driver";
 
@@ -19,9 +19,10 @@ export function runProgressChannel(reviewId: string): string {
 
 /**
  * One progress frame — the same shape the SSE `cell_update` event carries. A
- * "done" frame also carries the cell's quote check.
+ * "done" frame also carries the cell's quote-check status and each quote's
+ * outcome, never quote text or source passages.
  */
-export interface CellUpdate extends Partial<TabularCellQuoteFields> {
+export interface CellUpdate extends Partial<TabularCellQuoteStatus> {
     type: "cell_update";
     row_id: string;
     column_index: number;

@@ -7,6 +7,7 @@
 import { recordAudit } from "../../lib/audit";
 import { chunkArray } from "../../lib/arrays";
 import type {
+    TabularQuoteChecksResponse,
     TabularQuoteSummary,
     TabularReviewHistoryStatus,
 } from "@mike/contracts";
@@ -66,6 +67,7 @@ import {
 } from "./tabular.shared";
 import {
     cellStaleness,
+    quoteChecksOf,
     quoteFieldsOf,
     recordedSourceIds,
     summarizeQuoteChecks,
@@ -795,8 +797,15 @@ export async function getTabularReviewDetail(
         }
     }
     const clientCells = visibleCells.map((cell: Record<string, unknown>) => {
-        // Which version of each source the answer read is server bookkeeping.
-        const { source_versions: _recorded, ...stored } = cell;
+        // Which version of each source the answer read is server bookkeeping,
+        // and each quote's source passages are read per cell from the
+        // quote-checks endpoint: a review-wide response carries only each
+        // quote's outcome.
+        const {
+            source_versions: _recorded,
+            quote_checks: _checks,
+            ...stored
+        } = cell;
         return {
             ...stored,
             content: parseCellContent(cell.content),
@@ -818,6 +827,72 @@ export async function getTabularReviewDetail(
             rows,
             documents: docs as unknown as Record<string, unknown>[],
             quote_summary: summarizeQuoteChecks(clientCells),
+        },
+    };
+}
+
+/**
+ * The quote checks of a review's checked cells in full: each quote with the
+ * source passage it matched and the text around it. Limited to rows whose
+ * every source the caller may read (the rule the detail endpoint applies),
+ * and to one row, or one cell, when asked.
+ */
+export async function getTabularQuoteChecks(
+    db: Db,
+    args: {
+        reviewId: string;
+        userId: string;
+        userEmail: string | undefined;
+        rowId?: string;
+        columnIndex?: number;
+    },
+): Promise<TabularResult<TabularQuoteChecksResponse>> {
+    const { reviewId, userId, userEmail, rowId, columnIndex } = args;
+
+    const { data: review, error } = await db
+        .from("tabular_reviews")
+        .select("*")
+        .eq("id", reviewId)
+        .single();
+    if (error || !review) return failure("not_found", "Review not found");
+    const access = await ensureReviewAccess(review, userId, userEmail, db);
+    if (!access.ok) return failure("not_found", "Review not found");
+
+    let rows: ReviewRow[];
+    let readableDocumentIds: Set<string>;
+    try {
+        const allRows = await loadReviewRows(db, reviewId);
+        ({ rows, readableDocumentIds } = await filterReadableReviewRows(
+            db,
+            rowId ? allRows.filter((row) => row.id === rowId) : allRows,
+            [],
+            userId,
+            userEmail,
+        ));
+    } catch (lookupError) {
+        return internalFailure(lookupError);
+    }
+    if (!rows.length) return { ok: true, data: { cells: [] } };
+    const visibleRowIds = new Set(rows.map((row) => row.id));
+
+    let query = db
+        .from("tabular_cells")
+        .select(
+            "row_id, column_index, status, quote_status, quote_checks, source_versions",
+        )
+        .eq("review_id", reviewId);
+    if (rowId) query = query.eq("row_id", rowId);
+    if (columnIndex !== undefined) query = query.eq("column_index", columnIndex);
+    const { data: cells, error: cellsError } = await query;
+    if (cellsError) return internalFailure(cellsError);
+
+    return {
+        ok: true,
+        data: {
+            cells: ((cells ?? []) as Record<string, unknown>[])
+                .filter((cell) => visibleRowIds.has(cell.row_id as string))
+                .map((cell) => quoteChecksOf(cell, readableDocumentIds))
+                .filter((cell) => cell.quote_status !== null),
         },
     };
 }

@@ -483,6 +483,45 @@ describe("regenerateTabularCell", () => {
         expect(fake.rpcCalls[1].fn).toBe("finish_tabular_review_generation");
     });
 
+    it("fails the cell, without asking the model, when a source could not be read", async () => {
+        loadRowDocumentText.mockResolvedValue({
+            text: "## Source document: Contract.pdf\nSource document ID: doc-1\n\n",
+            sources: [
+                {
+                    documentId: "doc-1",
+                    versionId: "ver-1",
+                    contentSha256: null,
+                    filename: "Contract.pdf",
+                    markdown: "",
+                    extractionFailed: true,
+                },
+            ],
+        });
+        const fake = makeFakeDb({
+            tables: { tabular_reviews: { data: REVIEW, error: null } },
+            rpc: (fn) =>
+                fn === "begin_tabular_review_generation"
+                    ? started()
+                    : { data: null, error: null },
+        });
+        const result = await regenerateTabularCell(fake.db, {
+            reviewId: "rev-1",
+            ...WHO,
+            rowId: "row-1",
+            columnIndex: 0,
+            log: LOG,
+        });
+        expect(queryTabularCell).not.toHaveBeenCalled();
+        expect(result).toMatchObject({ ok: false, status: 500 });
+        // In error, not finished as a row without text: Run tries it again.
+        const generationId = fake.rpcCalls[0].args.target_generation_id;
+        expect(callTo(fake.calls, "tabular_cells", 1)).toMatchObject({
+            payload: { status: "error", generation_id: null },
+            filters: { generation_id: generationId },
+        });
+        expect(fake.rpcCalls[1].fn).toBe("finish_tabular_review_generation");
+    });
+
     it("marks the cell errored and 500s when the model returns nothing", async () => {
         queryTabularCell.mockResolvedValue(null);
         const fake = makeFakeDb({

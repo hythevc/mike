@@ -92,6 +92,24 @@ describe("stream runs", () => {
         expect(run.finished).toBe(true);
     });
 
+    it("shows a reader only the frames it may see, replayed and live", () => {
+        const run = start();
+        run.write('data: {"row_id":"mine"}\n\n');
+        run.write('data: {"row_id":"theirs"}\n\n');
+
+        const reader = fakeResponse();
+        attachStreamRunSse(reader as unknown as Response, run, 1, (chunk) =>
+            !chunk.includes("theirs"),
+        );
+        run.write('data: {"row_id":"theirs"}\n\n');
+        run.write('data: {"row_id":"mine"}\n\n');
+
+        expect(reader.chunks).toEqual([
+            'id: 1\ndata: {"row_id":"mine"}\n\n',
+            'id: 4\ndata: {"row_id":"mine"}\n\n',
+        ]);
+    });
+
     it("replays buffered frames from a sequence number, then tails, then ends", () => {
         const run = start();
         run.write("data: 1\n\n");

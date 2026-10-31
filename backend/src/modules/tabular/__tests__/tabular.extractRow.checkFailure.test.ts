@@ -35,7 +35,7 @@ import { extractRowColumns } from "../tabular.extractRow";
 import { makeFakeDb } from "./fakeDb";
 
 describe("extractRowColumns when the quote check fails", () => {
-    it("saves the answer without a status and finishes the cell", async () => {
+    it("saves the answer without a status, with its sources' versions, and finishes the cell", async () => {
         queryTabularAllColumns.mockImplementation(async (_m, _f, _t, _cols, onResult) => {
             await onResult(0, {
                 summary: "Five years [[document:doc-1||page:1||quote:five years]]",
@@ -80,12 +80,14 @@ describe("extractRowColumns when the quote check fails", () => {
             content: expect.stringContaining("Five years"),
             quote_status: null,
             quote_checks: null,
-            source_versions: null,
+            // Kept so the cell can still report that its source changed.
+            source_versions: {
+                "doc-1": { version_id: "ver-1", content_sha256: null, has_text: true },
+            },
         });
         expect(sink.done).toHaveBeenCalledWith("row-1", 0, expect.anything(), {
             quote_status: null,
-            quote_checks: [],
-            no_text_document_ids: [],
+            quote_outcomes: [],
         });
     });
 });

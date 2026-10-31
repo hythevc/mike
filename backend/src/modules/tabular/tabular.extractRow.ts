@@ -17,7 +17,9 @@
 // QUOTE CHECKS: each finished cell is checked against the same per-source text
 // the model read for the row (tabular.verify.ts) and the check is written with
 // the answer. A row with a source that yields no text is not sent to the model
-// at all: its cells finish with no answer and the status `no_text`.
+// at all: its cells finish with no answer and the status `no_text`. A row with
+// a source whose extraction failed is not sent either; its columns come back
+// `missing`, like any other failed row, so the next run retries them.
 //
 // GENERATION ISOLATION: every write here is stamped with the caller's
 // `generationId` and guarded by it (`.eq("generation_id", generationId)`) —
@@ -29,7 +31,8 @@
 // used by both the sync and async entry points. See tabular.shared.ts for the
 // lease itself.
 
-import type { TabularCellQuoteFields } from "@mike/contracts";
+import type { TabularCellQuoteStatus } from "@mike/contracts";
+import { AppError } from "../../lib/appError";
 import { ExtractionBusyError, ExtractionLimitError } from "../../lib/extraction/limits";
 import { type UserApiKeys } from "../../lib/llm";
 import { queryTabularAllColumns } from "./tabular.extract";
@@ -45,7 +48,8 @@ import {
     checkAnswerQuotes,
     createCellQuoteChecker,
     noTextQuoteCheck,
-    quoteFieldsOfCheck,
+    quoteStatusOfCheck,
+    rowExtractionFailed,
     rowHasNoText,
     type CellQuoteCheck,
 } from "./tabular.verify";
@@ -58,12 +62,15 @@ import {
 export interface CellSink {
     activity?: () => void;
     generating(rowId: string, columnIndex: number): void | Promise<void>;
-    /** `quote` is the cell's quote check, as clients receive it. */
+    /**
+     * `quote` is the cell's quote-check status and each quote's outcome, as
+     * `cell_update` frames carry them (no quote text or source passages).
+     */
     done(
         rowId: string,
         columnIndex: number,
         result: CellResult,
-        quote: TabularCellQuoteFields,
+        quote: TabularCellQuoteStatus,
     ): void | Promise<void>;
 }
 
@@ -178,6 +185,19 @@ export async function extractRowColumns(args: {
         return { processed, received: new Set(), missing: processed.map((col) => col.index), error };
     }
     if (abortSignal?.aborted) return untouched();
+    // A source that could not be read is not a source without text: fail the
+    // row (already reported per document) so a later run tries again.
+    if (rowExtractionFailed(rowText)) {
+        return {
+            processed,
+            received: new Set(),
+            missing: processed.map((col) => col.index),
+            error: new AppError(
+                "extraction.failed",
+                "A source document of the row could not be read",
+            ),
+        };
+    }
 
     // Mark each outstanding column "generating" (insert the cell if it's new)
     // and announce it, so the grid shows spinners immediately.
@@ -221,11 +241,12 @@ export async function extractRowColumns(args: {
     }
 
     // Persist + announce one finished cell, its quote check written with it
-    // (none when the check failed: the answer is kept, unchecked).
+    // (a failed check leaves the answer unchecked, its sources' versions
+    // still recorded).
     const finishCell = async (
         columnIndex: number,
         result: CellResult,
-        check: CellQuoteCheck | null,
+        check: CellQuoteCheck,
     ) => {
         const query = db
             .from("tabular_cells")
@@ -233,13 +254,13 @@ export async function extractRowColumns(args: {
                 content: JSON.stringify(result),
                 status: "done",
                 generation_id: null,
-                ...(check ?? CLEARED_QUOTE_CHECK),
+                ...check,
             })
             .eq("review_id", reviewId)
             .eq("row_id", row.id)
             .eq("column_index", columnIndex);
         await (generationId ? query.eq("generation_id", generationId) : query);
-        await sink.done(row.id, columnIndex, result, quoteFieldsOfCheck(check));
+        await sink.done(row.id, columnIndex, result, quoteStatusOfCheck(check));
     };
 
     // A source with no extractable text (a scanned, encrypted or damaged
@@ -272,7 +293,7 @@ export async function extractRowColumns(args: {
                 await finishCell(
                     columnIndex,
                     result,
-                    checkAnswerQuotes(checkCell, result),
+                    checkAnswerQuotes(rowText, checkCell, result),
                 );
             },
             apiKeys,

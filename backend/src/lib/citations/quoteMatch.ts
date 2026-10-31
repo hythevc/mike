@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Locate a quoted passage in extracted source text, and verify citation
-// quotes against it. Chat citations use `verifyQuoteAgainstSource`; tabular
-// cells match through `sourceMatcher.ts`, which shares the segment rules and
-// the ordered segment search below.
+// Locate a quoted passage in extracted source text, and verify chat citation
+// quotes against it (`verifyQuoteAgainstSource`). Moved here from the chat
+// engine unchanged so that other modules can use it; tabular cell checks use
+// the stricter matcher in `sourceMatcher.ts`.
 
 import type { QuoteVerification } from "@mike/contracts";
 import { normalizeWithMap } from "./normalize";
@@ -32,24 +32,9 @@ const UNREADABLE_SOURCES = new Set([
 ]);
 
 export type QuoteLocation = { start: number; end: number; excerpt: string };
-export type QuoteVerificationResult = QuoteVerification & {
+type QuoteVerificationResult = QuoteVerification & {
   needs_correction: boolean;
 };
-
-/**
- * The parts of a quote that must each appear in the source. The document
- * viewers treat ASCII and Unicode ellipses as omission separators, so a quote
- * abbreviated with `...` or `…` has one segment per verbatim run. Matching the
- * viewers' normalization, punctuation-only remnants (for example, the fourth
- * dot in "....") do not form segments. A quote without letters or digits has
- * no segments.
- */
-export function splitQuoteSegments(quote: string): string[] {
-  return quote
-    .split(ELLIPSIS_PATTERN)
-    .map((segment) => segment.trim())
-    .filter((segment) => /[\p{L}\p{N}]/u.test(segment));
-}
 
 /**
  * Locate `quote` inside `source`, returning the exact original substring
@@ -119,11 +104,10 @@ function locateQuoteFrom(
 
 /**
  * Locate segments in document order with a bounded gap. Backtracking lets a
- * later occurrence of repeated text satisfy the complete chain. `locateFrom`
- * returns the earliest match of a segment starting at or after an offset.
+ * later occurrence of repeated text satisfy the complete chain.
  */
-export function locateSegmentsInOrder(
-  locateFrom: (segment: string, from: number) => QuoteLocation | null,
+function locateSegmentsInOrder(
+  source: string,
   segments: string[],
   maxGap: number,
 ): QuoteLocation[] | null {
@@ -139,7 +123,7 @@ export function locateSegmentsInOrder(
     let cursor = from;
     while (attempts < MAX_LOCATE_ATTEMPTS) {
       attempts += 1;
-      const location = locateFrom(segments[index], cursor);
+      const location = locateQuoteFrom(source, segments[index], cursor);
       if (!location) return null;
       if (previousEnd !== null && location.start - previousEnd > maxGap) {
         return null;
@@ -210,11 +194,14 @@ export function verifyQuoteAgainstSource(
     // Including all ellipsis fragments makes the next page begin after the
     // preceding page segment's complete matched span, not merely its start.
     const anchorSegments = segments.flatMap((segment) => {
-      const fragments = splitQuoteSegments(segment);
+      const fragments = segment
+        .split(ELLIPSIS_PATTERN)
+        .map((fragment) => fragment.trim())
+        .filter((fragment) => /[\p{L}\p{N}]/u.test(fragment));
       return fragments.length > 0 ? fragments : [segment];
     });
     const anchors = locateSegmentsInOrder(
-      (segment, from) => locateQuoteFrom(source, segment, from),
+      source,
       anchorSegments,
       MAX_PAGE_BREAK_SPAN_CHARS,
     );
@@ -236,7 +223,12 @@ export function verifyQuoteAgainstSource(
   // behavior here so a legitimate abbreviated quote is not rejected merely
   // because text was intentionally omitted between its verbatim segments.
   if (ELLIPSIS_PATTERN.test(quote)) {
-    const segments = splitQuoteSegments(quote);
+    const segments = quote
+      .split(ELLIPSIS_PATTERN)
+      .map((segment) => segment.trim())
+      // Match the viewers' normalization: punctuation-only remnants (for
+      // example, the fourth dot in "....") do not form quoted segments.
+      .filter((segment) => /[\p{L}\p{N}]/u.test(segment));
     if (!segments.length) return { verified: false, needs_correction: false };
     const located = segments.map((segment) => ({
       segment,

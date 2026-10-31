@@ -32,6 +32,7 @@ import {
     validateSelectedModel,
     TABULAR_GENERATION_HEARTBEAT_MS,
     TABULAR_GENERATION_LEASE_SECONDS,
+    type CellResult,
     type Db,
     type Log,
     type TabularResult,
@@ -42,6 +43,7 @@ import {
     checkAnswerQuotes,
     createCellQuoteChecker,
     noTextQuoteCheck,
+    rowExtractionFailed,
     rowHasNoText,
 } from "./tabular.verify";
 
@@ -393,24 +395,30 @@ export async function regenerateTabularCell(
         }
 
         // A source with no extractable text: the cell is not sent to the
-        // model and finishes with no answer (see tabular.verify.ts).
+        // model and finishes with no answer (see tabular.verify.ts). A source
+        // whose extraction failed (reported per document) fails the cell, so
+        // it can be retried.
         const rowText = await loadRowDocumentText(db, row);
-        const noText = rowHasNoText(rowText);
-        const result = noText
-            ? NO_TEXT_RESULT
-            : await queryTabularCell(
-                  tabular_model,
-                  row.label,
-                  rowText.text,
-                  column.prompt,
-                  column.format,
-                  column.tags,
-                  api_keys,
-              );
+        const extractionFailed = rowExtractionFailed(rowText);
+        const noText = !extractionFailed && rowHasNoText(rowText);
+        let result: CellResult | null = null;
+        if (noText) result = NO_TEXT_RESULT;
+        else if (!extractionFailed) {
+            result = await queryTabularCell(
+                tabular_model,
+                row.label,
+                rowText.text,
+                column.prompt,
+                column.format,
+                column.tags,
+                api_keys,
+            );
+        }
 
         if (!result) {
-            // queryTabularCell reported the provider failure itself; this is
-            // the same failure, so it only becomes the 500.
+            // queryTabularCell reported the provider failure itself (and
+            // loadRowDocumentText an extraction failure); this is the same
+            // failure, so it only becomes the 500.
             await db
                 .from("tabular_cells")
                 .update({ status: "error", generation_id: null })
@@ -423,14 +431,18 @@ export async function regenerateTabularCell(
 
         const check = noText
             ? noTextQuoteCheck(rowText)
-            : checkAnswerQuotes(createCellQuoteChecker(rowText), result);
+            : checkAnswerQuotes(
+                  rowText,
+                  createCellQuoteChecker(rowText),
+                  result,
+              );
         const { error: completedError } = await db
             .from("tabular_cells")
             .update({
                 content: JSON.stringify(result),
                 status: "done",
                 generation_id: null,
-                ...(check ?? CLEARED_QUOTE_CHECK),
+                ...check,
             })
             .eq("review_id", reviewId)
             .eq("row_id", row.id)

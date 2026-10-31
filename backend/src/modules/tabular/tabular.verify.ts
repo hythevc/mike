@@ -10,13 +10,15 @@
 //
 //   found         every quote was found in its cited source's text;
 //   partly_found  some quoted text was found and some was not, or the parts of
-//                 a quote with omissions ("..." or "…") were not found
+//                 a quote with omissions ("...", "…", "[...]") were not found
 //                 together and in order;
 //   not_found     no quote was found;
 //   no_quote      the answer carries no quote;
 //   no_text       a source of the row yielded no extractable text (a scanned,
 //                 encrypted or damaged file), so the row was not answered and
-//                 no "Not Found" answer is recorded for it.
+//                 no "Not Found" answer is recorded for it. A source whose
+//                 extraction failed outright is not no_text: its row's cells
+//                 end in error and the next run retries them.
 //
 // Only the quoted text is matched. The page, sheet or cell a citation names is
 // not checked, and a found quote does not mean the answer is right. Each cell
@@ -24,10 +26,13 @@
 // that a source has changed since (`stale`).
 
 import type {
+    TabularCellQuoteChecks,
     TabularCellQuoteFields,
+    TabularCellQuoteStatus,
     TabularCellStaleness,
     TabularQuoteCheck,
     TabularQuoteMatchStatus,
+    TabularQuoteOutcome,
     TabularQuoteStatus,
     TabularQuoteSummary,
 } from "@mike/contracts";
@@ -160,17 +165,27 @@ export type SourceVersionRecord = {
     has_text: boolean;
 };
 
-/** The quote-check columns written together with a cell's answer. */
-export type CellQuoteCheck = {
+/** A check that ran: the cell's status and one entry per quote. */
+export type CompletedQuoteCheck = {
     quote_status: TabularQuoteStatus;
     quote_checks: TabularQuoteCheck[];
     source_versions: Record<string, SourceVersionRecord>;
 };
 
 /**
- * Written whenever a cell's answer is cleared, so no check outlives it, and
- * with an answer whose check failed.
+ * The quote-check columns written together with a cell's answer. When the
+ * check failed, the answer is kept unchecked (no status, no entries) and the
+ * versions it was drawn from are still recorded.
  */
+export type CellQuoteCheck =
+    | CompletedQuoteCheck
+    | {
+          quote_status: null;
+          quote_checks: null;
+          source_versions: Record<string, SourceVersionRecord>;
+      };
+
+/** Written whenever a cell's answer is cleared, so no check outlives it. */
 export const CLEARED_QUOTE_CHECK = {
     quote_status: null,
     quote_checks: null,
@@ -193,6 +208,15 @@ export function sourceVersionsOf(
 }
 
 /**
+ * A row with a source whose extraction failed (as opposed to returning no
+ * text) is not answered either, but it is not finished: its cells end in
+ * error, and the next run tries the extraction again.
+ */
+export function rowExtractionFailed(text: RowDocumentText): boolean {
+    return text.sources.some((source) => source.extractionFailed);
+}
+
+/**
  * A row can only be answered from all of its sources. One that has none, or
  * has a source that yielded no text, is not answered at all: an answer drawn
  * from part of a folder could miss what the unreadable file says.
@@ -204,10 +228,22 @@ export function rowHasNoText(text: RowDocumentText): boolean {
     );
 }
 
-export function noTextQuoteCheck(text: RowDocumentText): CellQuoteCheck {
+export function noTextQuoteCheck(text: RowDocumentText): CompletedQuoteCheck {
     return {
         quote_status: "no_text",
         quote_checks: [],
+        source_versions: sourceVersionsOf(text),
+    };
+}
+
+/**
+ * An answer whose check failed: no status, but still the versions it was
+ * drawn from, so the cell can report later that a source has changed.
+ */
+export function uncheckedQuoteCheck(text: RowDocumentText): CellQuoteCheck {
+    return {
+        quote_status: null,
+        quote_checks: null,
         source_versions: sourceVersionsOf(text),
     };
 }
@@ -247,6 +283,14 @@ function toQuoteCheck(
         document_id: documentId,
         status: match.status,
     };
+    // A citation of a document outside the row: what the answer wrote is
+    // kept for display, never as an id.
+    if (citation.documentId && !documentId) {
+        check.cited_reference = clip(
+            citation.documentId,
+            MAX_DOCUMENT_REFERENCE_CHARS,
+        );
+    }
     if (citation.page !== undefined) check.page = citation.page;
     if (citation.sheet) check.sheet = citation.sheet;
     if (citation.cell) check.cell = citation.cell;
@@ -303,7 +347,7 @@ function cellQuoteStatus(checks: TabularQuoteCheck[]): TabularQuoteStatus {
  */
 export function createCellQuoteChecker(
     text: RowDocumentText,
-): (result: CellResult) => CellQuoteCheck {
+): (result: CellResult) => CompletedQuoteCheck {
     const sourceVersions = sourceVersionsOf(text);
     const sourcesById = new Map(
         text.sources.map((source) => [normalizeId(source.documentId), source]),
@@ -325,7 +369,7 @@ export function createCellQuoteChecker(
             if (!source) {
                 return toQuoteCheck(
                     citation,
-                    clip(citation.documentId, MAX_DOCUMENT_REFERENCE_CHARS),
+                    null,
                     { status: "not_found", segments: [] },
                     null,
                 );
@@ -381,12 +425,14 @@ export function createCellQuoteChecker(
 
 /**
  * Run a cell's check without letting a failure cost the answer: the answer is
- * then saved with no status (shown as not checked) and the failure reported.
+ * then saved with no status (shown as not checked), still recording the
+ * versions of the row's sources, and the failure is reported.
  */
 export function checkAnswerQuotes(
+    text: RowDocumentText,
     check: (result: CellResult) => CellQuoteCheck,
     result: CellResult,
-): CellQuoteCheck | null {
+): CellQuoteCheck {
     try {
         return check(result);
     } catch (error) {
@@ -397,7 +443,7 @@ export function checkAnswerQuotes(
         );
         reportError(failure);
         console.error("[tabular/quote-check] check failed", failure);
-        return null;
+        return uncheckedQuoteCheck(text);
     }
 }
 
@@ -451,49 +497,112 @@ export function recordedSourceIds(cell: Record<string, unknown>): string[] {
 }
 
 /**
- * A stored cell's quote-check fields as clients receive them. A cell without a
- * finished answer carries no check, and neither does one answered before
- * checks existed. `readable`, when given, limits the document ids shown to
- * those the caller may read.
+ * A stored cell's status. A cell without a finished answer carries none, and
+ * neither does one answered before checks existed or whose check failed.
+ */
+function storedQuoteStatus(
+    cell: Record<string, unknown>,
+): TabularQuoteStatus | null {
+    return cell.status === "done" &&
+        typeof cell.quote_status === "string" &&
+        QUOTE_STATUSES.has(cell.quote_status)
+        ? (cell.quote_status as TabularQuoteStatus)
+        : null;
+}
+
+/** A stored cell's per-quote entries, dropping any that are malformed. */
+function storedQuoteChecks(cell: Record<string, unknown>): TabularQuoteCheck[] {
+    if (!Array.isArray(cell.quote_checks)) return [];
+    return cell.quote_checks.filter(
+        (check): check is TabularQuoteCheck =>
+            isRecord(check) &&
+            (check.field === "summary" || check.field === "reasoning") &&
+            typeof check.quote === "string" &&
+            typeof check.status === "string" &&
+            MATCH_STATUSES.has(check.status),
+    );
+}
+
+/** The sources of a cell's row that yielded no text, among those `readable`. */
+function noTextDocumentIds(
+    cell: Record<string, unknown>,
+    readable?: ReadonlySet<string>,
+): string[] {
+    return [...storedSourceVersions(cell.source_versions)]
+        .filter(([, version]) => !version.has_text)
+        .map(([documentId]) => documentId)
+        .filter((documentId) => !readable || readable.has(documentId));
+}
+
+/** A quote's outcome without its text or the source passage it matched. */
+export function quoteOutcomeOf(check: TabularQuoteCheck): TabularQuoteOutcome {
+    const outcome: TabularQuoteOutcome = {
+        field: check.field,
+        status: check.status,
+    };
+    if (typeof check.segments === "number") outcome.segments = check.segments;
+    if (typeof check.segments_found === "number") {
+        outcome.segments_found = check.segments_found;
+    }
+    return outcome;
+}
+
+/**
+ * A stored cell's status and each quote's outcome, as `cell_update` frames
+ * carry them. No quote text, source passage or document id: those are read
+ * from the quote-checks endpoint, which narrows them to readable documents.
+ */
+export function quoteStatusOf(
+    cell: Record<string, unknown>,
+): TabularCellQuoteStatus {
+    const status = storedQuoteStatus(cell);
+    return {
+        quote_status: status,
+        quote_outcomes: status ? storedQuoteChecks(cell).map(quoteOutcomeOf) : [],
+    };
+}
+
+/** A just-written check as `cell_update` frames carry it. */
+export function quoteStatusOfCheck(
+    check: CellQuoteCheck,
+): TabularCellQuoteStatus {
+    return quoteStatusOf({ status: "done", ...check });
+}
+
+/**
+ * A stored cell's quote fields on the review detail endpoint: its status,
+ * each quote's outcome, and which of the row's sources the caller may read
+ * yielded no text.
  */
 export function quoteFieldsOf(
     cell: Record<string, unknown>,
     readable?: ReadonlySet<string>,
 ): TabularCellQuoteFields {
-    const status =
-        cell.status === "done" &&
-        typeof cell.quote_status === "string" &&
-        QUOTE_STATUSES.has(cell.quote_status)
-            ? (cell.quote_status as TabularQuoteStatus)
-            : null;
-    if (!status) {
-        return { quote_status: null, quote_checks: [], no_text_document_ids: [] };
-    }
-    const quoteChecks = Array.isArray(cell.quote_checks)
-        ? (cell.quote_checks.filter(
-              (check) =>
-                  isRecord(check) &&
-                  typeof check.quote === "string" &&
-                  typeof check.status === "string" &&
-                  MATCH_STATUSES.has(check.status),
-          ) as TabularQuoteCheck[])
-        : [];
-    const noText = [...storedSourceVersions(cell.source_versions)]
-        .filter(([, version]) => !version.has_text)
-        .map(([documentId]) => documentId)
-        .filter((documentId) => !readable || readable.has(documentId));
+    const fields = quoteStatusOf(cell);
     return {
-        quote_status: status,
-        quote_checks: quoteChecks,
-        no_text_document_ids: noText,
+        ...fields,
+        no_text_document_ids: fields.quote_status
+            ? noTextDocumentIds(cell, readable)
+            : [],
     };
 }
 
-/** A just-written check as clients receive it (cell_update frames). */
-export function quoteFieldsOfCheck(
-    check: CellQuoteCheck | null,
-): TabularCellQuoteFields {
-    return quoteFieldsOf({ status: "done", ...(check ?? CLEARED_QUOTE_CHECK) });
+/**
+ * A checked cell's quotes in full, as the quote-checks endpoint returns them:
+ * each quote with the source passage it matched and the text around it.
+ */
+export function quoteChecksOf(
+    cell: Record<string, unknown>,
+    readable: ReadonlySet<string>,
+): TabularCellQuoteChecks {
+    const status = storedQuoteStatus(cell);
+    return {
+        row_id: String(cell.row_id),
+        column_index: Number(cell.column_index),
+        quote_status: status,
+        quote_checks: status ? storedQuoteChecks(cell) : [],
+        no_text_document_ids: status ? noTextDocumentIds(cell, readable) : [],
+    };
 }
 
 /** A source's active version, as the cell's record of it is compared with. */
@@ -541,7 +650,7 @@ export function cellStaleness(
  */
 export function summarizeQuoteChecks(
     cells: ReadonlyArray<
-        { row_id?: unknown; status?: unknown } & TabularCellQuoteFields &
+        { row_id?: unknown; status?: unknown } & TabularCellQuoteStatus &
             Partial<TabularCellStaleness>
     >,
 ): TabularQuoteSummary {
@@ -558,19 +667,19 @@ export function summarizeQuoteChecks(
     const rowsWithoutText = new Set<string>();
     for (const cell of cells) {
         if (cell.status !== "done") continue;
+        if (cell.stale) summary.cells_stale += 1;
         if (!cell.quote_status) {
             summary.cells_unchecked += 1;
             continue;
         }
-        if (cell.stale) summary.cells_stale += 1;
         if (cell.quote_status === "no_text") {
             rowsWithoutText.add(String(cell.row_id));
             continue;
         }
         if (cell.quote_status === "no_quote") summary.cells_without_quote += 1;
-        for (const check of cell.quote_checks) {
+        for (const outcome of cell.quote_outcomes) {
             summary.quotes += 1;
-            summary[check.status] += 1;
+            summary[outcome.status] += 1;
         }
     }
     summary.rows_without_text = rowsWithoutText.size;

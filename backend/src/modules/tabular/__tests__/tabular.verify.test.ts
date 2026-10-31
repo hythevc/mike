@@ -12,8 +12,11 @@ import {
     createCellQuoteChecker,
     noTextQuoteCheck,
     parseCellCitations,
+    quoteChecksOf,
     quoteFieldsOf,
-    quoteFieldsOfCheck,
+    quoteStatusOf,
+    quoteStatusOfCheck,
+    rowExtractionFailed,
     rowHasNoText,
     summarizeQuoteChecks,
     type ActiveSourceVersion,
@@ -208,6 +211,66 @@ describe("checking a cell's quotes against its row's text", () => {
         expect(result.quote_checks[0].source_excerpt).toBeUndefined();
     });
 
+    it.each([
+        ["5 days before expiry", "Notice is due at least 15 days before expiry."],
+        ["10,000.00 dollars", "The Buyer shall pay 110,000.00 dollars."],
+        ["2.5% per annum", "Interest accrues at 12.5% per annum."],
+        [
+            "enforceable against the Guarantor",
+            "This covenant is unenforceable against the Guarantor.",
+        ],
+        [
+            "exclusive licence to use the Software",
+            "The Customer has a non-exclusive licence to use the Software.",
+        ],
+        [
+            "pay rent of €10,000.00 per month",
+            "The Tenant shall pay rent of $10,000.00 per month.",
+        ],
+        [
+            "the Leverage Ratio ≥ 3.50",
+            "The Borrower shall keep the Leverage Ratio ≤ 3.50 at all times.",
+        ],
+        ["0.50% per annum", "The Margin is -0.50% per annum."],
+        ["Sections 12 and 13", "as set out in Sections 1, 2 and 13"],
+    ])("reports %j as not found in %j", (quote, text) => {
+        const checkOne = createCellQuoteChecker(rowText([{ id: "doc-a", markdown: text }]));
+        const result = checkOne(answer(`Clause ${cite("doc-a", quote)}`));
+        expect(result.quote_status).toBe("not_found");
+        expect(result.quote_checks[0].source_excerpt).toBeUndefined();
+    });
+
+    it.each([
+        "The Tenant shall [...] on the first day of each month",
+        "The Tenant shall . . . on the first day of each month",
+        "The Tenant shall (…) on the first day of each month",
+    ])("finds a quote whose omission is marked as in %j", (quote) => {
+        const result = check(answer(`Rent ${cite("doc-a", quote)}`));
+        expect(result.quote_status).toBe("found");
+        expect(result.quote_checks[0]).toMatchObject({
+            segments: 2,
+            segments_found: 2,
+        });
+    });
+
+    it("finds a shortened quote whose first part repeats through a long document", () => {
+        const clauses = Array.from(
+            { length: 40 },
+            (_, n) =>
+                `${n + 1}. The Tenant shall comply with rule ${n + 1}. ` +
+                "Notices go to the address in the Schedule. ".repeat(50),
+        );
+        const lease = [
+            ...clauses,
+            "41. The Tenant shall indemnify the Landlord against all claims.",
+        ].join("\n");
+        const long = createCellQuoteChecker(rowText([{ id: "doc-a", markdown: lease }]));
+        const result = long(
+            answer(`Indemnity ${cite("doc-a", "The Tenant shall ... indemnify the Landlord")}`),
+        );
+        expect(result.quote_status).toBe("found");
+    });
+
     it("summarizes a cell with found and missing quotes as partly found", () => {
         const result = check(
             answer(
@@ -260,8 +323,10 @@ describe("a folder row with two documents", () => {
 
     it("reports a citation of a document outside the row as not found", () => {
         const result = check(answer(`Rent ${cite("doc-z", "pay rent of $10,000.00")}`));
+        // What the answer wrote is kept for display, never as a document id.
         expect(result.quote_checks[0]).toMatchObject({
-            document_id: "doc-z",
+            document_id: null,
+            cited_reference: "doc-z",
             status: "not_found",
         });
     });
@@ -370,11 +435,28 @@ describe("a row whose source yields no text", () => {
                 "doc-b": { version_id: "doc-b-v1", content_sha256: null, has_text: false },
             },
         });
-        expect(quoteFieldsOfCheck(check)).toEqual({
+        expect(quoteStatusOfCheck(check)).toEqual({
             quote_status: "no_text",
-            quote_checks: [],
+            quote_outcomes: [],
+        });
+        expect(quoteFieldsOf({ status: "done", ...check })).toEqual({
+            quote_status: "no_text",
+            quote_outcomes: [],
             no_text_document_ids: ["doc-b"],
         });
+    });
+
+    it("tells a source whose extraction failed from one without text", () => {
+        const failed: RowDocumentText = {
+            ...scanned,
+            sources: scanned.sources.map((source) =>
+                source.documentId === "doc-b"
+                    ? { ...source, extractionFailed: true as const }
+                    : source,
+            ),
+        };
+        expect(rowExtractionFailed(failed)).toBe(true);
+        expect(rowExtractionFailed(scanned)).toBe(false);
     });
 
     it("is counted on its own, outside the found and not-found counts", () => {
@@ -425,13 +507,31 @@ describe("a row whose source yields no text", () => {
     });
 });
 
-describe("quoteFieldsOf", () => {
+describe("reading stored checks back", () => {
     const stored = {
+        row_id: "row-1",
+        column_index: 2,
         status: "done",
         quote_status: "partly_found",
         quote_checks: [
-            { field: "summary", quote: "a", document_id: "doc-a", status: "found" },
-            { field: "summary", quote: "b", document_id: "doc-a", status: "bogus" },
+            {
+                field: "summary",
+                quote: "a",
+                document_id: "doc-a",
+                status: "found",
+                source_excerpt: "a",
+                context_before: "before",
+            },
+            {
+                field: "reasoning",
+                quote: "b ... c",
+                document_id: "doc-a",
+                status: "partly_found",
+                segments: 2,
+                segments_found: 1,
+            },
+            { field: "summary", quote: "d", document_id: "doc-a", status: "bogus" },
+            { field: "elsewhere", quote: "e", document_id: "doc-a", status: "found" },
             "not an entry",
         ],
         source_versions: {
@@ -439,12 +539,31 @@ describe("quoteFieldsOf", () => {
         },
     };
 
-    it("returns the stored check of a finished cell, dropping malformed entries", () => {
-        expect(quoteFieldsOf(stored)).toEqual({
+    it("gives the grid each quote's outcome without its text or source passage", () => {
+        expect(quoteStatusOf(stored)).toEqual({
             quote_status: "partly_found",
-            quote_checks: [
-                { field: "summary", quote: "a", document_id: "doc-a", status: "found" },
+            quote_outcomes: [
+                { field: "summary", status: "found" },
+                {
+                    field: "reasoning",
+                    status: "partly_found",
+                    segments: 2,
+                    segments_found: 1,
+                },
             ],
+        });
+        expect(quoteFieldsOf(stored)).toEqual({
+            ...quoteStatusOf(stored),
+            no_text_document_ids: [],
+        });
+    });
+
+    it("gives the quote-checks endpoint the well-formed entries in full", () => {
+        expect(quoteChecksOf(stored, new Set(["doc-a"]))).toEqual({
+            row_id: "row-1",
+            column_index: 2,
+            quote_status: "partly_found",
+            quote_checks: stored.quote_checks.slice(0, 2),
             no_text_document_ids: [],
         });
     });
@@ -454,8 +573,12 @@ describe("quoteFieldsOf", () => {
         (status) => {
             expect(quoteFieldsOf({ ...stored, status })).toEqual({
                 quote_status: null,
-                quote_checks: [],
+                quote_outcomes: [],
                 no_text_document_ids: [],
+            });
+            expect(quoteChecksOf({ ...stored, status }, new Set())).toMatchObject({
+                quote_status: null,
+                quote_checks: [],
             });
         },
     );
@@ -478,25 +601,33 @@ describe("quoteFieldsOf", () => {
         expect(quoteFieldsOf(noText, new Set(["doc-b"])).no_text_document_ids).toEqual([
             "doc-b",
         ]);
+        expect(
+            quoteChecksOf(noText, new Set(["doc-a"])).no_text_document_ids,
+        ).toEqual(["doc-a"]);
     });
 });
 
 describe("checkAnswerQuotes", () => {
+    const text = rowText([{ id: "doc-a", markdown: LEASE }]);
+
     it("returns the cell's check", () => {
-        const check = createCellQuoteChecker(rowText([{ id: "doc-a", markdown: LEASE }]));
-        expect(checkAnswerQuotes(check, answer(cite("doc-a", "pay rent")))?.quote_status).toBe(
-            "found",
-        );
+        const check = createCellQuoteChecker(text);
+        expect(
+            checkAnswerQuotes(text, check, answer(cite("doc-a", "pay rent"))).quote_status,
+        ).toBe("found");
     });
 
-    it("leaves the answer unchecked and reports a check that fails", () => {
+    it("leaves the answer unchecked, with its sources' versions, and reports a check that fails", () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        let unchecked;
         try {
-            expect(
-                checkAnswerQuotes(() => {
+            unchecked = checkAnswerQuotes(
+                text,
+                () => {
                     throw new Error("boom");
-                }, answer("x")),
-            ).toBeNull();
+                },
+                answer("x"),
+            );
             expect(logged).toHaveBeenCalledWith(
                 "[tabular/quote-check] check failed",
                 expect.objectContaining({ kind: "tabular.quote_check_failed" }),
@@ -504,10 +635,29 @@ describe("checkAnswerQuotes", () => {
         } finally {
             logged.mockRestore();
         }
-        expect(quoteFieldsOfCheck(null)).toEqual({
+        expect(unchecked).toEqual({
             quote_status: null,
-            quote_checks: [],
-            no_text_document_ids: [],
+            quote_checks: null,
+            source_versions: {
+                "doc-a": { version_id: "doc-a-v1", content_sha256: null, has_text: true },
+            },
         });
+        expect(quoteStatusOfCheck(unchecked!)).toEqual({
+            quote_status: null,
+            quote_outcomes: [],
+        });
+        // The versions it read are kept, so the cell still goes stale.
+        expect(
+            cellStaleness(
+                { status: "done", ...unchecked },
+                new Map([["doc-a", { version_id: "doc-a-v2", content_sha256: null }]]),
+                new Set(["doc-a"]),
+            ),
+        ).toEqual({ stale: true, stale_document_ids: ["doc-a"] });
+        expect(
+            summarizeQuoteChecks([
+                { row_id: "row-1", status: "done", ...quoteStatusOfCheck(unchecked!), stale: true },
+            ]),
+        ).toMatchObject({ cells_unchecked: 1, cells_stale: 1, quotes: 0 });
     });
 });
