@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useAssistantChat } from "@/app/hooks/useAssistantChat";
 import { useChatHistoryContext } from "@/app/contexts/ChatHistoryContext";
 import { AssistantChatColumn } from "@/app/components/assistant/ChatView";
+import {
+    ChatLoadError,
+    type ChatLoadFailure,
+} from "@/app/components/assistant/ChatLoadError";
 import type { AssistantDocumentPanel } from "@/app/components/assistant/useAssistantDocumentPanel";
 import { loadAssistantChat } from "@/app/lib/assistantTurns";
 import { can, roleFrom } from "@/app/lib/permissions";
+import { reportFault } from "@/app/lib/userFacingError";
 import type { Chat } from "@/app/components/shared/types";
 import type { MessageExcerpt } from "@/shared/lib/messageExcerpts";
 
@@ -57,7 +61,6 @@ export function AssistantChatPane({
     incomingExcerpt,
     onIncomingExcerptAdded,
 }: Props) {
-    const router = useRouter();
     const isSideChat = !!sideChat;
 
     const { setCurrentChatId, newChatMessages, setNewChatMessages, loadChats } =
@@ -102,7 +105,7 @@ export function AssistantChatPane({
     // a chat's own owner. `accessResolved` below is what keeps that false
     // from being shown as an accusation — the composer is not rendered at
     // all until the answer arrives. A failed getChat leaves it false and
-    // redirects.
+    // shows the load failure in place of the chat.
     const startsFresh = !id || initialMessages.length > 0;
     const [canSend, setCanSend] = useState<boolean>(startsFresh);
     // Until the served role lands for the FIRST time, the standing is unknown
@@ -119,6 +122,13 @@ export function AssistantChatPane({
     // history is fetched at once and the live answer is laid over it.
     const [chatLoading, setChatLoading] = useState<boolean>(!startsFresh);
     const [chat, setChat] = useState<Chat | null>(null);
+    // A chat that could not be shown, said so in place: the page keeps the
+    // chat's address and never swaps in a blank chat on its own.
+    const [loadFailure, setLoadFailure] = useState<ChatLoadFailure | null>(
+        null,
+    );
+    // Bumped by Retry to load the same chat again.
+    const [loadAttempt, setLoadAttempt] = useState(0);
     const [chatModel, setChatModel] = useState<string | null | undefined>(
         initialMessages.length > 0
             ? (initialMessages[0]?.model ?? null)
@@ -136,20 +146,15 @@ export function AssistantChatPane({
         if (!isSideChat) setCurrentChatId(id || null);
     }, [id, isSideChat, setCurrentChatId]);
 
-    // A chat that cannot be shown gives way to a new one. The side chat does
-    // that in place, so the primary chat beside it is left alone.
-    function leaveMissingChat() {
-        if (isSideChat) openChat("");
-        else router.replace("/assistant");
-    }
-
     useEffect(() => {
+        // Every chat, and every Retry, starts without the last failure.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- each chat id selects its own view state
+        setLoadFailure(null);
         // The chat the first answer just created: its messages are on screen.
         if (claimCreated(id)) {
             const firstUserMessage = messages.find(
                 (message) => message.role === "user",
             );
-            // eslint-disable-next-line react-hooks/set-state-in-effect -- each chat id selects its own view state
             setChatModel(firstUserMessage?.model ?? null);
             setChatReasoningLevel(firstUserMessage?.reasoning ?? null);
             return;
@@ -190,11 +195,20 @@ export function AssistantChatPane({
                 if (loaded.length > 0) {
                     setMessages(loaded);
                 } else {
-                    leaveMissingChat();
+                    setLoadFailure({ kind: "empty" });
                 }
             })
-            .catch(() => {
-                if (!cancelled) leaveMissingChat();
+            .catch((error) => {
+                if (cancelled) return;
+                setChatLoading(false);
+                // Classified once; the pane shows this description as is.
+                setLoadFailure({
+                    kind: "failed",
+                    error: reportFault(error, {
+                        action: "load this chat",
+                        operation: "chat.load",
+                    }),
+                });
             });
         return () => {
             cancelled = true;
@@ -202,7 +216,7 @@ export function AssistantChatPane({
             // be allowed after retiring the first one's callback.
             loadedChatId.current = null;
         };
-    }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [id, loadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (
@@ -227,6 +241,18 @@ export function AssistantChatPane({
     }
 
     const isNewChat = !id;
+
+    if (id && loadFailure) {
+        return (
+            <ChatLoadError
+                failure={loadFailure}
+                onRetry={() => setLoadAttempt((attempt) => attempt + 1)}
+                onStartNewChat={handleNewChat}
+                paneId={isSideChat ? "side" : "primary"}
+                widthShare={widthShare}
+            />
+        );
+    }
 
     return (
         <AssistantChatColumn

@@ -3117,8 +3117,18 @@ export async function leaveChat(chatId: string): Promise<void> {
     await apiRequest("chat.turn", `/chat/${chatId}/leave`, { method: "POST" });
 }
 
-export async function deleteChat(chatId: string): Promise<void> {
-    await apiRequest("chat.turn", `/chat/${chatId}`, { method: "DELETE" });
+/**
+ * `keepalive` lets the request outlive the page, for a delete the person
+ * confirmed whose undo window was still open when the tab closed.
+ */
+export async function deleteChat(
+    chatId: string,
+    options: { keepalive?: boolean } = {},
+): Promise<void> {
+    await apiRequest("chat.turn", `/chat/${chatId}`, {
+        method: "DELETE",
+        ...(options.keepalive ? { keepalive: true } : {}),
+    });
 }
 
 const panelDocumentRequests = new Map<string, Promise<PanelDocument>>();

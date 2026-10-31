@@ -28,6 +28,9 @@ import type { Chat, Message } from "@/app/components/shared/types";
 import type { ProjectRole } from "@/app/lib/permissions";
 import { subscribeAssistantTurns } from "@/app/lib/assistantTurns";
 import { sortChatsByActivity, touchChatActivity } from "@/app/lib/chatActivity";
+import { CHAT_DELETE_UNDO_MS } from "@/app/lib/chatDeleteUndo";
+import { useLatestRef } from "@/app/hooks/useLatestRef";
+import { dismissToast, showToast } from "@/shared/lib/toastStore";
 
 interface ChatHistoryContextType {
     chats: Chat[] | null;
@@ -59,9 +62,26 @@ interface ChatHistoryContextType {
         newChatId: string,
         title?: string,
     ) => void;
-    deleteChat: (chatId: string) => Promise<void>;
+    /**
+     * Delete a chat the person has confirmed deleting. It leaves the list at
+     * once and a notice offers Undo; the server delete is sent only once
+     * CHAT_DELETE_UNDO_MS pass without Undo. A delete the server refuses
+     * puts the row back and says so.
+     */
+    deleteChatWithUndo: (chat: Chat) => void;
     leaveChat: (chatId: string) => Promise<void>;
 }
+
+/** A confirmed delete still inside its undo window. */
+type PendingChatDelete = {
+    chat: Chat;
+    timer: ReturnType<typeof setTimeout>;
+    toastId: string;
+    /** Whether the row was listed, so only a listed row is put back. */
+    listed: boolean;
+    /** The list it was removed from; a newer list is not touched. */
+    scopeVersion: number;
+};
 
 const ChatHistoryContext = createContext<ChatHistoryContextType | undefined>(
     undefined,
@@ -106,6 +126,9 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     const [sideChatId, setSideChatId] = useState<string | null>(null);
     // "Retry" re-enters the latest loader: a callback cannot reference
     // itself, and these are re-created as the chat list changes.
+    // Confirmed deletes still inside their undo window. The server still
+    // lists these chats, so a list read in that window must leave them out.
+    const pendingDeletesRef = useRef(new Map<string, PendingChatDelete>());
     const retryRef = useRef<{
         loadChats: () => void;
         loadMoreChats: () => void;
@@ -148,7 +171,11 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             });
             if (request !== chatsRequestRef.current || activeIdentity.current !== identity) return;
             const page = data.slice(0, INITIAL_CHAT_LIMIT);
-            setChats(sortChatsByActivity(page));
+            setChats(
+                sortChatsByActivity(
+                    page.filter((chat) => !pendingDeletesRef.current.has(chat.id)),
+                ),
+            );
             nextChatCursorRef.current = cursorFor(page.at(-1));
             setHasMoreChats(data.length > INITIAL_CHAT_LIMIT);
         } catch (error) {
@@ -219,7 +246,11 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
                 );
                 return sortChatsByActivity([
                     ...(current ?? []),
-                    ...page.filter((chat) => !existing.has(chat.id)),
+                    ...page.filter(
+                        (chat) =>
+                            !existing.has(chat.id) &&
+                            !pendingDeletesRef.current.has(chat.id),
+                    ),
                 ]);
             });
             setHasMoreChats(data.length > CHAT_PAGE_SIZE);
@@ -389,24 +420,120 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
         );
     }, []);
 
-    const deleteChatFn = useCallback(
+    const chatsRef = useLatestRef(chats);
+
+    // Put back exactly the row that left, in activity order, and only in the
+    // list it left: a workspace switch since then has its own list.
+    const restoreDeletedChat = useCallback((pending: PendingChatDelete) => {
+        if (!pending.listed || pending.scopeVersion !== scopeVersionRef.current)
+            return;
+        setChats((current) =>
+            current && !current.some((chat) => chat.id === pending.chat.id)
+                ? sortChatsByActivity([...current, pending.chat])
+                : current,
+        );
+    }, []);
+
+    const takePendingDelete = useCallback((chatId: string) => {
+        const pending = pendingDeletesRef.current.get(chatId);
+        if (!pending) return null;
+        pendingDeletesRef.current.delete(chatId);
+        clearTimeout(pending.timer);
+        dismissToast(pending.toastId);
+        return pending;
+    }, []);
+
+    const commitChatDelete = useCallback(
         async (chatId: string) => {
-            const scopeVersion = scopeVersionRef.current;
-            setChats((prev) => (prev ?? []).filter((c) => c.id !== chatId));
-            if (currentChatId === chatId) setCurrentChatId(null);
+            const pending = takePendingDelete(chatId);
+            if (!pending) return;
             try {
                 await deleteChat(chatId);
             } catch (error) {
-                // Optimistic removal must not become a silent success: put
-                // the row back and let the caller tell the user why. The old
-                // bare catch here was the client-side twin of the
-                // filter-scoped 204 this stack removes on the server.
-                if (scopeVersion === scopeVersionRef.current) void loadChats();
-                throw error;
+                // The removal must not become a silent success: the row
+                // comes back and the notice says why. No Retry: deleting
+                // again is the row's own action, which asks first.
+                restoreDeletedChat(pending);
+                notifyError(error, {
+                    action: "delete the chat",
+                    dedupeKey: `chat-delete:${chatId}`,
+                });
             }
         },
-        [currentChatId, loadChats],
+        [restoreDeletedChat, takePendingDelete],
     );
+
+    const undoChatDelete = useCallback(
+        (chatId: string) => {
+            const pending = takePendingDelete(chatId);
+            if (pending) restoreDeletedChat(pending);
+        },
+        [restoreDeletedChat, takePendingDelete],
+    );
+
+    const deleteChatWithUndo = useCallback(
+        (chat: Chat) => {
+            if (pendingDeletesRef.current.has(chat.id)) return;
+            const listed =
+                chatsRef.current?.some((entry) => entry.id === chat.id) ??
+                false;
+            setChats((current) =>
+                current
+                    ? current.filter((entry) => entry.id !== chat.id)
+                    : current,
+            );
+            setCurrentChatId((current) => (current === chat.id ? null : current));
+            const title = chat.title?.trim() || "Untitled chat";
+            const toastId = showToast({
+                tone: "info",
+                title: "Chat deleted",
+                message: `“${title}” was deleted.`,
+                // Dismissed when the delete is sent, so Undo never outlives
+                // the window in which it still works.
+                durationMs: null,
+                actions: [
+                    { label: "Undo", onClick: () => undoChatDelete(chat.id) },
+                ],
+                dedupeKey: `chat-delete:${chat.id}`,
+            });
+            pendingDeletesRef.current.set(chat.id, {
+                chat,
+                listed,
+                scopeVersion: scopeVersionRef.current,
+                toastId,
+                timer: setTimeout(
+                    () => void commitChatDelete(chat.id),
+                    CHAT_DELETE_UNDO_MS,
+                ),
+            });
+        },
+        [chatsRef, commitChatDelete, undoChatDelete],
+    );
+
+    // A confirmed delete must not be lost with its timer. Leaving the app
+    // shell sends it at once; closing or reloading the tab sends it with
+    // keepalive, since the page cannot wait for the answer.
+    useEffect(() => {
+        const pending = pendingDeletesRef.current;
+        const sendOnPageHide = () => {
+            for (const [chatId, entry] of pending) {
+                clearTimeout(entry.timer);
+                dismissToast(entry.toastId);
+                void deleteChat(chatId, { keepalive: true }).catch(() => {
+                    // The page is going away: there is no one left to tell,
+                    // and the chat simply stays listed on the next visit.
+                });
+            }
+            pending.clear();
+        };
+        window.addEventListener("pagehide", sendOnPageHide);
+        return () => {
+            window.removeEventListener("pagehide", sendOnPageHide);
+            for (const chatId of [...pending.keys()]) {
+                void commitChatDelete(chatId);
+            }
+        };
+    }, [commitChatDelete]);
 
     const leaveChatFn = useCallback(async (chatId: string) => {
         const scopeVersion = scopeVersionRef.current;
@@ -443,7 +570,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             newChatMessages,
             setNewChatMessages,
             replaceChatId,
-            deleteChat: deleteChatFn,
+            deleteChatWithUndo,
             leaveChat: leaveChatFn,
         }),
         [
@@ -462,7 +589,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             newChatMessages,
             setNewChatMessages,
             replaceChatId,
-            deleteChatFn,
+            deleteChatWithUndo,
             leaveChatFn,
         ],
     );

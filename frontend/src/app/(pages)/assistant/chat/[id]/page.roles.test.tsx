@@ -361,7 +361,12 @@ describe("global chat page composer gating", () => {
         render(<AssistantChatPage />);
 
         await waitFor(() => expect(getChat).toHaveBeenCalled());
-        // null, not true: an unknown standing is never a licence.
-        expect(screen.getByTestId("can-send")).not.toHaveTextContent("true");
+        // The failure replaces the chat, composer and all: an unknown
+        // standing is never a licence, and the page stays where it is.
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+            "Couldn't load this chat",
+        );
+        expect(screen.queryByTestId("can-send")).not.toBeInTheDocument();
+        expect(window.location.pathname).toBe("/assistant/chat/chat-1");
     });
 });

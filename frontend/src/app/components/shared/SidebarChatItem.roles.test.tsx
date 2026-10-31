@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SidebarChatItem } from "./SidebarChatItem";
 import type { Chat } from "@/app/components/shared/types";
@@ -6,14 +6,14 @@ import type { Chat } from "@/app/components/shared/types";
 // Chat management is owner-only; direct recipients may leave.
 
 const renameChat = vi.fn();
-const deleteChat = vi.fn();
+const deleteChatWithUndo = vi.fn();
 const leaveChat = vi.fn();
 const push = vi.fn();
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace }) }));
 
 vi.mock("@/app/contexts/ChatHistoryContext", () => ({
-    useChatHistoryContext: () => ({ renameChat, deleteChat, leaveChat }),
+    useChatHistoryContext: () => ({ renameChat, deleteChatWithUndo, leaveChat }),
 }));
 vi.mock("@/app/components/assistant/ChatAccessModal", () => ({
     ChatAccessModal: ({ open }: { open: boolean }) =>
@@ -45,9 +45,18 @@ function openMenu() {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    deleteChat.mockResolvedValue(undefined);
     leaveChat.mockResolvedValue(undefined);
+    window.history.replaceState(null, "", "/assistant");
 });
+
+/** Choose Delete in the row menu, then confirm it in the dialog. */
+async function deleteThroughConfirmation() {
+    openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete chat?" });
+    expect(deleteChatWithUndo).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+}
 
 describe("SidebarChatItem role gates", () => {
     it("opens chat access from an owner's Share action", async () => {
@@ -76,7 +85,7 @@ describe("SidebarChatItem role gates", () => {
         fireEvent.click(screen.getByRole("button", { name: "Leave" }));
         await waitFor(() => expect(leaveChat).toHaveBeenCalledWith("chat-1"));
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        expect(deleteChat).not.toHaveBeenCalled();
+        expect(deleteChatWithUndo).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -95,22 +104,16 @@ describe("SidebarChatItem role gates", () => {
         fireEvent.click(screen.getByRole("button", { name: "Leave" }));
         expect(await screen.findByText("The chat could not be left. Please try again.")).toBeVisible();
         expect(screen.queryByText("internal database details")).toBeNull();
-        expect(deleteChat).not.toHaveBeenCalled();
+        expect(deleteChatWithUndo).not.toHaveBeenCalled();
         expect(push).not.toHaveBeenCalled();
     });
 
     it("lets the creator delete — is_owner alone derives admin", async () => {
-        render(
-            <SidebarChatItem
-                chat={chat({ is_owner: true })}
-                isActive
-                onSelect={vi.fn()}
-            />,
-        );
-        openMenu();
-        fireEvent.click(await screen.findByText("Delete"));
+        const row = chat({ is_owner: true });
+        render(<SidebarChatItem chat={row} isActive onSelect={vi.fn()} />);
+        await deleteThroughConfirmation();
 
-        expect(deleteChat).toHaveBeenCalledWith("chat-1");
+        expect(deleteChatWithUndo).toHaveBeenCalledWith(row);
     });
 
     it("lets a project admin delete a colleague's chat", async () => {
@@ -119,17 +122,11 @@ describe("SidebarChatItem role gates", () => {
         // Before the RPC served access_role, this row fell back to "editor"
         // and the admin was refused a delete the server accepts — the
         // headline widening, unreachable from the sidebar.
-        render(
-            <SidebarChatItem
-                chat={chat({ is_owner: false, access_role: "owner" })}
-                isActive
-                onSelect={vi.fn()}
-            />,
-        );
-        openMenu();
-        fireEvent.click(await screen.findByText("Delete"));
+        const row = chat({ is_owner: false, access_role: "owner" });
+        render(<SidebarChatItem chat={row} isActive onSelect={vi.fn()} />);
+        await deleteThroughConfirmation();
 
-        expect(deleteChat).toHaveBeenCalledWith("chat-1");
+        expect(deleteChatWithUndo).toHaveBeenCalledWith(row);
     });
 
     it("hides management and Leave when role metadata is missing", () => {
@@ -254,8 +251,7 @@ describe("SidebarChatItem role gates", () => {
         expect(screen.queryByText("Shared")).not.toBeInTheDocument();
     });
 
-    it("surfaces a failed delete instead of swallowing it", async () => {
-        deleteChat.mockRejectedValue(new Error("boom"));
+    it("deletes nothing when the confirmation is cancelled", async () => {
         render(
             <SidebarChatItem
                 chat={chat({ is_owner: true })}
@@ -264,11 +260,29 @@ describe("SidebarChatItem role gates", () => {
             />,
         );
         openMenu();
-        fireEvent.click(await screen.findByText("Delete"));
+        fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+        const dialog = await screen.findByRole("dialog", { name: "Delete chat?" });
+        expect(dialog).toHaveTextContent(
+            "“Quarterly filing” and its messages will be deleted. You can undo this for 8 seconds.",
+        );
+        fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
-        expect(
-            await screen.findByText(/could not be deleted/i),
-        ).toBeInTheDocument();
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        expect(deleteChatWithUndo).not.toHaveBeenCalled();
+    });
+
+    it("leaves the chat on screen when it is the one deleted", async () => {
+        window.history.replaceState(null, "", "/assistant/chat/chat-1");
+        render(
+            <SidebarChatItem
+                chat={chat({ is_owner: true })}
+                isActive
+                onSelect={vi.fn()}
+            />,
+        );
+        await deleteThroughConfirmation();
+
+        expect(push).toHaveBeenCalledWith("/assistant");
     });
 
     it("offers opening the chat beside the current one only where asked to", async () => {

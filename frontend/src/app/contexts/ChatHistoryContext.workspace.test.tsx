@@ -218,15 +218,14 @@ describe("ChatHistoryProvider and the active workspace", () => {
         expect(latest.chats?.map(row => row.id)).toEqual(["personal"]);
     });
 
-    it.each(["renameChat", "deleteChat"] as const)("does not reload the old workspace when a pending %s fails", async (operation) => {
+    it("does not reload the old workspace when a pending renameChat fails", async () => {
         listChats.mockImplementation(async ({ workspace: scope }) => [chat(scope, scope)]);
         let reject!: (reason: Error) => void;
-        (operation === "renameChat" ? renameChat : deleteChat)
-            .mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+        renameChat.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
         const { rerender } = render(tree());
         await screen.findByText("personal");
         let pending!: Promise<unknown>;
-        act(() => { pending = latest[operation]("personal", "Renamed").catch(error => error); });
+        act(() => { pending = latest.renameChat("personal", "Renamed").catch(error => error); });
         workspace.current = "org-1";
         rerender(tree());
         await screen.findByText("org-1");
@@ -234,6 +233,34 @@ describe("ChatHistoryProvider and the active workspace", () => {
         await act(async () => { reject(new Error("Denied")); await pending; });
         expect(listChats).toHaveBeenCalledTimes(callCount);
         expect(latest.chats?.map(row => row.id)).toEqual(["org-1"]);
+    });
+
+    it("does not put a deleted chat into a newer workspace when its delete fails", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            listChats.mockImplementation(async ({ workspace: scope }) => [chat(scope, scope)]);
+            deleteChat.mockRejectedValueOnce(new Error("Denied"));
+            const { rerender } = render(tree());
+            await screen.findByText("personal");
+            act(() =>
+                latest.deleteChatWithUndo({
+                    ...chat("personal", "personal"),
+                    project_id: null,
+                }),
+            );
+            await screen.findByText("empty");
+            workspace.current = "org-1";
+            rerender(tree());
+            await screen.findByText("org-1");
+
+            await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+
+            expect(deleteChat).toHaveBeenCalledWith("personal");
+            expect(notifyError).toHaveBeenCalled();
+            expect(latest.chats?.map(row => row.id)).toEqual(["org-1"]);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("drops old pagination after switching away and back and permits the new workspace to paginate", async () => {

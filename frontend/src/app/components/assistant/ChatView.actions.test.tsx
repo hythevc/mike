@@ -23,11 +23,11 @@ import {
 } from "@/app/lib/mikeApi";
 import { PageChromeContext } from "@/app/contexts/PageChromeContext";
 
-const { push, renameChat, deleteChat, leaveChat, setCurrentChatId, setNewChatMessages } =
+const { push, renameChat, deleteChatWithUndo, leaveChat, setCurrentChatId, setNewChatMessages } =
     vi.hoisted(() => ({
         push: vi.fn(),
         renameChat: vi.fn(),
-        deleteChat: vi.fn(),
+        deleteChatWithUndo: vi.fn(),
         leaveChat: vi.fn(),
         setCurrentChatId: vi.fn(),
         setNewChatMessages: vi.fn(),
@@ -66,7 +66,7 @@ vi.mock("@/app/contexts/ChatHistoryContext", () => ({
             },
         ],
         renameChat,
-        deleteChat,
+        deleteChatWithUndo,
         leaveChat,
         setCurrentChatId,
         setNewChatMessages,
@@ -418,7 +418,6 @@ beforeEach(() => {
         value: vi.fn(),
     });
     renameChat.mockResolvedValue(undefined);
-    deleteChat.mockResolvedValue(undefined);
 });
 
 describe("ChatView responses waiting on the user", () => {
@@ -466,7 +465,7 @@ describe("ChatView header actions", () => {
         fireEvent.click(screen.getByRole("button", { name: "Leave" }));
         await waitFor(() => expect(leaveChat).toHaveBeenCalledWith("chat-1"));
         await waitFor(() => expect(push).toHaveBeenCalledWith("/assistant"));
-        expect(deleteChat).not.toHaveBeenCalled();
+        expect(deleteChatWithUndo).not.toHaveBeenCalled();
     });
 
     it("offers no management or Leave for a project editor", () => {
@@ -634,8 +633,28 @@ describe("ChatView header actions", () => {
 
         openActions();
         fireEvent.click(await screen.findByText("Delete"));
-        await waitFor(() => expect(deleteChat).toHaveBeenCalledWith("chat-1"));
+        // Asked first: nothing is deleted and nothing moves until confirmed.
+        const dialog = await screen.findByRole("dialog", { name: "Delete chat?" });
+        expect(deleteChatWithUndo).not.toHaveBeenCalled();
+        expect(push).not.toHaveBeenCalled();
+        fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+        expect(deleteChatWithUndo).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "chat-1" }),
+        );
         expect(push).toHaveBeenCalledWith("/assistant");
+    });
+
+    it("keeps the chat when the delete confirmation is cancelled", async () => {
+        renderView();
+
+        openActions();
+        fireEvent.click(await screen.findByText("Delete"));
+        const dialog = await screen.findByRole("dialog", { name: "Delete chat?" });
+        fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+        expect(screen.queryByRole("dialog", { name: "Delete chat?" })).toBeNull();
+        expect(deleteChatWithUndo).not.toHaveBeenCalled();
+        expect(push).not.toHaveBeenCalled();
     });
 });
 

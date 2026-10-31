@@ -38,7 +38,7 @@ vi.mock("@/app/contexts/ChatHistoryContext", () => ({
         loadingMoreChats: false,
         loadMoreChats: vi.fn(),
         renameChat: vi.fn(),
-        deleteChat: vi.fn(),
+        deleteChatWithUndo: vi.fn(),
     }),
 }));
 vi.mock("@/app/hooks/useQuickActions", () => ({

@@ -77,6 +77,7 @@ import {
 import { PermissionDeniedPopup } from "@/app/components/popups/PermissionDeniedPopup";
 import { RenameModal } from "@/app/components/modals/RenameModal";
 import { WarningPopup } from "@/app/components/popups/WarningPopup";
+import { DeleteChatConfirmPopup } from "@/app/components/shared/DeleteChatConfirmPopup";
 import { ApiKeyMissingPopup } from "@/app/components/popups/ApiKeyMissingPopup";
 import {
     getModelProvider,
@@ -282,6 +283,7 @@ export function AssistantChatColumn({
         message?: string;
     } | null>(null);
     const [renameOpen, setRenameOpen] = useState(false);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [leaveChatId, setLeaveChatId] = useState<string | null>(null);
     const [renaming, setRenaming] = useState(false);
     const [actionError, setActionError] = useState<{
@@ -295,7 +297,7 @@ export function AssistantChatColumn({
     const {
         chats,
         renameChat,
-        deleteChat,
+        deleteChatWithUndo,
     } = useChatHistoryContext();
     const activeChat =
         (chatId ? chats?.find((entry) => entry.id === chatId) : null) ??
@@ -755,7 +757,7 @@ export function AssistantChatColumn({
         }
     };
 
-    const handleDeleteChat = async () => {
+    const handleDeleteChat = () => {
         if (!activeChat) return;
         if (!can(activeChatRole, "container.delete")) {
             setActionGate({
@@ -764,19 +766,17 @@ export function AssistantChatColumn({
             });
             return;
         }
-        try {
-            await deleteChat(activeChat.id);
-            if (onChatDeleted) onChatDeleted();
-            else router.push("/assistant");
-        } catch (error) {
-            setActionError({
-                title: "Chat not deleted",
-                message: userFacingApiError(
-                    error,
-                    "The chat could not be deleted. Please try again.",
-                ),
-            });
-        }
+        setConfirmDeleteOpen(true);
+    };
+
+    // The chat leaves the screen at once and the history offers Undo before
+    // the delete is sent; a failure after that is the history's to report.
+    const confirmDeleteChat = () => {
+        setConfirmDeleteOpen(false);
+        if (!activeChat) return;
+        deleteChatWithUndo(activeChat);
+        if (onChatDeleted) onChatDeleted();
+        else router.push("/assistant");
     };
 
     const chatActionItems: HeaderActionsMenuItem[] = can(activeChatRole, "access.manage") ? [
@@ -795,7 +795,7 @@ export function AssistantChatColumn({
         {
             label: "Delete",
             icon: Trash2,
-            onSelect: () => void handleDeleteChat(),
+            onSelect: handleDeleteChat,
             disabled: !activeChat,
             variant: "danger",
         },
@@ -1362,6 +1362,12 @@ export function AssistantChatColumn({
                     else router.push("/assistant");
                 }}
             />}
+            <DeleteChatConfirmPopup
+                open={confirmDeleteOpen && !!activeChat}
+                chatTitle={activeChat?.title}
+                onCancel={() => setConfirmDeleteOpen(false)}
+                onConfirm={confirmDeleteChat}
+            />
             <RenameModal
                 open={renameOpen}
                 breadcrumbs={["Assistant", "Rename Chat"]}
