@@ -100,6 +100,7 @@ import {
 } from "@/app/lib/userFacingError";
 import { downloadWorkflowZip } from "./workflowZipExport";
 import { WorkflowAssets, type WorkflowAssetsHandle } from "./WorkflowAssets";
+import { isEmptyStatesPreview } from "@/app/lib/emptyStatesPreview";
 // dynamic import keeps Tiptap (browser-only) out of the SSR bundle
 const MarkdownEditor = dynamic(
   () =>
@@ -181,7 +182,7 @@ export function WorkflowDetailPage({ id, workflowType }: Props) {
     false,
     workflowType === "assistant",
   );
-  const previewEmptyStates = searchParams.get("emptyStates") === "1";
+  const previewEmptyStates = isEmptyStatesPreview(searchParams);
   const visibleColumns = previewEmptyStates ? [] : columns;
 
   // Save status

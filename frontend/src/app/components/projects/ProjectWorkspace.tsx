@@ -41,8 +41,12 @@ import {
     type AccessContact,
 } from "@/app/components/popups/PermissionDeniedPopup";
 import { AccessModal } from "@/app/components/modals/AccessModal";
-import { notifyError } from "@/app/lib/userFacingError";
-import { useAssignLatest } from "@/app/hooks/useLatestRef";
+import {
+    notifyError,
+    reportFault,
+    type UserFacingError,
+} from "@/app/lib/userFacingError";
+import { useAssignLatest, useLatestRef } from "@/app/hooks/useLatestRef";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { DocumentWorkspaceScope } from "@/app/contexts/WorkspaceContext";
 import { useItemWorkspace } from "@/app/hooks/useItemWorkspace";
@@ -111,6 +115,13 @@ type ProjectWorkspaceValue = {
     projectChats: Chat[] | null;
     setProjectChats: React.Dispatch<React.SetStateAction<Chat[] | null>>;
     projectChatsLoading: boolean;
+    /**
+     * Why the chat list did not load, or null. An empty list is how "no
+     * chats yet" looks, so a failed load must never be shown as one.
+     */
+    projectChatsError: UserFacingError | null;
+    /** Loads the chat list again after a failure. */
+    retryProjectChats: () => void;
     ensureProjectChats: () => Promise<Chat[]>;
     prefetchProjectSections: () => void;
     creatingReview: boolean;
@@ -182,6 +193,8 @@ export function ProjectWorkspaceProvider({
     >({ documents: "", assistant: "", reviews: "" });
     const [projectChats, setProjectChats] = useState<Chat[] | null>(null);
     const [projectChatsLoading, setProjectChatsLoading] = useState(false);
+    const [projectChatsError, setProjectChatsError] =
+        useState<UserFacingError | null>(null);
     const [accessModalOpen, setAccessModalOpen] = useState(false);
     // Direct access grants, loaded only when the share dialog is opened: every
     // project page would otherwise pay for a roster nobody looked at.
@@ -216,7 +229,13 @@ export function ProjectWorkspaceProvider({
     const showShell = shouldShowWorkspaceShell(segments);
     const router = useRouter();
     const { user } = useAuth();
-    const projectChatsPromiseRef = useRef<Promise<Chat[]> | null>(null);
+    // The chat-list read in flight, and the project it is for. An answer
+    // for a project no longer on screen must not land on this one.
+    const projectChatsRequestRef = useRef<{
+        projectId: string;
+        promise: Promise<Chat[]>;
+    } | null>(null);
+    const currentProjectIdRef = useLatestRef(projectId);
 
     useEffect(() => {
         // A new projectId is a new answer to "who am I here?". This provider
@@ -232,8 +251,8 @@ export function ProjectWorkspaceProvider({
         setFolders([]);
         setProjectChats(null);
         setProjectChatsLoading(false);
+        setProjectChatsError(null);
         setDocumentFolderBreadcrumbs([]);
-        projectChatsPromiseRef.current = null;
     }, [projectId]);
 
     const setDocumentUploadHeaderAction = useCallback(
@@ -299,26 +318,44 @@ export function ProjectWorkspaceProvider({
 
     const ensureProjectChats = useCallback(() => {
         if (projectChats) return Promise.resolve(projectChats);
-        if (projectChatsPromiseRef.current) return projectChatsPromiseRef.current;
+        const inFlight = projectChatsRequestRef.current;
+        if (inFlight?.projectId === projectId) return inFlight.promise;
 
+        const requestedFor = projectId;
+        const isCurrent = () => currentProjectIdRef.current === requestedFor;
         setProjectChatsLoading(true);
-        const promise = listProjectChats(projectId)
+        setProjectChatsError(null);
+        const promise: Promise<Chat[]> = listProjectChats(requestedFor)
             .then((loaded) => {
-                setProjectChats(loaded);
+                if (isCurrent()) setProjectChats(loaded);
                 return loaded;
             })
-            .catch((error) => {
-                console.error("[project assistant] failed to load", error);
-                setProjectChats([]);
+            .catch((error: unknown) => {
+                // The list stays unloaded: an empty one would read as "no
+                // chats yet". The page shows this with Try again instead.
+                if (isCurrent()) {
+                    setProjectChatsError(
+                        reportFault(error, {
+                            action: "load this project's chats",
+                            operation: "projects.manage",
+                        }),
+                    );
+                }
                 return [];
             })
             .finally(() => {
-                projectChatsPromiseRef.current = null;
-                setProjectChatsLoading(false);
+                if (projectChatsRequestRef.current?.promise === promise) {
+                    projectChatsRequestRef.current = null;
+                }
+                if (isCurrent()) setProjectChatsLoading(false);
             });
-        projectChatsPromiseRef.current = promise;
+        projectChatsRequestRef.current = { projectId: requestedFor, promise };
         return promise;
-    }, [projectChats, projectId]);
+    }, [currentProjectIdRef, projectChats, projectId]);
+
+    const retryProjectChats = useCallback(() => {
+        void ensureProjectChats();
+    }, [ensureProjectChats]);
 
     // The memory dialog owns its own reads and writes; this keeps the loaded
     // project row agreeing with them.
@@ -540,6 +577,8 @@ export function ProjectWorkspaceProvider({
             projectChats,
             setProjectChats,
             projectChatsLoading,
+            projectChatsError,
+            retryProjectChats,
             ensureProjectChats,
             prefetchProjectSections,
             creatingReview,
@@ -561,6 +600,8 @@ export function ProjectWorkspaceProvider({
             setSearch,
             projectChats,
             projectChatsLoading,
+            projectChatsError,
+            retryProjectChats,
             ensureProjectChats,
             prefetchProjectSections,
             creatingReview,

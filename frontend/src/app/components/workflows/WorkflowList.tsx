@@ -70,6 +70,7 @@ import {
   TableStickyCell,
 } from "../shared/TablePrimitive";
 import { AccessScopeLabel } from "../shared/AccessScopeLabel";
+import { isEmptyStatesPreview } from "@/app/lib/emptyStatesPreview";
 
 type WorkflowListTab = "all" | "assistant" | "tabular" | "addons";
 
@@ -158,7 +159,7 @@ export function WorkflowList({
   const [addonsError, setAddonsError] = useState("");
   const [actionError, setActionError] = useState("");
   const openAddonIdRef = useRef<string | null>(null);
-  const previewEmptyStates = searchParams.get("emptyStates") === "1";
+  const previewEmptyStates = isEmptyStatesPreview(searchParams);
   const debouncedSearch = useDebouncedValue(search, 250);
   const selectedType =
     activeTab === "assistant" || activeTab === "tabular"

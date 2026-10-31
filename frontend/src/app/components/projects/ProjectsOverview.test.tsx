@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsOverview } from "./ProjectsOverview";
@@ -96,6 +96,11 @@ vi.mock("./ProjectDetailsModal", () => ({ ProjectDetailsModal: () => null }));
 function lastScope() {
     const calls = usePaginatedProjectsSpy.mock.calls;
     return (calls[calls.length - 1][0] as { scope: string }).scope;
+}
+
+function lastSearch() {
+    const calls = usePaginatedProjectsSpy.mock.calls;
+    return (calls[calls.length - 1][0] as { search: string }).search;
 }
 
 describe("ProjectsOverview tabs", () => {
@@ -258,6 +263,39 @@ describe("ProjectsOverview tabs", () => {
         activeTab.current = "shared";
         render(<ProjectsOverview />);
         expect(lastScope()).toBe("all");
+    });
+
+    it("says nothing matches a search, and clears back to every project", async () => {
+        const user = userEvent.setup();
+        render(<ProjectsOverview />);
+
+        await user.click(
+            screen.getByRole("button", { name: "Search projects…" }),
+        );
+        await user.type(screen.getByPlaceholderText("Search projects…"), "acme");
+
+        expect(
+            await screen.findByText("No matching projects"),
+        ).toBeInTheDocument();
+        // Not the first-run help: this person may well have projects.
+        expect(
+            screen.queryByRole("button", { name: "Create" }),
+        ).not.toBeInTheDocument();
+        expect(lastSearch()).toBe("acme");
+
+        await user.click(screen.getByRole("button", { name: "Clear filters" }));
+
+        // The search box empties (and folds away), and the list asks for
+        // every project again.
+        expect(
+            screen.queryByPlaceholderText("Search projects…"),
+        ).not.toBeInTheDocument();
+        await waitFor(() => expect(lastSearch()).toBe(""));
+        expect(setActiveTab).toHaveBeenCalledWith("all");
+        expect(
+            await screen.findByRole("button", { name: "Create" }),
+        ).toBeInTheDocument();
+        expect(screen.queryByText("No matching projects")).not.toBeInTheDocument();
     });
 
     it("offers project creation when All is empty", () => {

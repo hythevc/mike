@@ -34,6 +34,7 @@ import {
     notifyBulkReviewDeleteOutcome,
 } from "@/app/lib/deleteTabularReviewsWithConcurrency";
 import { restoreOptimisticallyDeletedRows } from "@/app/lib/optimisticRows";
+import { isEmptyStatesPreview } from "@/app/lib/emptyStatesPreview";
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -45,7 +46,7 @@ export default function ProjectTabularReviewsPage({ params }: Props) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { user } = useAuth();
-    const previewEmptyStates = searchParams.get("emptyStates") === "1";
+    const previewEmptyStates = isEmptyStatesPreview(searchParams);
     const { project, projectId, search, setOwnerOnlyAction } = workspace;
     const [detailsReview, setDetailsReview] = useState<TabularReview | null>(
         null,
