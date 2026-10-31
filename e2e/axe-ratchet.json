@@ -1,0 +1,37 @@
+{
+    "description": "Serious axe-core violations each scanned page may still have, per theme: the most serious rules it may violate, and the rules that made up that count when it was set. A page or theme with no entry may have none. e2e/axe.ts fails a scan above its count and prints the lower entry when a fix lands. Lower entries as fixes land; never raise one. The light-theme entries are muted text below 4.5:1 contrast (text-gray-400 and similar).",
+    "pages": {
+        "/login": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
+        },
+        "/assistant": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
+        },
+        "/projects": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
+        },
+        "/tabular-reviews": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
+        },
+        "/settings": {
+            "light": { "serious": 0, "rules": [] },
+            "dark": { "serious": 0, "rules": [] }
+        },
+        "/workflows": {
+            "light": { "serious": 0, "rules": [] },
+            "dark": { "serious": 0, "rules": [] }
+        },
+        "/playbooks": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
+        },
+        "/library": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
+        }
+    }
+}

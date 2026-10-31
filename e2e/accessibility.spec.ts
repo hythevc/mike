@@ -1,146 +1,135 @@
 /**
- * Accessibility (axe-core) E2E scans:
- *   1. /login — the unauthenticated entry point
- *   2. /assistant — the main chat/home surface
- *   3. /projects — the projects list
- *   4. /tabular-reviews — the tabular review list
+ * Accessibility (axe-core) scans of the web app's main pages, in the light
+ * and the dark theme, through the shared gate in e2e/axe.ts:
  *
- * Each test loads a core page, waits for a page-specific anchor element (so the
- * scan runs against the real rendered UI, not a loading state), then runs an
- * axe-core scan via @axe-core/playwright.
+ *   /login (signed out), /assistant, /projects, /tabular-reviews,
+ *   /settings, /workflows, /playbooks and /library.
  *
- * TWO-TIER POLICY — why only `critical` fails the build:
- * axe grades each violation minor → moderate → serious → critical. Turning the
- * scanner on with everything blocking would land a wall of red on day one and
- * the check would get ignored or reverted. So we start by ENFORCING only
- * `critical` (zero tolerance — these break the page outright for assistive
- * tech), while `serious` violations are LOGGED to the test output on every run
- * so the backlog stays visible. Once the serious backlog is cleared, ratchet:
- * move "serious" into the failing tier by adding it to BLOCKING_IMPACTS below.
+ * Each test loads a page, waits for a page-specific anchor (so the scan runs
+ * against the rendered UI, not a loading state), pins the theme and scans.
+ * Critical violations fail everywhere. Serious ones are held to the per-page
+ * counts in e2e/axe-ratchet.json, which only ever go down. See the policy at
+ * the top of e2e/axe.ts and "Accessibility gate" in docs/design-system.md.
  *
- * No selector exclusions are currently needed — the app renders no third-party
- * embedded widgets (chat bubbles, cookie banners, analytics iframes) on these
- * pages. If one appears, exclude it with `.exclude("<selector>")` on the
- * AxeBuilder and document here what the selector is and why it's out of scope.
+ * The last test checks the cascade itself in a real browser: a utility on a
+ * glass control must beat the material class it refines.
  *
- * Auth: tests 2–4 run signed in as this worker's account (the storageState
- * fixture in e2e/fixtures.ts).
+ * Auth: every page but /login runs signed in as this worker's account (the
+ * storageState fixture in e2e/fixtures.ts).
  */
+import type { Locator } from "@playwright/test";
 import { test, expect, type Page } from "./fixtures";
-import AxeBuilder from "@axe-core/playwright";
+import { THEMES, expectAccessible, setTheme } from "./axe";
 
-/** Impact levels that fail the test. Ratchet by adding "serious" here. */
-const BLOCKING_IMPACTS = ["critical"];
-
-/** Impact levels that are reported in the test output but do not fail. */
-const LOGGED_IMPACTS = ["serious"];
-
-/**
- * One-line summary per violation: rule id, impact, how many DOM nodes are
- * affected, and the axe help URL (which explains the rule and how to fix it).
- */
-function formatViolation(v: {
-    id: string;
-    impact?: string | null;
-    nodes: unknown[];
-    helpUrl: string;
-}): string {
-    return `[${v.impact}] ${v.id} (${v.nodes.length} node${
-        v.nodes.length === 1 ? "" : "s"
-    }) — ${v.helpUrl}`;
+interface ScannedPage {
+    path: string;
+    /** An element that only appears once the page has rendered its content. */
+    ready: (page: Page) => Locator;
 }
 
-/**
- * Run an axe scan on the current page. Violations at BLOCKING_IMPACTS fail the
- * test with a readable list; violations at LOGGED_IMPACTS are printed to the
- * test output (visible in the report and CI logs) without failing.
- */
-async function expectNoBlockingViolations(page: Page, pageLabel: string) {
-    const results = await new AxeBuilder({ page }).analyze();
+const SIGNED_IN_PAGES: ScannedPage[] = [
+    /* The initial view renders a greeting heading once loaded. */
+    { path: "/assistant", ready: (page) => page.locator("h1, h2").first() },
+    /* The New project button renders with the list. */
+    {
+        path: "/projects",
+        ready: (page) => page.getByRole("button", { name: "New project" }),
+    },
+    {
+        path: "/tabular-reviews",
+        ready: (page) => page.getByRole("heading", { name: "Tabular Reviews" }),
+    },
+    {
+        path: "/settings",
+        ready: (page) => page.getByRole("heading", { name: "Settings" }),
+    },
+    {
+        path: "/workflows",
+        ready: (page) => page.getByRole("heading", { name: "Workflows" }),
+    },
+    {
+        path: "/playbooks",
+        ready: (page) => page.getByRole("table", { name: "Playbooks" }),
+    },
+    /* The Documents and Templates tabs render with the collection. */
+    {
+        path: "/library",
+        ready: (page) => page.locator('[data-slot="tab-pill-button"]').first(),
+    },
+];
 
-    const blocking = results.violations.filter((v) =>
-        BLOCKING_IMPACTS.includes(v.impact ?? ""),
-    );
-    const logged = results.violations.filter((v) =>
-        LOGGED_IMPACTS.includes(v.impact ?? ""),
-    );
-
-    if (logged.length > 0) {
-        /* Non-failing tier: surface the backlog on every run so it can be
-           burned down, then promoted into BLOCKING_IMPACTS. */
-        console.log(
-            `[a11y] ${pageLabel}: ${logged.length} serious violation(s) ` +
-                `(logged, not yet enforced):\n` +
-                logged.map((v) => `  ${formatViolation(v)}`).join("\n"),
-        );
-    }
-
-    expect(
-        blocking.map(formatViolation),
-        `critical-impact axe violations on ${pageLabel}`,
-    ).toEqual([]);
-}
-
-/* ─── Test 1: login page (pre-auth) ──────────────────────────────────────── */
-
-/* describe-scoped test.use so only this test runs without a stored session.
-   File-level test.use would wipe the storageState for the authenticated
-   scans below. */
-test.describe("unauthenticated", () => {
+/* describe-scoped test.use so only these tests run without a stored session.
+   A file-level test.use would wipe the storageState for the signed-in scans
+   below. */
+test.describe("signed out", () => {
     test.use({ storageState: { cookies: [], origins: [] } });
 
-    test("login page has no critical accessibility violations", async ({
-        page,
-    }) => {
-        await page.goto("/login");
-        await expect(page).toHaveURL(/\/login/);
-        /* The login form's email field renders once the page is interactive. */
-        await expect(page.locator("#email")).toBeVisible({ timeout: 10_000 });
+    for (const theme of THEMES) {
+        test(`/login in ${theme}: no critical violations, serious within the ratchet`, async ({
+            page,
+        }) => {
+            await page.goto("/login");
+            await expect(page).toHaveURL(/\/login/);
+            /* The email field renders once the page is interactive. */
+            await expect(page.locator("#email")).toBeVisible();
 
-        await expectNoBlockingViolations(page, "/login");
+            await expectAccessible(page, { name: "/login", theme });
+        });
+    }
+});
+
+for (const { path, ready } of SIGNED_IN_PAGES) {
+    for (const theme of THEMES) {
+        test(`${path} in ${theme}: no critical violations, serious within the ratchet`, async ({
+            page,
+        }) => {
+            await page.goto(path);
+            await expect(page).toHaveURL(new RegExp(`${path}(?:[/?#]|$)`));
+            await expect(ready(page)).toBeVisible();
+
+            await expectAccessible(page, { name: path, theme });
+        });
+    }
+}
+
+/* The glass material classes sit in the components cascade layer, so the
+   active tab pill's `bg-white` utility wins over the translucent fill of
+   `liquid-glass-subtle` it is drawn on. Unlayered, the material won and the
+   active tab differed from the others only by its text color. Class-name
+   unit tests cannot see this; the computed style can. */
+test("the active tab pill on /workflows paints its active fill, not the glass material", async ({
+    page,
+}) => {
+    await page.goto("/workflows");
+    await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
+    await setTheme(page, "light");
+
+    const pill = page
+        .locator('[data-slot="tab-pill-button"][aria-pressed="true"]')
+        .first();
+    await expect(pill).toBeVisible();
+
+    /* Resolve both candidate fills on probe elements, so the check does not
+       hard-code either color. */
+    const fills = await page.evaluate(() => {
+        const fillOf = (className: string) => {
+            const probe = document.createElement("div");
+            probe.className = className;
+            document.body.append(probe);
+            const fill = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return fill;
+        };
+        return {
+            active: fillOf("bg-white"),
+            material: fillOf("liquid-glass-subtle"),
+        };
     });
-});
+    expect(fills.active).not.toBe(fills.material);
 
-/* ─── Test 2: assistant (main chat/home) ─────────────────────────────────── */
-
-test("assistant page has no critical accessibility violations", async ({
-    page,
-}) => {
-    await page.goto("/assistant");
-    await expect(page).toHaveURL(/\/assistant/);
-    /* The InitialView renders a greeting heading once loaded. */
-    await expect(page.locator("h1, h2").first()).toBeVisible({
-        timeout: 10_000,
-    });
-
-    await expectNoBlockingViolations(page, "/assistant");
-});
-
-/* ─── Test 3: projects list ──────────────────────────────────────────────── */
-
-test("projects page has no critical accessibility violations", async ({
-    page,
-}) => {
-    await page.goto("/projects");
-    await expect(page).toHaveURL(/\/projects/);
-    /* The Plus icon button (aria-label="New project") renders with the list. */
-    await expect(
-        page.getByRole("button", { name: "New project" }),
-    ).toBeVisible({ timeout: 10_000 });
-
-    await expectNoBlockingViolations(page, "/projects");
-});
-
-/* ─── Test 4: tabular reviews list ───────────────────────────────────────── */
-
-test("tabular reviews page has no critical accessibility violations", async ({
-    page,
-}) => {
-    await page.goto("/tabular-reviews");
-    await expect(page).toHaveURL(/\/tabular-reviews/);
-    await expect(
-        page.getByRole("heading", { name: "Tabular Reviews" }),
-    ).toBeVisible({ timeout: 10_000 });
-
-    await expectNoBlockingViolations(page, "/tabular-reviews");
+    await expect
+        .poll(() =>
+            pill.evaluate((element) => getComputedStyle(element).backgroundColor),
+        )
+        .toBe(fills.active);
 });
