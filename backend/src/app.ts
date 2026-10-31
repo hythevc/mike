@@ -31,6 +31,7 @@ import {
   userMemoryRouter,
 } from "./modules/memory/memory.routes";
 import { playbooksRouter } from "./modules/playbooks/playbooks.routes";
+import { intakeRouter } from "./modules/intake/intake.routes";
 import { manifestPublicKey } from "./lib/manifestSigning";
 import {
   handleUnhandledError,
@@ -344,6 +345,7 @@ app.use("/download", downloadsRouter);
 app.use("/documents", sourceDocumentsRouter);
 app.use("/audit", auditRouter);
 app.use("/playbooks", playbooksRouter);
+app.use("/intake", intakeRouter);
 app.use("/upload-sessions", uploadSessionsRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));

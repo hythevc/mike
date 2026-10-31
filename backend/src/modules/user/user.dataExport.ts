@@ -362,6 +362,54 @@ async function loadUserPlaybooks(
     };
 }
 
+/**
+ * The request desk belongs to an organization, so only an organization's
+ * export carries it, and only while the person is still a member: the
+ * requests they logged or are assigned, and the trail entries they wrote
+ * (comments, status changes, assignments), on any of its requests.
+ */
+async function loadUserRequestDesk(
+    db: Db,
+    userId: string,
+    orgId: ExportWorkspace,
+    orgMemberships: Record<string, unknown>[],
+) {
+    const isMember = orgMemberships.some(
+        (row) => row.org_id === orgId && row.user_id === userId,
+    );
+    if (!orgId || !isMember) return { requests: [], comments: [] };
+    const [logged, assigned, comments] = await Promise.all([
+        selectAll(db, "request_desk_requests", (query) =>
+            query
+                .eq("org_id", orgId)
+                .eq("created_by", userId)
+                .order("reference_number", { ascending: true }),
+        ),
+        selectAll(db, "request_desk_requests", (query) =>
+            query
+                .eq("org_id", orgId)
+                .eq("assignee_user_id", userId)
+                .order("reference_number", { ascending: true }),
+        ),
+        selectAll(db, "request_desk_comments", (query) =>
+            query
+                .eq("org_id", orgId)
+                .eq("author_user_id", userId)
+                .order("created_at", { ascending: true })
+                .order("id", { ascending: true }),
+        ),
+    ]);
+    const requests = new Map<string, Record<string, unknown>>();
+    for (const row of [...logged, ...assigned])
+        if (typeof row.id === "string") requests.set(row.id, row);
+    return {
+        requests: [...requests.values()].sort(
+            (a, b) => Number(a.reference_number) - Number(b.reference_number),
+        ),
+        comments,
+    };
+}
+
 async function loadApiKeyStatus(db: Db, userId: string) {
     const rows = await selectAll(db, "user_api_keys", (query) =>
         query
@@ -793,13 +841,10 @@ export async function buildUserAccountExport(
             : Promise.resolve([]),
     ]);
 
-    const playbooks = await loadUserPlaybooks(
-        db,
-        userId,
-        userEmail,
-        orgMemberships,
-        orgId,
-    );
+    const [playbooks, requestDesk] = await Promise.all([
+        loadUserPlaybooks(db, userId, userEmail, orgMemberships, orgId),
+        loadUserRequestDesk(db, userId, orgId, orgMemberships),
+    ]);
     const exportedWorkflowIds = new Set(idsFrom(workflows));
 
     const projectIds = idsFrom(projects);
@@ -859,6 +904,7 @@ export async function buildUserAccountExport(
         tabular_cells: tabularCells,
         tabular_review_chats: tabularChats,
         ...playbooks,
+        request_desk: requestDesk,
         shared_access: {
             projects: sharedProjects,
             tabular_reviews: sharedTabularReviews,

@@ -739,3 +739,122 @@ export interface AuditActorPage {
   users: AuditActor[];
   nextOffset: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// Request desk (intake). Organization workspaces only.
+// ---------------------------------------------------------------------------
+
+/** `closed` and `declined` are terminal; the other three are open. */
+export type RequestDeskStatus =
+    | "new"
+    | "in_progress"
+    | "waiting"
+    | "closed"
+    | "declined";
+export type RequestDeskPriority = "low" | "normal" | "high" | "urgent";
+/** `internal`: logged in the app by a member. `form`: the request form. */
+export type RequestDeskSource = "internal" | "form";
+
+/**
+ * The caller's standing on one request. Owner: the organization's owners and
+ * admins. Editor: the request's assignee and the member who logged it.
+ * Viewer: every other member, who can read, comment and take an unassigned
+ * open request, but not change it.
+ */
+export type RequestDeskRole = "owner" | "editor" | "viewer";
+
+export interface RequestDeskPerson {
+    user_id: string;
+    email: string | null;
+    display_name: string | null;
+    /** False once the person has left the organization. */
+    is_member: boolean;
+}
+
+/** The matter created from a request. */
+export interface RequestDeskMatter {
+    id: string;
+    /** Null when the caller cannot open the matter. */
+    name: string | null;
+    can_open: boolean;
+}
+
+export interface RequestDeskRequest {
+    id: string;
+    org_id: string;
+    /** Per organization, e.g. "REQ-12". */
+    reference: string;
+    reference_number: number;
+    title: string;
+    details: string;
+    request_type: string | null;
+    status: RequestDeskStatus;
+    priority: RequestDeskPriority;
+    source: RequestDeskSource;
+    requester_name: string | null;
+    requester_email: string | null;
+    assignee: RequestDeskPerson | null;
+    /** Null for form submissions and once the account is deleted. */
+    created_by: RequestDeskPerson | null;
+    matter: RequestDeskMatter | null;
+    sla_due_at: string | null;
+    /** Open with a due date in the past, when the response was built. */
+    is_overdue: boolean;
+    /** Set while the request is closed or declined. */
+    closed_at: string | null;
+    created_at: string;
+    updated_at: string;
+    access_role: RequestDeskRole;
+}
+
+export interface RequestDeskRequestPage {
+    requests: RequestDeskRequest[];
+    total: number;
+    limit: number;
+    offset: number;
+}
+
+export type RequestDeskCommentKind = "comment" | "system" | "status_change";
+export type RequestDeskEvent = "assigned" | "unassigned" | "matter_created";
+
+/** One entry in a request's activity trail. */
+export interface RequestDeskComment {
+    id: string;
+    request_id: string;
+    kind: RequestDeskCommentKind;
+    /** A comment's text, or the optional note on a status change. */
+    body: string;
+    /** Set on status_change entries. */
+    from_status: RequestDeskStatus | null;
+    to_status: RequestDeskStatus | null;
+    /** Set on system entries. */
+    event: RequestDeskEvent | null;
+    /** The person an assigned or unassigned entry is about. */
+    subject: RequestDeskPerson | null;
+    /** Null once the author's account is deleted. */
+    author: RequestDeskPerson | null;
+    created_at: string;
+}
+
+/** A status change, assignment or matter link, with its trail entry. */
+export interface RequestDeskChange {
+    /** False when the request already had that status or assignee. */
+    changed: boolean;
+    request: RequestDeskRequest;
+    comment: RequestDeskComment | null;
+}
+
+/** Counts for the triage board, computed by the server. */
+export interface RequestDeskBoardSummary {
+    org_id: string;
+    total: number;
+    /** New, in progress or waiting. */
+    open: number;
+    /** Open with a due date in the past. */
+    overdue: number;
+    unassigned: number;
+    assigned_to_me: number;
+    by_status: Record<RequestDeskStatus, number>;
+    open_by_priority: Record<RequestDeskPriority, number>;
+    generated_at: string;
+}
