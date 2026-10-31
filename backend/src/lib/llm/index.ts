@@ -3,6 +3,7 @@ import type { StreamChatParams, StreamChatResult, UserApiKeys } from "./types";
 
 export * from "./types";
 export * from "./models";
+export { deploymentAllowanceRefusal } from "./providers";
 
 export async function streamChatWithTools(
     params: StreamChatParams,

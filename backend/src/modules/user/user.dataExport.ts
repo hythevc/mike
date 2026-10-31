@@ -9,6 +9,7 @@ import {
 } from "../../lib/access";
 import { mapWithConcurrency } from "../../lib/concurrency";
 import { sealManifest } from "../../lib/manifestSigning";
+import { listPersonalOrgIds } from "../../lib/personalOrgs";
 import { type Db } from "../../lib/supabase";
 import {
     resolvePlaybookRoles,
@@ -362,6 +363,42 @@ async function loadUserPlaybooks(
     };
 }
 
+/**
+ * The person's AI usage ledger rows in one workspace: what they ran, on which
+ * model and whose key, and the tokens it used. Personal work is filed under
+ * the person's own organization (see the usage_events migration).
+ */
+async function loadUsageEvents(
+    db: Db,
+    userId: string,
+    orgId: ExportWorkspace,
+) {
+    const workspaceOrgIds = orgId
+        ? [orgId]
+        : [...(await listPersonalOrgIds(db, userId))];
+    if (workspaceOrgIds.length === 0) return [];
+    const rows: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await (db as any)
+            .from("usage_events")
+            .select(
+                "id, created_at, surface, model, provider, key_source, input_tokens, output_tokens, cached_tokens, document_pages, tokens_estimated, project_id, chat_id, review_id, run_id, document_id",
+            )
+            .range(from, from + PAGE_SIZE - 1)
+            .eq("user_id", userId)
+            .in("org_id", workspaceOrgIds)
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true });
+        // Deploy before migrate: a database without the ledger has no rows
+        // to export, and that must not stop the rest of the export.
+        if (error?.code === "42P01" || error?.code === "PGRST205") return [];
+        await throwIfError(error, "Failed to export usage_events");
+        const batch = (data ?? []) as Record<string, unknown>[];
+        rows.push(...batch);
+        if (batch.length < PAGE_SIZE) return rows;
+    }
+}
+
 async function loadApiKeyStatus(db: Db, userId: string) {
     const rows = await selectAll(db, "user_api_keys", (query) =>
         query
@@ -594,6 +631,7 @@ export async function buildUserAccountExport(
         sharedTabularReviews,
         auditEvents,
         appMemory,
+        usageEvents,
     ] = await Promise.all([
         personalOnly(
             () =>
@@ -769,6 +807,7 @@ export async function buildUserAccountExport(
             }),
         ),
         loadMemoryExport(db, "user", userId, orgId),
+        loadUsageEvents(db, userId, orgId),
     ]);
 
     // Organization membership + the orgs the user belongs to and the
@@ -865,5 +904,6 @@ export async function buildUserAccountExport(
         },
         memory: appMemory,
         audit_events: auditEvents,
+        usage_events: usageEvents,
     };
 }

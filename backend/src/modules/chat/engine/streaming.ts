@@ -20,6 +20,10 @@ import { UserFacingError } from "../../../lib/userFacingError";
 import { InvalidApiKeyError } from "../../../lib/llm/apiKeyErrors";
 import { markStage, reportError } from "../../../lib/observability/sentry";
 import { providerFailureKind } from "../../../lib/llm/providerErrors";
+import {
+  DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+  deploymentQuotaError,
+} from "../../../lib/usage";
 import { safeError } from "../../../lib/safeError";
 import type { Db } from "../../../lib/supabase";
 import { buildUserMcpTools } from "../../../lib/mcpConnectors";
@@ -90,6 +94,10 @@ import {
 } from "./tools/documentOps";
 import { verifyCitations } from "./verifyCitations";
 import { buildMemoryTurn } from "../../../lib/memory/prompt";
+import {
+  runWithUsageContext,
+  type UsageContext,
+} from "../../../lib/llm/usageContext";
 
 export type { AssistantEvent } from "@mike/contracts";
 import type { AssistantEvent, AssistantErrorCode } from "@mike/contracts";
@@ -160,6 +168,17 @@ export function assistantStreamErrorPayload(
               event.type === "error" && event.safe_to_display === true,
           )
       : undefined;
+  // Raised by the provider layer itself (a tabular row has no turn events):
+  // the workspace's allowance on the deployment's keys is used up.
+  const quota = safe ? null : deploymentQuotaError(error);
+  if (quota) {
+    return {
+      message: quota.message,
+      safe_to_display: true,
+      code: DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+      ...reporting,
+    };
+  }
   if (!safe) return { message: ASSISTANT_ERROR_MESSAGE, ...reporting };
   return {
     message: safe.message,
@@ -328,6 +347,13 @@ export async function runLLMStream(params: {
   nonce?: string;
   /** Durable conversation id, forwarded to the provider as a cache hint. */
   conversationId?: string | null;
+  /**
+   * Who this turn's model calls are for. The usage ledger records them, and
+   * the cap on the deployment's keys counts them, under this context
+   * (lib/usage.ts). A subagent leaves it unset: it runs in the context its
+   * delegation set.
+   */
+  usage?: UsageContext;
   subagentRuns?: SubagentRunStore | null;
   subagentDefaults?: SubagentDefaults;
   /** Shares its answer's connector tools, web pages, case cache and document edits. */
@@ -350,6 +376,10 @@ export async function runLLMStream(params: {
   events: AssistantEvent[];
   citations: unknown[];
 }> {
+  if (params.usage) {
+    const { usage, ...turn } = params;
+    return runWithUsageContext(usage, () => runLLMStream(turn));
+  }
   const {
     apiMessages,
     docStore,
@@ -1137,10 +1167,13 @@ export async function runLLMStream(params: {
         message,
         ...(safeToDisplay ? { safe_to_display: true } : {}),
         // A rejected key is worth naming: the client turns this into a prompt
-        // to go fix the key rather than a suggestion to retry.
+        // to go fix the key rather than a suggestion to retry. So is a
+        // workspace that has used its allowance on the deployment's keys.
         ...(err instanceof InvalidApiKeyError
           ? { code: "invalid_api_key" as const }
-          : {}),
+          : deploymentQuotaError(err)
+            ? { code: DEPLOYMENT_QUOTA_EXCEEDED_CODE }
+            : {}),
       });
       throw new AssistantStreamError(
         message,

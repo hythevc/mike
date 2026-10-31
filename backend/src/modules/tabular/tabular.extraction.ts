@@ -8,6 +8,7 @@ import { createServerSupabase, type Db } from "../../lib/supabase";
 import { AppError } from "../../lib/appError";
 import { asReportableError } from "../../lib/httpError";
 import { reportError, setOperation } from "../../lib/observability/sentry";
+import { deploymentQuotaError } from "../../lib/usage";
 
 /**
  * The lease was lost, or its bookkeeping failed, while a row was still being
@@ -140,7 +141,7 @@ export async function runExtractionJob(
         //    by the enqueuing route, so the shared core will re-extract it.
         const { data: review } = await db
             .from("tabular_reviews")
-            .select("columns_config, model, org_id")
+            .select("columns_config, model, org_id, project_id")
             .eq("id", reviewId)
             .single();
         let columns: Column[] = (review?.columns_config as Column[]) ?? [];
@@ -204,6 +205,12 @@ export async function runExtractionJob(
             model: tabular_model,
             apiKeys: api_keys,
             generationId,
+            usage: {
+                userId,
+                orgId: (review as { org_id?: string | null }).org_id ?? null,
+                projectId:
+                    (review as { project_id?: string | null }).project_id ?? null,
+            },
             sink: {
                 generating: (id, columnIndex) =>
                     publish(reviewId, {
@@ -225,12 +232,40 @@ export async function runExtractionJob(
         });
         if (error instanceof ExtractionLimitError) throw error;
         if (error) {
+            // A rejected key, or a workspace out of allowance on the
+            // deployment's keys: the user's to fix, so the grid is told why.
             const payload = assistantStreamErrorPayload(error);
-            if (payload.code === "invalid_api_key") {
+            if (payload.code) {
                 await publish(reviewId, { type: "error", ...payload });
             }
         }
         if (processed.length === 0) {
+            settled = true;
+            return;
+        }
+
+        // A refusal for the deployment-key allowance: every retry would be
+        // refused the same way until the allowance resets, so the job ends
+        // here instead. The cells the model never saw end in error, as an
+        // exhausted retry would leave them, and nothing is reported: the
+        // error frame above tells the grid why.
+        if (deploymentQuotaError(error)) {
+            for (const missingColumn of missing) {
+                await finalizeCell(db, {
+                    reviewId,
+                    rowId,
+                    columnIndex: missingColumn,
+                    status: "error",
+                    generationId,
+                });
+                await publish(reviewId, {
+                    type: "cell_update",
+                    row_id: rowId,
+                    column_index: missingColumn,
+                    content: null,
+                    status: "error",
+                });
+            }
             settled = true;
             return;
         }

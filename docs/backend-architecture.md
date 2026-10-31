@@ -244,7 +244,9 @@ remaining inline queries per routes file and only ever goes down.
   `llm/`, `mcp/`, `httpError`, `serviceResult`, `pagination`, `search`,
   `privateIp`, `origins`, `runtimeConfig`, `courtlistener` (an external API
   client), `webSearch/` (Mike's own web search and page reader), `convert`,
-  `pdfjs`, `zipExport`, `concurrency`.
+  `pdfjs`, `zipExport`, `concurrency`, `usage` and `usageReport` (the AI usage
+  ledger, the monthly cap on the deployment's keys, and the cost report; each
+  entry point names who its model calls are for with `llm/usageContext`).
 - **Cross-domain primitives** that several modules and the job handlers share:
   `access` (project/document authorization), `audit` (audit-row writes),
   `documentTypes`, `documentVersions`, `modelSelection`, `routerModels`,

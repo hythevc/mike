@@ -4,8 +4,13 @@
 // title.
 
 import { completeText } from "../../lib/llm";
+import { runWithUsageContext } from "../../lib/llm/usageContext";
 import { AppError } from "../../lib/appError";
 import { reportError } from "../../lib/observability/sentry";
+import {
+    DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+    deploymentQuotaError,
+} from "../../lib/usage";
 import type { Db } from "../../lib/supabase";
 import { getUserModelSettings } from "../user/user.service";
 import { failure } from "../../lib/serviceResult";
@@ -108,14 +113,20 @@ export async function draftColumnPrompt(
                 detail: "Select a default tabular review model in Settings → Model Preferences before generating a column prompt.",
             });
         }
-        const raw = await completeText({
-            model: promptModel,
-            systemPrompt:
-                'You write high-quality column prompts for legal tabular review workflows. Return only valid JSON with a single field: {"prompt": string}. The prompt you write must focus solely on what to extract — never on how to format the response.',
-            user: userMessage,
-            maxTokens: 512,
-            apiKeys: api_keys,
-        });
+        // Drafted with the person's own model settings, so it is
+        // Personal-workspace use, outside any review.
+        const raw = await runWithUsageContext(
+            { userId, orgId: null, projectId: null, surface: "tabular" },
+            () =>
+                completeText({
+                    model: promptModel,
+                    systemPrompt:
+                        'You write high-quality column prompts for legal tabular review workflows. Return only valid JSON with a single field: {"prompt": string}. The prompt you write must focus solely on what to extract — never on how to format the response.',
+                    user: userMessage,
+                    maxTokens: 512,
+                    apiKeys: api_keys,
+                }),
+        );
         const parsed = JSON.parse(
             raw
                 .replace(/^```(?:json)?\n?/i, "")
@@ -130,6 +141,14 @@ export async function draftColumnPrompt(
         }
         return statusFailure(502, { detail: "LLM returned an empty prompt" });
     } catch (error) {
+        // The workspace's allowance on the deployment's keys is used up.
+        const quota = deploymentQuotaError(error);
+        if (quota) {
+            return statusFailure(403, {
+                code: DEPLOYMENT_QUOTA_EXCEEDED_CODE,
+                detail: quota.message,
+            });
+        }
         // The provider's or the model's failure (a rejected call, an answer
         // that is not JSON), not ours: a warning, with the cause kept so its
         // class and status say which. The 502 is unchanged.

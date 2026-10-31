@@ -1,4 +1,5 @@
 import type { ErrorKind } from "../appError";
+import { deploymentQuotaError } from "../usage";
 import { UserFacingError } from "../userFacingError";
 import { asInvalidApiKeyError, InvalidApiKeyError } from "./apiKeyErrors";
 
@@ -76,9 +77,12 @@ function isNetworkFailure(error: unknown): boolean {
  * outage or unreachable (5xx, a stalled stream, a network failure), else the
  * generic stream failure. Read off the cause chain, so the error returned by
  * toProviderStreamError (a UserFacingError around the API error) classifies
- * the same as the API error itself.
+ * the same as the API error itself. A call refused before it reached the
+ * provider, for the workspace's allowance on the deployment's keys, is its
+ * own kind.
  */
 export function providerFailureKind(error: unknown): ErrorKind {
+  if (deploymentQuotaError(error)) return "usage.quota_exceeded";
   for (let current = error, depth = 0; current && depth < 8; depth++) {
     if (current instanceof InvalidApiKeyError) return "chat.provider_rejected";
     current = (current as { cause?: unknown }).cause;

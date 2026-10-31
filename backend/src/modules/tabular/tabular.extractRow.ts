@@ -26,6 +26,13 @@
 
 import { ExtractionBusyError, ExtractionLimitError } from "../../lib/extraction/limits";
 import { type UserApiKeys } from "../../lib/llm";
+import {
+    runWithUsageContext,
+    withUsageSurface,
+    type UsageDetails,
+    type UsageScope,
+} from "../../lib/llm/usageContext";
+import { deploymentQuotaError } from "../../lib/usage";
 import { queryTabularAllColumns } from "./tabular.extract";
 import { loadRowDocumentText, type ReviewRow } from "./tabular.rows";
 import { type CellResult, type Column, type Db } from "./tabular.shared";
@@ -115,6 +122,11 @@ export async function extractRowColumns(args: {
     abortSignal?: AbortSignal;
     /** Queue runners report failed attempts; inline streams report here. */
     reportFailure?: boolean;
+    /**
+     * Who the extraction is for. The row's model call is recorded under it,
+     * with this review, generation and row's document (lib/usage.ts).
+     */
+    usage?: UsageScope;
 }): Promise<ExtractRowResult> {
     const {
         db,
@@ -146,8 +158,11 @@ export async function extractRowColumns(args: {
     // before anything is marked "generating" so a run stopped during the (slow)
     // download leaves the grid exactly as it found it.
     let markdown: string;
+    let documentPages: number | null = null;
     try {
-        markdown = await loadRowDocumentText(db, row);
+        markdown = await loadRowDocumentText(db, row, (pages) => {
+            documentPages = pages;
+        });
     } catch (error) {
         if (!(error instanceof ExtractionLimitError || error instanceof ExtractionBusyError)) throw error;
         if (abortSignal?.aborted) return untouched();
@@ -199,8 +214,16 @@ export async function extractRowColumns(args: {
     // One LLM call for all outstanding columns; persist + announce each result.
     const received = new Set<number>();
     let error: unknown;
-    try {
-        await queryTabularAllColumns(
+    const sourceIds =
+        row.source_document_ids ?? (row.document_id ? [row.document_id] : []);
+    const rowUsage: UsageDetails = {
+        reviewId,
+        runId: generationId ?? null,
+        documentId: sourceIds.length === 1 ? sourceIds[0] : null,
+        documentPages,
+    };
+    const extract = () =>
+        queryTabularAllColumns(
             model,
             row.label,
             markdown,
@@ -227,13 +250,21 @@ export async function extractRowColumns(args: {
             sink.activity,
             args.reportFailure,
         );
+    try {
+        await (args.usage
+            ? runWithUsageContext(
+                  { ...args.usage, surface: "tabular", ...rowUsage },
+                  extract,
+              )
+            : withUsageSurface("tabular", rowUsage, extract));
     } catch (err) {
         error = err;
         // An abort re-thrown by the stream is the caller stopping us, not a
-        // failure worth logging; the unreturned columns are reported below.
+        // failure worth logging, and neither is a refusal for the
+        // deployment-key allowance; the unreturned columns are reported below.
         // Not console.error: either the query already reported this failure
         // or the queue runner will report the failed attempt.
-        if (!abortSignal?.aborted) {
+        if (!abortSignal?.aborted && !deploymentQuotaError(err)) {
             console.warn(
                 `[tabular/extract-row] queryTabularAllColumns error row=${row.id}`,
                 err,

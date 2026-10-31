@@ -91,9 +91,23 @@ export type ProviderWebSearchEvent =
     /** The provider refused the search tool, so the turn ran without it. */
     | { kind: "unavailable" };
 
+/**
+ * Whose credential a model call runs on: the person's own saved key, their
+ * organization's saved key, or the deployment's own (its environment, the
+ * model registry, or an endpoint it serves without a key).
+ */
+export type KeySource = "user" | "org" | "env";
+
 export type UserApiKeys = {
     /** Explicitly disabled providers must never fall back to deployment keys. */
     disabledProviders?: readonly string[];
+    /**
+     * Whose key each provider entry below is, as the key store resolved it.
+     * The usage ledger records it, and only "env" keys count against the
+     * deployment's monthly cap. A provider without an entry is judged by
+     * comparing its key with the deployment's own.
+     */
+    keySources?: Partial<Record<string, KeySource>>;
     /**
      * Providers where the user saved a key whose setting (region, endpoint,
      * location, base URL) no longer validates. The user's key is unusable,

@@ -142,6 +142,26 @@ describe("describeError", () => {
         expect(described.message).toBe("Slow down.");
     });
 
+    it("treats a used-up deployment allowance as a refusal, not a retry", () => {
+        const described = describeError(
+            new FakeApiError({
+                status: 403,
+                code: "deployment_quota_exceeded",
+                message:
+                    "You have reached this month's limit for AI use on this deployment's provider keys.",
+            }),
+            { action: "draft the column prompt" },
+        );
+        expect(described).toMatchObject({
+            kind: "forbidden",
+            title: "Couldn't draft the column prompt",
+            message:
+                "You have reached this month's limit for AI use on this deployment's provider keys.",
+            retryable: false,
+            supportable: true,
+        });
+    });
+
     it("prefers a call-site codeMessages entry over everything", () => {
         const described = describeError(
             new FakeApiError({

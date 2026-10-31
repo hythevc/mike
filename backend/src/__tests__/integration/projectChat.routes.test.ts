@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 
+// This suite sends more chat requests than one production rate-limit window
+// allows. Rate limits have their own tests; keep them out of these.
+vi.hoisted(() => {
+    process.env.RATE_LIMIT_CHAT_MAX = "1000";
+});
+
 const {
     runLLMStream,
     checkProjectAccess,
@@ -28,6 +34,23 @@ const {
   }),
   dbInserts: [] as { table: string; value: unknown }[],
   dbUpdates: [] as { table: string; value: unknown }[],
+}));
+
+// The signed-in person, and the model provider for the one test that runs
+// the real engine.
+const { authUser, streamWithProvider } = vi.hoisted(() => ({
+  authUser: { id: "u1" },
+  streamWithProvider: vi.fn(),
+}));
+
+vi.mock("../../lib/llm/providers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/llm/providers")>()),
+  streamWithProvider: (...args: unknown[]) => streamWithProvider(...args),
+}));
+
+vi.mock("../../lib/mcpConnectors", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/mcpConnectors")>()),
+  buildUserMcpTools: vi.fn(async () => []),
 }));
 
 function makeQuery(table: string) {
@@ -138,8 +161,8 @@ vi.mock("../../middleware/auth", () => ({
         res: { locals: Record<string, unknown> },
         next: () => void,
     ) => {
-        res.locals.userId = "u1";
-        res.locals.userEmail = "u1@test.local";
+        res.locals.userId = authUser.id;
+        res.locals.userEmail = `${authUser.id}@test.local`;
         next();
     },
     requireMfaIfEnrolled: (_req: unknown, _res: unknown, next: () => void) =>
@@ -202,6 +225,13 @@ vi.mock("../../lib/access", () => ({
 
 import { app } from "../../app";
 import { getActiveAssistantTurn, resetAssistantTurnRunsForTests } from "../../lib/assistantTurnRuns";
+import { streamAiSdk } from "../../lib/llm/aiSdk";
+import {
+    config,
+    makeModel,
+    textStep,
+} from "../../lib/llm/__tests__/mockLanguageModel";
+import { settleUsageWrites } from "../../lib/usage";
 import { spotlight } from "../../modules/chat/engine/index";
 import { createServerSupabase } from "../../lib/supabase";
 import { DEFAULT_WEB_SEARCH_SETTINGS } from "../../lib/webSearch";
@@ -404,6 +434,86 @@ describe("POST /projects/:projectId/chat", () => {
     });
     expect(scheduleMemoryConsolidation).toHaveBeenCalledTimes(1);
     expect(releaseMemoryConversationTurn).not.toHaveBeenCalled();
+    });
+
+    it("runs the turn and its title under the project chat's usage context", async () => {
+        const { generateAssistantChatTitle } = await import(
+            "../../modules/chat/chat.service.js"
+        );
+        checkProjectAccess.mockResolvedValue({
+            ok: true,
+            isCreator: true,
+            orgRole: "member",
+            projectRole: "owner",
+            project: { id: "p1", user_id: "u1", org_id: "org-1" },
+        });
+
+        const res = await request(app)
+            .post("/projects/p1/chat")
+            .set("Authorization", "Bearer test")
+            .send(VALID_BODY);
+
+        expect(res.status).toBe(200);
+        const usage = {
+            userId: "u1",
+            orgId: "org-1",
+            projectId: "p1",
+            surface: "project_chat",
+            chatId: "chat-1",
+        };
+        expect(runLLMStream).toHaveBeenCalledWith(
+            expect.objectContaining({ usage }),
+        );
+        expect(generateAssistantChatTitle).toHaveBeenCalledWith(
+            expect.objectContaining({ usage }),
+        );
+    });
+
+    it("writes one usage row for a project chat turn's model call", async () => {
+        const USER = "00000000-0000-4000-8000-000000000001";
+        const ORG = "00000000-0000-4000-8000-000000000010";
+        const PROJECT = "00000000-0000-4000-8000-000000000020";
+        authUser.id = USER;
+        try {
+            checkProjectAccess.mockResolvedValue({
+                ok: true,
+                isCreator: true,
+                orgRole: "member",
+                projectRole: "owner",
+                project: { id: PROJECT, user_id: USER, org_id: ORG },
+            });
+            const realEngine = await vi.importActual<
+                typeof import("../../modules/chat/engine/index.js")
+            >("../../modules/chat/engine/index.js");
+            const model = await makeModel([textStep("Here is the answer.")]);
+            streamWithProvider.mockImplementationOnce((params) =>
+                streamAiSdk(params as never, { ...config(model), keySource: "org" }),
+            );
+            runLLMStream.mockImplementationOnce(realEngine.runLLMStream);
+            buildMessages.mockImplementationOnce(realEngine.buildMessages);
+
+            const res = await request(app)
+                .post(`/projects/${PROJECT}/chat`)
+                .set("Authorization", "Bearer test")
+                .send(VALID_BODY);
+            await settleUsageWrites();
+
+            expect(res.status).toBe(200);
+            expect(res.text).toContain('"type":"content_delta"');
+            expect(res.text).not.toContain('"type":"error"');
+            const ledger = dbInserts.filter(({ table }) => table === "usage_events");
+            expect(ledger).toHaveLength(1);
+            expect(ledger[0].value).toMatchObject({
+                surface: "project_chat",
+                key_source: "org",
+                project_id: PROJECT,
+                org_id: ORG,
+                user_id: USER,
+                model: "mock-model",
+            });
+        } finally {
+            authUser.id = "u1";
+        }
     });
 
     it("runs a personal project's chat on the caller's own keys", async () => {

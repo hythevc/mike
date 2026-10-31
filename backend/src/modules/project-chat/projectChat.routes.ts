@@ -46,6 +46,7 @@ import {
     logChatTitleFailure,
 } from "../chat/chat.service";
 import { titleModelForChat } from "../../lib/modelSelection";
+import type { UsageContext } from "../../lib/llm/usageContext";
 import {
     releaseMemoryConversationTurn,
     scheduleMemoryConsolidation,
@@ -175,6 +176,15 @@ projectChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (r
         chatId,
         messageId: turnMessageId,
     });
+    // Who this turn's model calls are for: the usage ledger and the cap on
+    // the deployment's keys count them here (lib/usage.ts).
+    const usage: UsageContext = {
+        userId,
+        orgId,
+        projectId,
+        surface: "project_chat",
+        chatId,
+    };
 
     try {
         // The generation is a server-owned run: it survives the caller's
@@ -232,6 +242,7 @@ projectChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (r
                       model: titleModelForChat(selectedModel, titleModel),
                       message: titleMessage,
                       apiKeys,
+                      usage,
                   })
                       .then(async (title) => {
                           if (stream.signal.aborted) return;
@@ -280,6 +291,7 @@ projectChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (r
                 signal: stream.signal,
                 projectId,
                 conversationId: chatId,
+                usage,
                 includeMemory: true,
                 connectorApprovals: true,
                 memoryProjectId: projectId,
