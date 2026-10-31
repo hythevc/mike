@@ -356,8 +356,9 @@ and nothing is sent until you configure a DSN for your own Sentry project.
 Once one is set, every runtime rebuilds reports from an explicit allowlist
 before network transmission: code locations and line numbers, controlled
 operation labels, HTTP method/status and normalized routes, validated
-correlation IDs, release, and environment. Client document filenames, document text, raw error and
-console messages, request URLs/queries/headers/bodies, user identities, and
+correlation IDs, release, and environment. Client document filenames,
+document text, raw error and console messages, request
+URLs/queries/headers/bodies, user identities, and
 breadcrumbs are excluded. Automatic sessions, replay, attachments, traces,
 and other non-error payloads are blocked. The same boundary applies to
 community and official installations. See the [observability guide](observability.md)
