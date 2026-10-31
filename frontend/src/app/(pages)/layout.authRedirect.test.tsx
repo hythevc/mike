@@ -8,13 +8,18 @@ const navigation = vi.hoisted(() => ({
     push: vi.fn(),
     replace: vi.fn(),
 }));
+const auth = vi.hoisted(() => ({ signedOutOnPurpose: false }));
 
 vi.mock("next/navigation", () => ({
     usePathname: () => navigation.pathname,
     useRouter: () => ({ push: navigation.push, replace: navigation.replace }),
 }));
 vi.mock("@/app/contexts/AuthContext", () => ({
-    useAuth: () => ({ isAuthenticated: false, authLoading: false }),
+    useAuth: () => ({
+        isAuthenticated: false,
+        authLoading: false,
+        signedOutOnPurpose: auth.signedOutOnPurpose,
+    }),
 }));
 vi.mock("@/app/contexts/ChatHistoryContext", () => ({
     ChatHistoryProvider: ({ children }: { children: React.ReactNode }) =>
@@ -28,8 +33,11 @@ describe("signed-out visit to an app page", () => {
     beforeEach(() => {
         navigation.push.mockReset();
         navigation.replace.mockReset();
+        auth.signedOutOnPurpose = false;
     });
 
+    // A link opened signed out, and a session that expired, look the same
+    // here: both keep the page as next.
     it("sends the visitor to login with the page they asked for as next", async () => {
         navigation.pathname = "/projects/project-1";
         window.history.replaceState(null, "", "/projects/project-1?tab=chats");
@@ -61,6 +69,27 @@ describe("signed-out visit to an app page", () => {
 
         await waitFor(() =>
             expect(navigation.replace).toHaveBeenCalledWith("/login"),
+        );
+    });
+
+    // Whoever signs in next on this tab, perhaps someone else on a shared
+    // machine, starts from the default page, not the one left behind.
+    it("sends someone who signed out on purpose to a plain login page", async () => {
+        auth.signedOutOnPurpose = true;
+        navigation.pathname = "/projects/project-1";
+        window.history.replaceState(null, "", "/projects/project-1?tab=chats");
+
+        render(
+            <MikeLayout>
+                <p>Project</p>
+            </MikeLayout>,
+        );
+
+        await waitFor(() =>
+            expect(navigation.replace).toHaveBeenCalledWith("/login"),
+        );
+        expect(navigation.replace).not.toHaveBeenCalledWith(
+            expect.stringContaining("next="),
         );
     });
 });

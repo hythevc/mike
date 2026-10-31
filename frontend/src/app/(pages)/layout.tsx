@@ -21,7 +21,7 @@ export default function MikeLayout({
     children: React.ReactNode;
 }) {
     preloadSidebarIcons();
-    const { isAuthenticated, authLoading } = useAuth();
+    const { isAuthenticated, authLoading, signedOutOnPurpose } = useAuth();
     const [hasMounted, setHasMounted] = useState(false);
     useEffect(() => {
         // An outer auth provider may settle before this streamed boundary
@@ -113,13 +113,18 @@ export default function MikeLayout({
     useEffect(() => {
         if (!authLoading && !isAuthenticated) {
             // The page asked for rides along as ?next, so signing in returns
-            // to it. Replace, not push: Back must not land on a page that
-            // only bounces to the login screen again.
+            // to it, after a link opened signed out or a session that
+            // expired. Not after signing out on purpose: the next person to
+            // sign in on this tab must not land on the page left behind.
+            // Replace, not push: Back must not land on a page that only
+            // bounces to the login screen again.
             router.replace(
-                loginPathFor(`${pathname}${window.location.search}`),
+                signedOutOnPurpose
+                    ? "/login"
+                    : loginPathFor(`${pathname}${window.location.search}`),
             );
         }
-    }, [authLoading, isAuthenticated, pathname, router]);
+    }, [authLoading, isAuthenticated, pathname, router, signedOutOnPurpose]);
 
     if (!hasMounted || authLoading) {
         return <FullScreenLoader />;

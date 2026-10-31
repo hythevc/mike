@@ -38,12 +38,19 @@ const user = {
 };
 
 function Consumer() {
-    const { user: currentUser, authLoading, authError, signOut } = useAuth();
+    const {
+        user: currentUser,
+        authLoading,
+        authError,
+        signedOutOnPurpose,
+        signOut,
+    } = useAuth();
     return (
         <>
             <span data-testid="user">{currentUser?.email ?? "signed-out"}</span>
             <span data-testid="loading">{String(authLoading)}</span>
             <span data-testid="error">{authError ?? ""}</span>
+            <span data-testid="on-purpose">{String(signedOutOnPurpose)}</span>
             <button
                 type="button"
                 onClick={() => void signOut().catch(() => {})}
@@ -239,4 +246,87 @@ describe("AuthProvider", () => {
         },
     );
 
+    // The app shell drops ?next after a sign-out the person chose, so the
+    // next person to sign in on a shared machine does not land on the page
+    // left behind. An expired session keeps it.
+    describe("signedOutOnPurpose", () => {
+        function storageMessage(message: Record<string, unknown>) {
+            const event = new Event("storage") as StorageEvent;
+            Object.defineProperties(event, {
+                key: { value: "mike-auth-state-change" },
+                newValue: { value: JSON.stringify(message) },
+            });
+            return event;
+        }
+
+        it("marks a sign-out chosen here and tells other tabs it was chosen", async () => {
+            getAuthSession.mockResolvedValue(user);
+            logout.mockResolvedValue(undefined);
+            render(<AuthProvider><Consumer /></AuthProvider>);
+            await screen.findByText(user.email);
+            expect(screen.getByTestId("on-purpose")).toHaveTextContent("false");
+
+            fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+            await waitFor(() =>
+                expect(screen.getByTestId("on-purpose")).toHaveTextContent("true"),
+            );
+            expect(
+                JSON.parse(window.localStorage.getItem("mike-auth-state-change")!),
+            ).toMatchObject({ state: "signed-out", onPurpose: true });
+        });
+
+        it("leaves a session that expired unmarked", async () => {
+            getAuthSession.mockResolvedValue(user);
+            render(<AuthProvider><Consumer /></AuthProvider>);
+            await screen.findByText(user.email);
+
+            fireEvent(window, new Event(AUTH_SESSION_INVALIDATED_EVENT));
+
+            expect(screen.getByTestId("user")).toHaveTextContent("signed-out");
+            expect(screen.getByTestId("on-purpose")).toHaveTextContent("false");
+            expect(
+                JSON.parse(window.localStorage.getItem("mike-auth-state-change")!),
+            ).not.toHaveProperty("onPurpose");
+        });
+
+        it.each([
+            [true, "true"],
+            [undefined, "false"],
+        ])(
+            "follows another tab's sign-out (chosen: %s)",
+            async (onPurpose, marked) => {
+                getAuthSession.mockResolvedValue(user);
+                render(<AuthProvider><Consumer /></AuthProvider>);
+                await screen.findByText(user.email);
+
+                window.dispatchEvent(
+                    storageMessage({ state: "signed-out", nonce: "other-tab", onPurpose }),
+                );
+
+                await waitFor(() =>
+                    expect(screen.getByTestId("user")).toHaveTextContent("signed-out"),
+                );
+                expect(screen.getByTestId("on-purpose")).toHaveTextContent(marked);
+            },
+        );
+
+        it("clears the mark when someone signs in again", async () => {
+            getAuthSession.mockResolvedValue(user);
+            logout.mockResolvedValue(undefined);
+            render(<AuthProvider><Consumer /></AuthProvider>);
+            await screen.findByText(user.email);
+            fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+            await waitFor(() =>
+                expect(screen.getByTestId("on-purpose")).toHaveTextContent("true"),
+            );
+
+            window.dispatchEvent(
+                storageMessage({ state: "signed-in", nonce: "other-tab" }),
+            );
+
+            await screen.findByText(user.email);
+            expect(screen.getByTestId("on-purpose")).toHaveTextContent("false");
+        });
+    });
 });

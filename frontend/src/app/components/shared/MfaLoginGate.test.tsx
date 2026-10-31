@@ -85,3 +85,29 @@ describe("MfaLoginGate with verification required", () => {
         );
     });
 });
+
+describe("MfaLoginGate once verified on the verification page", () => {
+    beforeEach(() => {
+        state.pathname = "/verify-mfa";
+        state.replace.mockReset();
+        state.needsMfaVerification.mockReset();
+        state.needsMfaVerification.mockResolvedValue(false);
+        window.sessionStorage.clear();
+    });
+
+    it.each([
+        ["/projects/project-1?tab=chats", "/projects/project-1?tab=chats"],
+        // A browser reads "/\\host" as "//host": another site.
+        ["/\\evil.example", "/assistant"],
+        ["//evil.example/projects", "/assistant"],
+        ["https://evil.example/assistant", "/assistant"],
+        ["/verify-mfa?next=/projects", "/assistant"],
+    ])("returns to next=%s as %s", async (next, destination) => {
+        state.searchParams = new URLSearchParams({ next });
+        renderGate();
+
+        await waitFor(() =>
+            expect(state.replace).toHaveBeenCalledWith(destination),
+        );
+    });
+});

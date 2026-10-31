@@ -30,6 +30,14 @@ interface AuthContextType {
     isAuthenticated: boolean;
     authLoading: boolean;
     authError: string | null;
+    /**
+     * True once the person signed out on purpose, in this tab or another,
+     * until someone signs in again. The app shell then opens a plain sign-in
+     * page rather than one that returns to the page they left, so the next
+     * person to sign in on a shared machine does not land on it. A session
+     * that expired leaves it false.
+     */
+    signedOutOnPurpose: boolean;
     signOut: () => Promise<void>;
     updateEmail: (email: string) => Promise<User>;
     setPassword: (password: string) => Promise<void>;
@@ -49,12 +57,15 @@ const EXPIRED_SESSION_MESSAGE = "Your session expired. Please log in again.";
 type AuthSyncMessage = {
     state: "signed-in" | "signed-out";
     nonce: string;
+    /** Set on a sign-out the person chose, unlike an expired session. */
+    onPurpose?: boolean;
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [authLoading, setAuthLoading] = useState(true);
     const [authError, setAuthError] = useState<string | null>(null);
+    const [signedOutOnPurpose, setSignedOutOnPurpose] = useState(false);
     const channelRef = useRef<BroadcastChannel | null>(null);
     const sessionRequestRef = useRef<Promise<User | null> | null>(null);
 
@@ -64,17 +75,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Every session-ending or identity-changing path must discard them.
         if (!nextUser || sessionUserIdRef.current !== nextUser.id) clearToasts();
         sessionUserIdRef.current = nextUser?.id ?? null;
+        if (nextUser) setSignedOutOnPurpose(false);
         setUser(nextUser);
     }, []);
 
     const broadcastAuthState = useCallback(
-        (state: AuthSyncMessage["state"]) => {
+        (state: AuthSyncMessage["state"], onPurpose = false) => {
             const message: AuthSyncMessage = {
                 state,
                 nonce:
                     typeof crypto.randomUUID === "function"
                         ? crypto.randomUUID()
                         : `${Date.now()}-${Math.random()}`,
+                ...(onPurpose ? { onPurpose: true } : {}),
             };
             channelRef.current?.postMessage(message);
             try {
@@ -147,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const applySyncMessage = (message: AuthSyncMessage) => {
             if (message.state === "signed-out") {
                 applySessionUser(null);
+                if (message.onPurpose === true) setSignedOutOnPurpose(true);
                 setAuthError(null);
                 setAuthLoading(false);
                 return;
@@ -235,8 +249,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
             await logout("local");
             applySessionUser(null);
+            setSignedOutOnPurpose(true);
             setAuthError(null);
-            broadcastAuthState("signed-out");
+            broadcastAuthState("signed-out", true);
         } catch (error) {
             setAuthError("Unable to sign out. Please try again.");
             throw error;
@@ -259,13 +274,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // A fresh object here re-renders every consumer of this context on every
     // provider render, sign-in state change or not. Each callback above is
-    // itself memoized, so this only changes when user/authLoading/authError do.
+    // itself memoized, so this only changes when the state above does.
     const value = useMemo<AuthContextType>(
         () => ({
             user,
             isAuthenticated: !!user,
             authLoading,
             authError,
+            signedOutOnPurpose,
             signOut,
             updateEmail,
             setPassword,
@@ -276,6 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             user,
             authLoading,
             authError,
+            signedOutOnPurpose,
             signOut,
             updateEmail,
             setPassword,

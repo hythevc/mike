@@ -105,9 +105,11 @@ test.describe("unauthenticated", () => {
     }) => {
         /* Every route under the (pages) route group is protected by the layout
            auth guard:
-               if (!authLoading && !isAuthenticated) { router.push("/login"); }
+               if (!authLoading && !isAuthenticated) {
+                   router.replace(loginPathFor(page));
+               }
            in frontend/src/app/(pages)/layout.tsx.
-           REGRESSION: fails if that router.push("/login") is removed from the
+           REGRESSION: fails if that router.replace is removed from the
            layout, or if any of these routes is moved outside the (pages) group
            without adding its own auth guard. */
         const protectedRoutes = [
@@ -247,5 +249,8 @@ test.describe("logout (isolated user)", () => {
     await signOutButton.click();
 
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    /* Signing out on purpose leaves no ?next=/settings behind: whoever signs
+       in next on this tab starts from the default page. */
+    expect(new URL(page.url()).searchParams.get("next")).toBeNull();
     });
 });
