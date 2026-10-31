@@ -50,7 +50,8 @@ import {
 } from "@/app/components/shared/AppSidebarSkeuoIcons";
 import { NAV_ITEMS, isNavItemCurrent } from "@/app/components/shared/navItems";
 import { listProjectsPage } from "@/app/lib/mikeApi";
-import { notifyError } from "@/app/lib/userFacingError";
+import { notifyError, notifyPartialFailure } from "@/app/lib/userFacingError";
+import { dismissToast, showToast } from "@/shared/lib/toastStore";
 import { useAssignLatest } from "@/app/hooks/useLatestRef";
 import type { Project } from "@/app/components/shared/types";
 import { cn } from "@/app/lib/utils";
@@ -69,6 +70,24 @@ import {
 
 /** Where a workspace opens: the page the logo leads to. */
 const WORKSPACE_HOME = "/assistant";
+
+/** Signing out's progress notice and its failure share one place. */
+const SIGN_OUT_NOTICE_KEY = "sign-out";
+
+/**
+ * Chat deletes the server refused while the person signed out. The notice
+ * that would have named the chat went with the session, so this one says
+ * it again without naming it: whoever uses the screen next may read it.
+ */
+function reportRefusedChatDeletes(refused: number) {
+    if (refused === 0) return;
+    notifyPartialFailure(
+        refused === 1
+            ? "A chat you deleted was not deleted and is still in your history."
+            : `${refused} chats you deleted were not deleted and are still in your history.`,
+        { action: refused === 1 ? "delete the chat" : "delete the chats" },
+    );
+}
 
 const RECENT_PROJECT_PAGE_SIZE = 10;
 const RECENT_PROJECT_LIST_HEIGHT_CLASS = "h-44";
@@ -99,6 +118,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         setCurrentChatId,
         sideChatId,
         requestSideChat,
+        flushPendingChatDeletes,
     } =
         useChatHistoryContext();
     const history = useSidebarHistory();
@@ -418,19 +438,38 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         onToggle();
     };
 
+    // A chat delete still inside its undo window is sent first, while the
+    // session can still carry it, but its answer is awaited only briefly
+    // (CHAT_DELETE_FLUSH_MS): on a shared machine, Sign out must sign out.
     // A failed sign-out leaves the session live, which the user must know
-    // about — on a shared machine especially. Signing out again is safe, so
-    // the notice carries a real Retry.
+    // about. Signing out again is safe, so that notice carries a real Retry.
     function handleSignOut() {
-        void signOut()
-            .then(() => router.push("/"))
-            .catch((error) => {
+        const progress = showToast({
+            tone: "info",
+            message: "Signing out…",
+            durationMs: null,
+            dedupeKey: SIGN_OUT_NOTICE_KEY,
+        });
+        void (async () => {
+            let refused = 0;
+            try {
+                ({ refused } = await flushPendingChatDeletes({
+                    report: false,
+                }));
+                await signOut();
+            } catch (error) {
                 notifyError(error, {
                     action: "sign out",
-                    dedupeKey: "sign-out",
+                    dedupeKey: SIGN_OUT_NOTICE_KEY,
                     onRetry: handleSignOut,
                 });
-            });
+                reportRefusedChatDeletes(refused);
+                return;
+            }
+            dismissToast(progress);
+            reportRefusedChatDeletes(refused);
+            router.push("/");
+        })();
     }
 
     useEffect(() => {
@@ -734,8 +773,11 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                     id="sidebar-history"
                                     role="region"
                                     aria-label="History"
+                                    // Not a tab stop, but where the keyboard
+                                    // lands when its last chat is deleted.
+                                    tabIndex={-1}
                                     className={cn(
-                                        "min-h-0 flex-1 overflow-y-auto",
+                                        "min-h-0 flex-1 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40",
                                         historyCollapsed && "hidden",
                                     )}
                                     onScroll={handleHistoryScroll}

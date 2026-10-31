@@ -40,6 +40,7 @@ import {
     notifyBulkReviewDeleteOutcome,
 } from "@/app/lib/deleteTabularReviewsWithConcurrency";
 import { useQueryParamTab } from "@/app/hooks/useQueryParamTab";
+import { isEmptyStatesPreview } from "@/app/lib/emptyStatesPreview";
 
 type ReviewScope = TabularReviewScope;
 
@@ -129,7 +130,7 @@ function TabularReviewsWorkspacePage({ workspace }: { workspace?: string }) {
     );
     const { user } = useAuth();
     const workspaceOrgId = useWorkspaceOrgId();
-    const previewEmptyStates = searchParams.get("emptyStates") === "1";
+    const previewEmptyStates = isEmptyStatesPreview(searchParams);
     const effectiveLoading = loading && !previewEmptyStates;
     const visibleReviews = useMemo(
         () => (previewEmptyStates ? [] : reviews),

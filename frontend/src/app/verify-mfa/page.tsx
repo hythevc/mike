@@ -20,6 +20,7 @@ import { reportFault,
     type UserFacingError,
 } from "@/app/lib/userFacingError";
 import { authMessages } from "@/app/lib/authMessages";
+import { DEFAULT_SIGNED_IN_PATH, safeAuthNext } from "@/app/lib/authRedirects";
 
 /** The shared auth table with this screen's deltas. */
 const MFA_ERROR_MESSAGES = authMessages({
@@ -64,7 +65,11 @@ export default function VerifyMfaPage() {
         : selectedFactorId;
     const displayedLoading = isMfaPreview ? false : loading;
 
-    const nextPath = safeNextPath(searchParams.get("next"));
+    // Only a page of this app, and never this page.
+    const nextPath = safeAuthNext(
+        searchParams.get("next"),
+        DEFAULT_SIGNED_IN_PATH,
+    );
     const canVerify =
         !displayedLoading &&
         !verifying &&
@@ -276,12 +281,4 @@ export default function VerifyMfaPage() {
             </div>
         </div>
     );
-}
-
-function safeNextPath(value: string | null) {
-    if (!value || !value.startsWith("/") || value.startsWith("//")) {
-        return "/assistant";
-    }
-    if (value.startsWith("/verify-mfa")) return "/assistant";
-    return value;
 }

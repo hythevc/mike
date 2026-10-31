@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     MessageSquare,
@@ -19,9 +19,11 @@ import {
 } from "@/shared/ui/dropdown";
 import { useChatHistoryContext } from "@/app/contexts/ChatHistoryContext";
 import { RenameModal } from "@/app/components/modals/RenameModal";
+import { DeleteChatConfirmPopup } from "@/app/components/shared/DeleteChatConfirmPopup";
 import { LeaveChatPopup } from "@/app/components/assistant/LeaveChatPopup";
 import { WarningPopup } from "@/app/components/popups/WarningPopup";
 import { can, roleFrom } from "@/app/lib/permissions";
+import { focusNeighbour } from "@/app/lib/focusNeighbour";
 import { userFacingApiError } from "@/app/lib/userFacingError";
 import type { Chat } from "@/app/components/shared/types";
 import { ChatSkeuoIcon } from "@/app/components/shared/AppSidebarSkeuoIcons";
@@ -54,15 +56,16 @@ export function SidebarChatItem({
     responseStatus,
     onOpenInSideChat,
 }: Props) {
-    const { renameChat, deleteChat } = useChatHistoryContext();
+    const { renameChat, deleteChatWithUndo } = useChatHistoryContext();
     const router = useRouter();
     const [leaveOpen, setLeaveOpen] = useState(false);
     const [renameOpen, setRenameOpen] = useState(false);
     const [renaming, setRenaming] = useState(false);
     const [shareOpen, setShareOpen] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
-    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [renameError, setRenameError] = useState<string | null>(null);
+    const rowRef = useRef<HTMLDivElement>(null);
     const { titleRef, titleStyle, slideHandlers } = useSidebarTitleSlide();
     // Chat management belongs to owners; editors can still send messages.
     const role = roleFrom(chat);
@@ -90,6 +93,32 @@ export function SidebarChatItem({
     // collapses when the pointer leaves and the menu anchored to it jumps.
     const actionsRevealed = isActive || menuOpen;
 
+    // A chat that is no longer the user's to see leaves the screen. Read
+    // the current route: the user may have navigated since the menu opened,
+    // or the chat may be the one beside the primary chat.
+    const leaveChatRoute = () => {
+        const url = new URL(window.location.href);
+        if (url.pathname === `/assistant/chat/${chat.id}`) router.push("/assistant");
+        else if (url.searchParams.get("side") === chat.id) {
+            url.searchParams.delete("side");
+            router.replace(url.pathname + url.search);
+        }
+    };
+
+    const confirmDelete = () => {
+        // The dialog and this row are about to go, which would drop the
+        // keyboard to the top of the page: hand it to the next chat in the
+        // list instead (or the list itself once it is empty). From there
+        // the focus key reaches the Undo notice.
+        focusNeighbour(rowRef.current);
+        setConfirmDeleteOpen(false);
+        leaveChatRoute();
+        // Hides the row and offers Undo before anything is sent; a failure
+        // after that is reported by the history itself, since this row is
+        // gone by then.
+        deleteChatWithUndo(chat);
+    };
+
     const handleRenameSave = async (title: string) => {
         setRenaming(true);
         try {
@@ -97,9 +126,10 @@ export function SidebarChatItem({
             setRenameOpen(false);
         } catch (error) {
             // The context put the old title back; without this the user
-            // watches their edit silently revert — the rename twin of the
-            // surfaced delete failure below. The modal stays open so the
-            // typed title is still there to retry.
+            // watches their edit silently revert. (A refused delete is
+            // reported by the chat history, since this row is gone by
+            // then.) The modal stays open so the typed title is still there
+            // to retry.
             setRenameError(
                 userFacingApiError(
                     error,
@@ -113,6 +143,7 @@ export function SidebarChatItem({
 
     return (
         <div
+            ref={rowRef}
             className={cn(
                 "group relative flex h-8 w-full items-center rounded-md transition-colors",
                 isActive
@@ -227,12 +258,7 @@ export function SidebarChatItem({
                             Rename
                         </DropdownItem>}
                         {canDelete && <DropdownItem
-                            onSelect={() => {
-                                deleteChat(chat.id).catch((error) => {
-                                    setDeleteError(userFacingApiError(error,
-                                        "The chat could not be deleted. Please try again."));
-                                });
-                            }}
+                            onSelect={() => setConfirmDeleteOpen(true)}
                             className="text-red-600 focus:text-red-600"
                         >
                             <Trash2 className="mr-2 h-4 w-4" />
@@ -247,17 +273,14 @@ export function SidebarChatItem({
             {leaveOpen && <LeaveChatPopup
                 chatId={chat.id}
                 onClose={() => setLeaveOpen(false)}
-                onLeft={() => {
-                    // Use the current route: the user may have navigated while
-                    // the request was in flight, or left the secondary chat.
-                    const url = new URL(window.location.href);
-                    if (url.pathname === `/assistant/chat/${chat.id}`) router.push("/assistant");
-                    else if (url.searchParams.get("side") === chat.id) {
-                        url.searchParams.delete("side");
-                        router.replace(url.pathname + url.search);
-                    }
-                }}
+                onLeft={leaveChatRoute}
             />}
+            <DeleteChatConfirmPopup
+                open={confirmDeleteOpen}
+                chatTitle={chat.title}
+                onCancel={() => setConfirmDeleteOpen(false)}
+                onConfirm={confirmDelete}
+            />
             <RenameModal
                 open={renameOpen}
                 breadcrumbs={["Assistant", "Rename Chat"]}
@@ -268,12 +291,6 @@ export function SidebarChatItem({
                     if (!renaming) setRenameOpen(false);
                 }}
                 onSave={(title) => void handleRenameSave(title)}
-            />
-            <WarningPopup
-                open={!!deleteError}
-                title="Chat not deleted"
-                message={deleteError}
-                onClose={() => setDeleteError(null)}
             />
             <WarningPopup
                 open={!!renameError}

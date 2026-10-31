@@ -81,6 +81,7 @@ import { EmptyState } from "@/app/components/ui/empty-state";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { useQueryParamTab } from "@/app/hooks/useQueryParamTab";
 import { AccessScopeLabel } from "@/app/components/shared/AccessScopeLabel";
+import { isEmptyStatesPreview } from "@/app/lib/emptyStatesPreview";
 
 function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString(undefined, {
@@ -175,7 +176,7 @@ export function ProjectsOverview() {
     const [filterOptionsAttempt, setFilterOptionsAttempt] = useState(0);
     const rowSelectionAnchorIdRef = useRef<string | null>(null);
     const { user, isAuthenticated, authLoading } = useAuth();
-    const previewEmptyStates = searchParams.get("emptyStates") === "1";
+    const previewEmptyStates = isEmptyStatesPreview(searchParams);
     const debouncedSearch = useDebouncedValue(search, 250);
 
     const {
@@ -283,6 +284,22 @@ export function ProjectsOverview() {
 
     function handleOwnerFilterChange(value: string | null) {
         setOwnerFilter(value);
+        clearSelection();
+    }
+
+    // An empty list under a search or a column filter means "nothing
+    // matches", not "you have no projects": it must not offer first-run
+    // help, and it must offer the way back to the full list.
+    const narrowedBySearchOrFilter =
+        debouncedSearch.trim() !== "" ||
+        practiceFilter !== null ||
+        ownerFilter !== null;
+
+    function clearFilters() {
+        setSearch("");
+        setPracticeFilter(null);
+        setOwnerFilter(null);
+        setActiveFilter("all");
         clearSelection();
     }
 
@@ -775,7 +792,22 @@ export function ProjectsOverview() {
                     </TableEmptyState>
                 ) : visibleProjects.length === 0 ? (
                     <TableEmptyState>
-                        {activeFilter === "public" || activeFilter === "shared" ? (
+                        {narrowedBySearchOrFilter ? (
+                            <EmptyState
+                                icon={<OpenProjectSvgIcon />}
+                                title="No matching projects"
+                                description="No projects match the current search or filters."
+                                action={
+                                    <PillButtonUI
+                                        tone="black"
+                                        size="sm"
+                                        onClick={clearFilters}
+                                    >
+                                        Clear filters
+                                    </PillButtonUI>
+                                }
+                            />
+                        ) : activeFilter === "public" || activeFilter === "shared" ? (
                             <p className="text-sm text-gray-400">
                                 {activeFilter === "public"
                                     ? "No public projects"

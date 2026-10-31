@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AuthApiError, login, signup } from "@/app/lib/authApi";
+import {
+    DEFAULT_SIGNED_IN_PATH,
+    ONBOARDING_START_PATH,
+    postLoginDestination,
+    signupPathFor,
+} from "@/app/lib/authRedirects";
 import { completeUserOnboarding, getUserProfile } from "@/app/lib/mikeApi";
 import { InputUI } from "@/shared/ui/InputUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
@@ -81,6 +87,10 @@ declare global {
 
 export default function LoginPage() {
     const router = useRouter();
+    // The page the user was sent here from (`?next`), or the first
+    // onboarding step, which sends an onboarded user on to the app.
+    const next = useSearchParams().get("next");
+    const destination = postLoginDestination(next);
     const {
         isAuthenticated,
         authLoading,
@@ -109,9 +119,9 @@ export default function LoginPage() {
 
     useEffect(() => {
         if (!authLoading && isAuthenticated) {
-            router.replace("/onboarding/profile");
+            router.replace(destination);
         }
-    }, [authLoading, isAuthenticated, router]);
+    }, [authLoading, destination, isAuthenticated, router]);
 
     useEffect(() => {
         let cancelled = false;
@@ -135,7 +145,7 @@ export default function LoginPage() {
         try {
             await login(email, password);
             await refreshSession();
-            router.push("/onboarding/profile");
+            router.push(destination);
         } catch (caught: unknown) {
             setError(describeLoginError(caught));
         } finally {
@@ -208,7 +218,11 @@ export default function LoginPage() {
             // Session lives in the httpOnly cookie the auth routes set, so the
             // context has to re-read it before any gated route will let us in.
             await refreshSession();
-            router.push("/assistant");
+            router.push(
+                destination === ONBOARDING_START_PATH
+                    ? DEFAULT_SIGNED_IN_PATH
+                    : destination,
+            );
         } catch (error: unknown) {
             setError(
                 reportFault(error, {
@@ -343,8 +357,12 @@ export default function LoginPage() {
                                         }}
                                         disabled={loading}
                                         onLoadingChange={setLoading}
+                                        next={destination}
                                     />
-                                    <SsoAuthButton disabled={loading} />
+                                    <SsoAuthButton
+                                        disabled={loading}
+                                        next={destination}
+                                    />
                                 </>
                             )}
                         </form>
@@ -353,7 +371,8 @@ export default function LoginPage() {
                 <div className="text-center text-sm text-gray-500">
                     Don&apos;t have an account?{" "}
                     <Link
-                        href="/signup"
+                        // A new account keeps the page it was sent here for.
+                        href={signupPathFor(next)}
                         className="font-medium transition-colors hover:text-gray-950"
                     >
                         Sign up

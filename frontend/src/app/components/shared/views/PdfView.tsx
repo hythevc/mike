@@ -15,6 +15,10 @@ import {
 } from "./highlightQuote";
 import { orderTextItemLines, type TextItemGeometry } from "./pdfTextOrder";
 import { LIQUID_GLASS_TRANSLUCENT_CLASS } from "@/shared/ui/LiquidGlassUI";
+import { PillButtonUI } from "@/shared/ui/PillButtonUI";
+import { pillButtonUIClassName } from "@/shared/ui/PillButtonUI.styles";
+import { downloadDocumentFile } from "@/app/lib/downloadDocument";
+import { notifyError } from "@/app/lib/userFacingError";
 import { viewRoundingClass, type ViewRounding } from "./viewRounding";
 
 interface Props {
@@ -245,12 +249,16 @@ export function PdfView({
         result: DocResult;
         message: string;
     } | null>(null);
+    // Retry fetches the document again; the caller's own refetchKey still
+    // decides everything else.
+    const [retryCount, setRetryCount] = useState(0);
+    const [downloading, setDownloading] = useState(false);
 
     const { result, loading, error } = useFetchSingleDoc(
         doc?.document_id ?? null,
         doc?.version_id ?? null,
         displayUrl,
-        refetchKey,
+        retryCount === 0 ? refetchKey : `${refetchKey ?? ""}:retry-${retryCount}`,
     );
     const documentError =
         error ?? (pdfLoadError?.result === result ? pdfLoadError?.message : null);
@@ -740,6 +748,20 @@ export function PdfView({
         rehighlightQuotes(quoteList);
     }, [quoteKey, quoteFocusKey, rehighlightQuotes]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // The way to the document when this viewer cannot show it: the file
+    // itself, opened in whatever the person has for PDFs.
+    async function handleDownload() {
+        if (!doc || downloading) return;
+        setDownloading(true);
+        try {
+            await downloadDocumentFile(doc.document_id, doc.version_id ?? null);
+        } catch (downloadError) {
+            notifyError(downloadError, { action: "download the document" });
+        } finally {
+            setDownloading(false);
+        }
+    }
+
     function handleZoomIn() {
         const next = Math.min(
             ZOOM_MAX,
@@ -782,13 +804,58 @@ export function PdfView({
                 className="flex-1 overflow-auto px-3 pt-5 pb-3 [scrollbar-gutter:stable]"
             >
                 {loading && (
-                    <div className="flex h-full items-center justify-center">
-                        <Loader2 className="h-7 w-7 animate-spin text-gray-400" />
+                    <div
+                        role="status"
+                        aria-label="Loading document"
+                        className="flex h-full items-center justify-center"
+                    >
+                        <Loader2
+                            aria-hidden="true"
+                            className="h-7 w-7 animate-spin text-gray-400 motion-reduce:animate-none"
+                        />
                     </div>
                 )}
                 {documentError && (
-                    <div className="flex h-full items-center justify-center">
-                        <p className="text-sm text-red-500">{documentError}</p>
+                    <div className="flex h-full flex-col items-center justify-center gap-3 p-5 text-center">
+                        <div role="alert" className="space-y-1">
+                            <p className="text-sm text-red-500">
+                                {documentError}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                                Try again, or download the file to open it on
+                                your device.
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                            {displayUrl ? (
+                                <a
+                                    href={displayUrl}
+                                    download
+                                    className={pillButtonUIClassName({
+                                        tone: "white",
+                                        size: "sm",
+                                    })}
+                                >
+                                    Download file
+                                </a>
+                            ) : doc ? (
+                                <PillButtonUI
+                                    tone="white"
+                                    size="sm"
+                                    loading={downloading}
+                                    onClick={() => void handleDownload()}
+                                >
+                                    Download file
+                                </PillButtonUI>
+                            ) : null}
+                            <PillButtonUI
+                                tone="black"
+                                size="sm"
+                                onClick={() => setRetryCount((count) => count + 1)}
+                            >
+                                Retry
+                            </PillButtonUI>
+                        </div>
                     </div>
                 )}
                 <div ref={containerRef} />
@@ -809,21 +876,25 @@ export function PdfView({
                         className={`absolute bottom-4 right-4 flex items-center gap-px rounded-full px-1 py-1 ${LIQUID_GLASS_TRANSLUCENT_CLASS}`}
                     >
                         <button
+                            type="button"
+                            aria-label="Zoom out"
                             onClick={handleZoomOut}
                             disabled={zoom <= ZOOM_MIN}
                             className="flex items-center justify-center w-7 h-7 rounded-full text-gray-600 hover:bg-white/80 disabled:opacity-30 transition-colors"
                         >
-                            <ZoomOut className="h-3.5 w-3.5" />
+                            <ZoomOut aria-hidden="true" className="h-3.5 w-3.5" />
                         </button>
                         <span className="text-xs font-medium text-gray-600 tabular-nums w-9 text-center select-none">
                             {Math.round(zoom * 100)}%
                         </span>
                         <button
+                            type="button"
+                            aria-label="Zoom in"
                             onClick={handleZoomIn}
                             disabled={zoom >= ZOOM_MAX}
                             className="flex items-center justify-center w-7 h-7 rounded-full text-gray-600 hover:bg-white/80 disabled:opacity-30 transition-colors"
                         >
-                            <ZoomIn className="h-3.5 w-3.5" />
+                            <ZoomIn aria-hidden="true" className="h-3.5 w-3.5" />
                         </button>
                     </div>
                 </>

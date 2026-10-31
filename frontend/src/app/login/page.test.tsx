@@ -15,6 +15,7 @@ const {
     push,
     getUserProfile,
     completeUserOnboarding,
+    navigation,
 } = vi.hoisted(() => ({
     login: vi.fn(),
     signup: vi.fn(),
@@ -26,10 +27,12 @@ const {
     push: vi.fn(),
     getUserProfile: vi.fn(),
     completeUserOnboarding: vi.fn(),
+    navigation: { searchParams: new URLSearchParams() },
 }));
 
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ replace, push }),
+    useSearchParams: () => navigation.searchParams,
 }));
 
 vi.mock("@/app/lib/authApi", async (importOriginal) => ({
@@ -61,6 +64,7 @@ vi.mock("@/app/components/site-logo", () => ({
 
 describe("LoginPage", () => {
     beforeEach(() => {
+        navigation.searchParams = new URLSearchParams();
         authState.error = null;
         retrySession.mockReset();
         login.mockReset();
@@ -97,6 +101,90 @@ describe("LoginPage", () => {
 
         expect(login).toHaveBeenCalledWith("existing@example.com", "oldpass");
         expect(push).toHaveBeenCalledWith("/onboarding/profile");
+    });
+
+    it("returns to the page the user was sent from after signing in", async () => {
+        navigation.searchParams = new URLSearchParams({
+            next: "/projects/project-1?tab=chats",
+        });
+        login.mockResolvedValue({ user: { id: "user-1" } });
+        const user = userEvent.setup();
+        render(<LoginPage />);
+
+        await user.type(
+            screen.getByRole("textbox", { name: "Email" }),
+            "existing@example.com",
+        );
+        await user.type(screen.getByLabelText("Password"), "password");
+        await user.click(screen.getByRole("button", { name: "Log in" }));
+
+        expect(push).toHaveBeenCalledWith("/projects/project-1?tab=chats");
+    });
+
+    it.each([
+        "https://evil.example/projects/1",
+        "//evil.example/projects/1",
+        "/login",
+    ])("ignores the unusable next %s", async (next) => {
+        navigation.searchParams = new URLSearchParams({ next });
+        login.mockResolvedValue({ user: { id: "user-1" } });
+        const user = userEvent.setup();
+        render(<LoginPage />);
+
+        await user.type(
+            screen.getByRole("textbox", { name: "Email" }),
+            "existing@example.com",
+        );
+        await user.type(screen.getByLabelText("Password"), "password");
+        await user.click(screen.getByRole("button", { name: "Log in" }));
+
+        expect(push).toHaveBeenCalledWith("/onboarding/profile");
+    });
+
+    // Someone with no account yet follows the same link through sign-up.
+    it("keeps the page in next on the sign-up link", () => {
+        navigation.searchParams = new URLSearchParams({
+            next: "/projects/project-1?tab=chats",
+        });
+        render(<LoginPage />);
+
+        expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+            "href",
+            `/signup?next=${encodeURIComponent("/projects/project-1?tab=chats")}`,
+        );
+    });
+
+    it("links to a plain sign-up page without a usable next", () => {
+        navigation.searchParams = new URLSearchParams({
+            next: "//evil.example/projects/1",
+        });
+        render(<LoginPage />);
+
+        expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+            "href",
+            "/signup",
+        );
+    });
+
+    it("hands the page in next to Google and single sign-on as well", async () => {
+        navigation.searchParams = new URLSearchParams({
+            next: "/projects/project-1",
+        });
+        // A never-settling start keeps the page from navigating away.
+        startGoogleOAuth.mockReturnValue(new Promise(() => {}));
+        const user = userEvent.setup();
+        render(<LoginPage />);
+
+        await user.click(
+            screen.getByRole("button", { name: "Continue with SSO" }),
+        );
+        expect(push).toHaveBeenCalledWith(
+            `/login/sso?next=${encodeURIComponent("/projects/project-1")}`,
+        );
+        await user.click(
+            screen.getByRole("button", { name: "Continue with Google" }),
+        );
+        expect(startGoogleOAuth).toHaveBeenCalledWith("/projects/project-1");
     });
 
     it.each([

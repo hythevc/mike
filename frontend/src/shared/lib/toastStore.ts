@@ -34,6 +34,26 @@ export function retryToastAction(
     };
 }
 
+/**
+ * Why a toast left the stack.
+ *
+ * - `expired`: its own timer ran out. The timer pauses while the toast is
+ *   hovered or focused.
+ * - `dismissed`: the person closed it, or code dismissed it.
+ * - `action`: the person chose one of its actions.
+ * - `replaced`: a newer toast with the same dedupe key took its place.
+ * - `cleared`: every toast was discarded at once, as when the session ends.
+ *
+ * A toast with an `onClose` is never pushed out by newer toasts, so a full
+ * stack is not one of the reasons.
+ */
+export type ToastCloseReason =
+    | "expired"
+    | "dismissed"
+    | "action"
+    | "replaced"
+    | "cleared";
+
 export interface ToastInput {
     tone?: ToastTone;
     title?: string;
@@ -53,6 +73,14 @@ export interface ToastInput {
      * so a polling loop that fails five times shows one toast.
      */
     dedupeKey?: string;
+    /**
+     * Runs once, after the toast has left the stack, with the reason. Work
+     * that lasts only as long as its toast, such as a delete that waits for
+     * Undo, finishes or drops itself here. Newer toasts never push such a
+     * toast out of a full stack, which can then hold more than
+     * `MAX_VISIBLE_TOASTS`: it stays for its whole window.
+     */
+    onClose?: (reason: ToastCloseReason) => void;
 }
 
 export interface ToastRecord extends ToastInput {
@@ -73,21 +101,28 @@ export const MAX_VISIBLE_TOASTS = 3;
 type Listener = () => void;
 
 /**
- * A toast the user still has to act on: an error carrying "Retry" or
- * "Contact support". These errors take priority over transient notices.
+ * A toast the user can still act on: one carrying an action such as
+ * "Retry" or "Undo", or "Contact support". These take priority over
+ * transient notices.
  */
-function isActionableError(toast: ToastRecord): boolean {
-    return (
-        toast.tone === "error" &&
-        Boolean(toast.actions?.length || toast.supportHref)
-    );
+function isActionable(toast: ToastRecord): boolean {
+    return Boolean(toast.actions?.length || toast.supportHref);
+}
+
+/**
+ * A toast whose `onClose` finishes work, such as a delete that waits for
+ * Undo. Dropping it from the stack would end that work early.
+ */
+function holdsWork(toast: ToastRecord): boolean {
+    return toast.onClose !== undefined;
 }
 
 /**
  * Trim the stack to `MAX_VISIBLE_TOASTS`, dropping dismissible chatter
  * oldest-first and only then falling back to persistent notices and
- * actionable errors. The newest toast is always kept:
- * it is the one that just happened.
+ * actionable ones. A toast that holds work is never dropped, so the stack
+ * may hold more than the maximum while one is open. The newest toast is
+ * always kept: it is the one that just happened.
  */
 function trimToStack(next: readonly ToastRecord[]): readonly ToastRecord[] {
     let excess = next.length - MAX_VISIBLE_TOASTS;
@@ -97,13 +132,22 @@ function trimToStack(next: readonly ToastRecord[]): readonly ToastRecord[] {
     const dropped = new Set<string>();
     for (const toast of next) {
         if (excess === 0) break;
-        if (toast === newest || isActionableError(toast) || toast.durationMs === null) continue;
+        if (
+            toast === newest ||
+            holdsWork(toast) ||
+            isActionable(toast) ||
+            toast.durationMs === null
+        ) {
+            continue;
+        }
         dropped.add(toast.id);
         excess -= 1;
     }
     for (const toast of next) {
         if (excess === 0) break;
-        if (toast === newest || dropped.has(toast.id)) continue;
+        if (toast === newest || holdsWork(toast) || dropped.has(toast.id)) {
+            continue;
+        }
         dropped.add(toast.id);
         excess -= 1;
     }
@@ -143,21 +187,38 @@ export function showToast(input: ToastInput): string {
     const kept = input.dedupeKey
         ? toasts.filter((toast) => toast.dedupeKey !== input.dedupeKey)
         : toasts;
+    const replaced = toasts.filter((toast) => !kept.includes(toast));
+    // Trimming never drops a toast with an `onClose`, so the toasts it
+    // drops have no one to tell.
     toasts = trimToStack([...kept, record]);
     emit();
+    for (const toast of replaced) toast.onClose?.("replaced");
     return record.id;
 }
 
-export function dismissToast(id: string) {
-    if (!toasts.some((toast) => toast.id === id)) return;
-    toasts = toasts.filter((toast) => toast.id !== id);
+/**
+ * Remove a toast and tell its `onClose` why. The toast UI uses this for a
+ * timer that ran out and an action that was chosen; everything else calls
+ * `dismissToast`.
+ */
+export function closeToast(id: string, reason: ToastCloseReason) {
+    const closed = toasts.find((toast) => toast.id === id);
+    if (!closed) return;
+    toasts = toasts.filter((toast) => toast !== closed);
     emit();
+    closed.onClose?.(reason);
+}
+
+export function dismissToast(id: string) {
+    closeToast(id, "dismissed");
 }
 
 export function clearToasts() {
     if (toasts.length === 0) return;
+    const cleared = toasts;
     toasts = [];
     emit();
+    for (const toast of cleared) toast.onClose?.("cleared");
 }
 
 export function subscribe(listener: Listener) {

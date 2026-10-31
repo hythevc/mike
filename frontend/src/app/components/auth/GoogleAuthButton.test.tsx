@@ -33,6 +33,20 @@ describe("GoogleAuthButton", () => {
         ).toBeDisabled();
     });
 
+    it("lands the OAuth callback on the page the user asked for", async () => {
+        startGoogleOAuth.mockReturnValue(new Promise(() => {}));
+        const user = userEvent.setup();
+        render(
+            <GoogleAuthButton onError={vi.fn()} next="/projects/project-1" />,
+        );
+
+        await user.click(
+            screen.getByRole("button", { name: "Continue with Google" }),
+        );
+
+        expect(startGoogleOAuth).toHaveBeenCalledWith("/projects/project-1");
+    });
+
     it("never forwards the provider's own error text", async () => {
         startGoogleOAuth.mockRejectedValue(
             new Error("invalid_client: unauthorized_client at oauth.ts:88"),

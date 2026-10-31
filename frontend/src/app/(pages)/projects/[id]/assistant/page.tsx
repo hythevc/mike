@@ -15,6 +15,7 @@ import { can, roleFrom } from "@/app/lib/permissions";
 import { userFacingApiError } from "@/app/lib/userFacingError";
 import { ConfirmPopup } from "@/app/components/popups/ConfirmPopup";
 import { WarningPopup } from "@/app/components/popups/WarningPopup";
+import { isEmptyStatesPreview } from "@/app/lib/emptyStatesPreview";
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -26,10 +27,12 @@ export default function ProjectAssistantPage({ params }: Props) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { user } = useAuth();
-    const previewEmptyStates = searchParams.get("emptyStates") === "1";
+    const previewEmptyStates = isEmptyStatesPreview(searchParams);
     const {
         ensureProjectChats,
         projectChats,
+        projectChatsError,
+        retryProjectChats,
         projectId,
         search,
         setProjectChats,
@@ -49,7 +52,9 @@ export default function ProjectAssistantPage({ params }: Props) {
     } | null>(null);
     const chats = useMemo(() => projectChats ?? [], [projectChats]);
     const visibleChats = previewEmptyStates ? [] : chats;
-    const loading = projectChats === null && !previewEmptyStates;
+    // A failed load is not "still loading": it is shown with Try again.
+    const loadError = previewEmptyStates ? null : projectChatsError;
+    const loading = projectChats === null && !previewEmptyStates && !loadError;
 
     useEffect(() => {
         void ensureProjectChats();
@@ -175,6 +180,8 @@ export default function ProjectAssistantPage({ params }: Props) {
                 renameChatValue={renameChatValue}
                 currentUserId={user?.id}
                 loading={loading}
+                loadError={loadError}
+                onRetryLoad={retryProjectChats}
                 onCreateChat={() => void workspace.createChat()}
                 canCreateChat={workspace.canDo("content.edit")}
                 onOpenChat={(chatId) =>

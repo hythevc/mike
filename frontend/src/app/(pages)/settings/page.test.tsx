@@ -9,6 +9,7 @@ import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
 const state = vi.hoisted(() => ({
     push: vi.fn(),
     signOut: vi.fn(),
+    flushPendingChatDeletes: vi.fn(),
     deleteAccount: vi.fn(),
     updateEmail: vi.fn(),
     updateDisplayName: vi.fn(),
@@ -35,6 +36,12 @@ vi.mock("@/app/contexts/AuthContext", () => ({
         user: state.user,
         signOut: state.signOut,
         updateEmail: state.updateEmail,
+    }),
+}));
+
+vi.mock("@/app/contexts/ChatHistoryContext", () => ({
+    useChatHistoryContext: () => ({
+        flushPendingChatDeletes: state.flushPendingChatDeletes,
     }),
 }));
 
@@ -68,6 +75,8 @@ describe("SettingsPage Google email changes", () => {
     beforeEach(() => {
         state.push.mockReset();
         state.signOut.mockReset();
+        state.flushPendingChatDeletes.mockReset();
+        state.flushPendingChatDeletes.mockResolvedValue({ refused: 0 });
         state.deleteAccount.mockReset();
         state.deleteAccount.mockResolvedValue(undefined);
         state.updateEmail.mockReset();
@@ -201,6 +210,33 @@ describe("SettingsPage Google email changes", () => {
         ).toBeInTheDocument();
         expect(state.signOut).not.toHaveBeenCalled();
         expect(state.push).not.toHaveBeenCalled();
+    });
+
+    // A chat delete still waiting on Undo could not be sent once the account
+    // and its session are gone.
+    it("sends chat deletes still waiting on Undo before deleting the account", async () => {
+        const order: string[] = [];
+        state.flushPendingChatDeletes.mockImplementation(async () => {
+            order.push("chat deletes");
+            return { refused: 0 };
+        });
+        state.deleteAccount.mockImplementation(async () => {
+            order.push("account");
+        });
+        state.signOut.mockImplementation(async () => {
+            order.push("sign out");
+        });
+        const user = userEvent.setup();
+        render(<SettingsPage />);
+
+        await user.click(
+            screen.getByRole("button", { name: "Delete account" }),
+        );
+        await user.click(screen.getByRole("button", { name: "Delete" }));
+
+        await waitFor(() =>
+            expect(order).toEqual(["chat deletes", "account", "sign out"]),
+        );
     });
 
     it("allows an existing display name to be cleared", async () => {

@@ -236,7 +236,10 @@ test("scoped document search activity streams, renders mocked history after relo
             return json([]);
         };
     });
-    await page.goto("/assistant/chat/search-activity");
+    // A new conversation starts on /assistant, and the stream adopts its chat
+    // id in place. Opening the saved chat first would show it as empty: the
+    // mocked history stays empty until the search has finished.
+    await page.goto("/assistant");
     const input = page.getByPlaceholder("How can I help?");
     await expect(page.getByRole("button", { name: "Choose model", exact: true })).toHaveAttribute("title", "Choose model — Claude Sonnet 5.5");
     await input.fill("Find documents containing a change of control clause in my document library.");

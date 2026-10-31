@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import VerifyMfaPage from "./page";
@@ -88,6 +88,25 @@ describe("VerifyMfaPage", () => {
             all: [],
             totp: [{ id: "factor-1", factor_type: "totp" }],
         });
+        searchParams.delete("next");
+    });
+
+    it.each([
+        ["/projects/project-1?tab=chats", "/projects/project-1?tab=chats"],
+        // A browser reads "/\\host" as "//host": another site.
+        ["/\\evil.example", "/assistant"],
+        ["//evil.example", "/assistant"],
+        ["/verify-mfa", "/assistant"],
+    ])("once the code is accepted, goes to next=%s as %s", async (next, destination) => {
+        searchParams.set("next", next);
+        challengeAndVerifyMfa.mockResolvedValue(undefined);
+        render(<VerifyMfaPage />);
+
+        await enterCode();
+
+        await waitFor(() =>
+            expect(replace).toHaveBeenCalledWith(destination),
+        );
     });
 
     it("names the reason a code was refused", async () => {

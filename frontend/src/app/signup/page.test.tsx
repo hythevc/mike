@@ -3,18 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SignupPage from "./page";
 
-const { signup, startGoogleOAuth, refreshSession, replace, push, authState } = vi.hoisted(() => ({
+const { signup, startGoogleOAuth, refreshSession, replace, push, authState, navigation } = vi.hoisted(() => ({
     signup: vi.fn(),
     startGoogleOAuth: vi.fn(),
     refreshSession: vi.fn(),
     replace: vi.fn(),
     push: vi.fn(),
     authState: { isAuthenticated: false },
+    navigation: { searchParams: new URLSearchParams() },
 }));
 
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ replace, push }),
-    useSearchParams: () => new URLSearchParams(),
+    useSearchParams: () => navigation.searchParams,
 }));
 
 vi.mock("@/app/lib/authApi", () => ({
@@ -36,6 +37,7 @@ vi.mock("@/app/components/site-logo", () => ({
 
 describe("SignupPage", () => {
     beforeEach(() => {
+        navigation.searchParams = new URLSearchParams();
         signup.mockReset();
         startGoogleOAuth.mockReset();
         refreshSession.mockReset();
@@ -188,6 +190,81 @@ describe("SignupPage", () => {
         expect(await screen.findByRole("alert")).toHaveTextContent(
             "Password must be at most 72 UTF-8 bytes. Accented characters and emoji can use more than one byte.",
         );
+    });
+
+    describe("with the page the person was on their way to", () => {
+        const deepLink = "/projects/project-1?tab=chats";
+        beforeEach(() => {
+            navigation.searchParams = new URLSearchParams({ next: deepLink });
+        });
+
+        // The onboarding gate sends a new account through onboarding first
+        // and remembers the page, so landing there is all sign-up does.
+        it("opens it once the account exists", async () => {
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+            signup.mockResolvedValue({ requiresEmailConfirmation: false });
+            refreshSession.mockResolvedValue(undefined);
+            render(<SignupPage />);
+            fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
+                target: { value: "alex@example.com" },
+            });
+            fireEvent.change(screen.getByLabelText("Password"), {
+                target: { value: "secret1234" },
+            });
+            fireEvent.change(screen.getByLabelText("Confirm Password"), {
+                target: { value: "secret1234" },
+            });
+            await act(async () => {
+                fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+            });
+
+            expect(signup).toHaveBeenCalledWith(
+                "alex@example.com",
+                "secret1234",
+                deepLink,
+            );
+            expect(screen.getByRole("link", { name: "Continue" })).toHaveAttribute(
+                "href",
+                deepLink,
+            );
+            await act(async () => vi.advanceTimersByTime(2_000));
+            expect(push).toHaveBeenCalledExactlyOnceWith(deepLink);
+        });
+
+        it("sends it with the confirmation email", async () => {
+            signup.mockResolvedValue({ requiresEmailConfirmation: true });
+
+            await fillAndSubmit();
+
+            expect(signup).toHaveBeenCalledWith(
+                "alex@example.com",
+                "secret1234",
+                deepLink,
+            );
+            expect(push).toHaveBeenCalledWith("/signup/check-email");
+        });
+
+        it("opens it for someone already signed in", () => {
+            authState.isAuthenticated = true;
+            render(<SignupPage />);
+
+            expect(replace).toHaveBeenCalledWith(deepLink);
+        });
+
+        it("keeps it for Google and on the way back to log in", async () => {
+            // A never-settling start keeps the page from navigating away.
+            startGoogleOAuth.mockReturnValue(new Promise(() => {}));
+            render(<SignupPage />);
+
+            expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute(
+                "href",
+                `/login?next=${encodeURIComponent(deepLink)}`,
+            );
+            await userEvent.click(
+                screen.getByRole("button", { name: "Continue with Google" }),
+            );
+            expect(startGoogleOAuth).toHaveBeenCalledWith(deepLink);
+        });
     });
 
     it("places Google after the primary signup action without offering SSO", () => {

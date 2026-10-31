@@ -75,6 +75,8 @@ export function ProjectAssistantTable({
     setRenamingChatId,
     setRenameChatValue,
     loading = false,
+    loadError = null,
+    onRetryLoad,
     renderToolbar,
 }: {
     chats: Chat[];
@@ -94,6 +96,9 @@ export function ProjectAssistantTable({
     setRenamingChatId: Dispatch<SetStateAction<string | null>>;
     setRenameChatValue: Dispatch<SetStateAction<string>>;
     loading?: boolean;
+    /** Why the chat list did not load; shown instead of an empty list. */
+    loadError?: { title: string; message: string } | null;
+    onRetryLoad?: () => void;
     renderToolbar?: (actions: ReactNode) => ReactNode;
 }) {
     const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
@@ -307,6 +312,26 @@ export function ProjectAssistantTable({
         >
             {loading ? (
                 <ProjectAssistantLoadingRows />
+            ) : loadError ? (
+                <TableEmptyState>
+                    <EmptyState
+                        icon={<ChatSkeuoIcon />}
+                        title={loadError.title}
+                        description={loadError.message}
+                        tone="error"
+                        action={
+                            onRetryLoad ? (
+                                <PillButtonUI
+                                    tone="black"
+                                    size="sm"
+                                    onClick={onRetryLoad}
+                                >
+                                    Try again
+                                </PillButtonUI>
+                            ) : undefined
+                        }
+                    />
+                </TableEmptyState>
             ) : chats.length === 0 ? (
                 <TableEmptyState>
                     <EmptyState

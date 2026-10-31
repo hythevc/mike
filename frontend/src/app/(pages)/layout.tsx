@@ -13,6 +13,7 @@ import { preloadSidebarIcons } from "@/app/components/shared/AppSidebarSkeuoIcon
 import { FullScreenLoader } from "@/app/components/shared/FullScreenLoader";
 import { HeaderButtonUI, HeaderButtonsUI } from "@/shared/ui/HeaderButtonsUI";
 import { cn } from "@/app/lib/utils";
+import { loginPathFor } from "@/app/lib/authRedirects";
 
 export default function MikeLayout({
     children,
@@ -20,7 +21,7 @@ export default function MikeLayout({
     children: React.ReactNode;
 }) {
     preloadSidebarIcons();
-    const { isAuthenticated, authLoading } = useAuth();
+    const { isAuthenticated, authLoading, signedOutOnPurpose } = useAuth();
     const [hasMounted, setHasMounted] = useState(false);
     useEffect(() => {
         // An outer auth provider may settle before this streamed boundary
@@ -111,9 +112,19 @@ export default function MikeLayout({
 
     useEffect(() => {
         if (!authLoading && !isAuthenticated) {
-            router.push("/login");
+            // The page asked for rides along as ?next, so signing in returns
+            // to it, after a link opened signed out or a session that
+            // expired. Not after signing out on purpose: the next person to
+            // sign in on this tab must not land on the page left behind.
+            // Replace, not push: Back must not land on a page that only
+            // bounces to the login screen again.
+            router.replace(
+                signedOutOnPurpose
+                    ? "/login"
+                    : loginPathFor(`${pathname}${window.location.search}`),
+            );
         }
-    }, [authLoading, isAuthenticated, router]);
+    }, [authLoading, isAuthenticated, pathname, router, signedOutOnPurpose]);
 
     if (!hasMounted || authLoading) {
         return <FullScreenLoader />;

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OnboardingGate } from "./OnboardingGate";
+import { PUBLIC_ROUTE_PREFIXES } from "@/app/lib/publicRoutes";
 
 const state = vi.hoisted(() => ({
     pathname: "/assistant",
@@ -36,6 +37,8 @@ describe("OnboardingGate", () => {
             onboardingComplete: false,
         };
         state.replace.mockReset();
+        window.sessionStorage.clear();
+        window.history.replaceState(null, "", "/");
     });
 
     it("keeps incomplete users out of the main app", async () => {
@@ -112,6 +115,70 @@ describe("OnboardingGate", () => {
         );
 
         expect(screen.queryByText("Practice step")).not.toBeInTheDocument();
+        await waitFor(() =>
+            expect(state.replace).toHaveBeenCalledWith("/assistant"),
+        );
+    });
+
+    it.each(
+        PUBLIC_ROUTE_PREFIXES.map((prefix) => [
+            prefix.endsWith("/") ? `${prefix}example` : prefix,
+        ]),
+    )("renders the public page %s without sending an incomplete user to onboarding", async (path) => {
+        state.pathname = path;
+        render(
+            <OnboardingGate>
+                <div>Public page</div>
+            </OnboardingGate>,
+        );
+
+        expect(screen.getByText("Public page")).toBeInTheDocument();
+        // Let any redirect effect run before asserting there was none.
+        await waitFor(() => expect(state.replace).not.toHaveBeenCalled());
+    });
+
+    it("returns an incomplete user to the page they asked for once onboarding is done", async () => {
+        state.pathname = "/projects/project-1";
+        window.history.replaceState(null, "", "/projects/project-1?tab=chats");
+        const view = render(
+            <OnboardingGate>
+                <div>Project</div>
+            </OnboardingGate>,
+        );
+        await waitFor(() =>
+            expect(state.replace).toHaveBeenCalledWith("/onboarding/profile"),
+        );
+
+        // The last step completes onboarding while still on its own route.
+        state.replace.mockReset();
+        state.pathname = "/onboarding/models";
+        state.profile = { displayName: "Alex", onboardingComplete: true };
+        view.rerender(
+            <OnboardingGate>
+                <div>Project</div>
+            </OnboardingGate>,
+        );
+        await waitFor(() =>
+            expect(state.replace).toHaveBeenCalledWith(
+                "/projects/project-1?tab=chats",
+            ),
+        );
+
+        // Once there, a later visit to onboarding goes to the default page.
+        state.replace.mockReset();
+        state.pathname = "/projects/project-1";
+        view.rerender(
+            <OnboardingGate>
+                <div>Project</div>
+            </OnboardingGate>,
+        );
+        expect(screen.getByText("Project")).toBeInTheDocument();
+        state.pathname = "/onboarding/practice";
+        view.rerender(
+            <OnboardingGate>
+                <div>Project</div>
+            </OnboardingGate>,
+        );
         await waitFor(() =>
             expect(state.replace).toHaveBeenCalledWith("/assistant"),
         );

@@ -14,6 +14,7 @@ import {
     readStoredWorkspace,
 } from "@/app/contexts/WorkspaceContext";
 import { apiKeyStateFromStatus } from "@/app/lib/apiKeyState";
+import { postOnboardingDestination } from "@/app/lib/authRedirects";
 import { getOrgApiKeys, listOrgs, type ApiKeyState } from "@/app/lib/mikeApi";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 
@@ -121,7 +122,8 @@ function ModelStep({ userId }: { userId: string }) {
         setError(false);
         const saved = await completeOnboarding();
         if (saved) {
-            router.replace("/assistant");
+            // Back to the page the user asked for before onboarding, if any.
+            router.replace(postOnboardingDestination(userId));
         } else {
             setError(true);
             setSubmitting(false);

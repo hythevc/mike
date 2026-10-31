@@ -23,11 +23,17 @@ import {
     listChats,
     renameChat,
 } from "@/app/lib/mikeApi";
-import { notifyError } from "@/app/lib/userFacingError";
+import { describeError, notifyError } from "@/app/lib/userFacingError";
 import type { Chat, Message } from "@/app/components/shared/types";
 import type { ProjectRole } from "@/app/lib/permissions";
 import { subscribeAssistantTurns } from "@/app/lib/assistantTurns";
 import { sortChatsByActivity, touchChatActivity } from "@/app/lib/chatActivity";
+import {
+    CHAT_DELETE_FLUSH_MS,
+    CHAT_DELETE_UNDO_MS,
+} from "@/app/lib/chatDeleteUndo";
+import { useLatestRef } from "@/app/hooks/useLatestRef";
+import { dismissToast, showToast } from "@/shared/lib/toastStore";
 
 interface ChatHistoryContextType {
     chats: Chat[] | null;
@@ -59,9 +65,63 @@ interface ChatHistoryContextType {
         newChatId: string,
         title?: string,
     ) => void;
-    deleteChat: (chatId: string) => Promise<void>;
+    /**
+     * Delete a chat the person has confirmed deleting. It leaves the list at
+     * once and a notice offers Undo. The server delete is sent when that
+     * notice closes without Undo: after CHAT_DELETE_UNDO_MS, a window that
+     * pauses while the notice is hovered or focused, or sooner if the
+     * notice is closed. A delete the server refuses puts the row back and
+     * says so; a chat that is already gone counts as deleted.
+     */
+    deleteChatWithUndo: (chat: Chat) => void;
+    /**
+     * Send every delete still inside its undo window, now. Call it before
+     * ending the session: a session that ends drops the deletes still
+     * waiting, because they could no longer be sent as the person who
+     * confirmed them. It waits for the answers for at most
+     * CHAT_DELETE_FLUSH_MS, so a server that does not answer cannot hold the
+     * session open. A refused delete puts its chat back and, unless
+     * `report` is false, says so; either way the result counts it.
+     */
+    flushPendingChatDeletes: (options?: {
+        report?: boolean;
+    }) => Promise<ChatDeleteFlush>;
     leaveChat: (chatId: string) => Promise<void>;
 }
+
+/** What came of the deletes `flushPendingChatDeletes` sent. */
+export interface ChatDeleteFlush {
+    /**
+     * Deletes the server refused before the time limit. Their chats are
+     * back in the list.
+     */
+    refused: number;
+}
+
+/** What came of one confirmed delete once it was sent. */
+type ChatDeleteOutcome = "deleted" | "refused";
+
+/** A confirmed delete, from the confirmation until the server answers. */
+type PendingChatDelete = {
+    chat: Chat;
+    /** The notice offering Undo; its lifetime is the undo window. */
+    toastId: string;
+    /** Whether that list showed the row, so only a shown row is put back. */
+    listed: boolean;
+    /**
+     * The list the row is put back into, by account and workspace (see
+     * `scopeKey`). Re-reading that list, as a session check on window focus
+     * does, keeps it the same list; a workspace switch does not.
+     */
+    scopeKey: string;
+    /**
+     * Who confirmed it. A refusal that arrives after they signed out is not
+     * shown to whoever is at the screen by then.
+     */
+    userId: string | null;
+    /** The DELETE once it is sent; Undo no longer applies from then on. */
+    sending: Promise<ChatDeleteOutcome> | null;
+};
 
 const ChatHistoryContext = createContext<ChatHistoryContextType | undefined>(
     undefined,
@@ -104,6 +164,9 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     const scopeKey = JSON.stringify([user?.id, workspace]);
     const [currentChatId, setCurrentChatId] = useState<string | null>(null);
     const [sideChatId, setSideChatId] = useState<string | null>(null);
+    // Confirmed deletes the server has not answered yet. It still lists
+    // these chats, so a list read in the meantime must leave them out.
+    const pendingDeletesRef = useRef(new Map<string, PendingChatDelete>());
     // "Retry" re-enters the latest loader: a callback cannot reference
     // itself, and these are re-created as the chat list changes.
     const retryRef = useRef<{
@@ -129,6 +192,22 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
         ++scopeVersionRef.current;
     }, []);
 
+    // Leave confirmed deletes out of a page the server sent. The list
+    // `scope` would have shown each one, so Undo, or a refused delete, puts
+    // it back there, even when the list loaded after the delete was
+    // confirmed.
+    const hidePendingDeletes = useCallback(
+        (page: Chat[], scope: string) =>
+            page.filter((chat) => {
+                const pending = pendingDeletesRef.current.get(chat.id);
+                if (!pending) return true;
+                pending.listed = true;
+                pending.scopeKey = scope;
+                return false;
+            }),
+        [],
+    );
+
     const loadChats = useCallback(async () => {
         // A detached turn may invoke the callback captured before navigation.
         if (loadedScopeRef.current !== scopeKey || activeIdentity.current !== identity) return;
@@ -148,7 +227,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             });
             if (request !== chatsRequestRef.current || activeIdentity.current !== identity) return;
             const page = data.slice(0, INITIAL_CHAT_LIMIT);
-            setChats(sortChatsByActivity(page));
+            setChats(sortChatsByActivity(hidePendingDeletes(page, scopeKey)));
             nextChatCursorRef.current = cursorFor(page.at(-1));
             setHasMoreChats(data.length > INITIAL_CHAT_LIMIT);
         } catch (error) {
@@ -164,7 +243,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
                 onRetry: () => retryRef.current.loadChats(),
             });
         }
-    }, [user, workspace, scopeKey, identity]);
+    }, [user, workspace, scopeKey, identity, hidePendingDeletes]);
 
     useEffect(() => {
         if (loadedScopeRef.current !== scopeKey) {
@@ -213,13 +292,14 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             if (request !== chatsRequestRef.current || activeIdentity.current !== identity) return;
             const page = data.slice(0, CHAT_PAGE_SIZE);
             nextChatCursorRef.current = cursorFor(page.at(-1));
+            const shown = hidePendingDeletes(page, scopeKey);
             setChats((current) => {
                 const existing = new Set(
                     (current ?? []).map((chat) => chat.id),
                 );
                 return sortChatsByActivity([
                     ...(current ?? []),
-                    ...page.filter((chat) => !existing.has(chat.id)),
+                    ...shown.filter((chat) => !existing.has(chat.id)),
                 ]);
             });
             setHasMoreChats(data.length > CHAT_PAGE_SIZE);
@@ -237,7 +317,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
                 setLoadingMoreChats(false);
             }
         }
-    }, [chats, hasMoreChats, user, workspace, scopeKey, identity]);
+    }, [chats, hasMoreChats, user, workspace, scopeKey, identity, hidePendingDeletes]);
 
     useEffect(
         () =>
@@ -366,11 +446,11 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             try {
                 await renameChat(chatId, title);
             } catch (error) {
-                // Same contract as delete below: the optimistic write must
-                // not become a silent success. The old bare catch let a
-                // refused rename show the new title and then quietly revert
-                // it on reload — the caller rethrows so the row's UI can say
-                // why the title snapped back.
+                // The optimistic write must not become a silent success. The
+                // old bare catch let a refused rename show the new title and
+                // then quietly revert it on reload; rethrowing lets the row's
+                // UI say why the title snapped back. (A refused delete is
+                // reported by the history itself, since its row is gone.)
                 if (scopeVersion === scopeVersionRef.current) void loadChats();
                 throw error;
             }
@@ -389,24 +469,194 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
         );
     }, []);
 
-    const deleteChatFn = useCallback(
-        async (chatId: string) => {
-            const scopeVersion = scopeVersionRef.current;
-            setChats((prev) => (prev ?? []).filter((c) => c.id !== chatId));
-            if (currentChatId === chatId) setCurrentChatId(null);
-            try {
-                await deleteChat(chatId);
-            } catch (error) {
-                // Optimistic removal must not become a silent success: put
-                // the row back and let the caller tell the user why. The old
-                // bare catch here was the client-side twin of the
-                // filter-scoped 204 this stack removes on the server.
-                if (scopeVersion === scopeVersionRef.current) void loadChats();
-                throw error;
-            }
+    const chatsRef = useLatestRef(chats);
+    const userIdRef = useLatestRef(user?.id ?? null);
+
+    // Put back exactly the row that left, in activity order, and only into
+    // the list it left. That list may have been re-read since, which keeps
+    // it the same list; a workspace switch shows a list of its own.
+    const restoreDeletedChat = useCallback((pending: PendingChatDelete) => {
+        if (!pending.listed || pending.scopeKey !== loadedScopeRef.current)
+            return;
+        setChats((current) =>
+            current && !current.some((chat) => chat.id === pending.chat.id)
+                ? sortChatsByActivity([...current, pending.chat])
+                : current,
+        );
+    }, []);
+
+    // Send a confirmed delete now, or join the one already under way. The
+    // entry stays until the server answers, so a list read in between (a
+    // session check on window focus re-reads the list) still leaves the
+    // chat out. `report: false` leaves telling the person about a refusal
+    // to the caller.
+    const commitChatDelete = useCallback(
+        (chatId: string, report = true): Promise<ChatDeleteOutcome> => {
+            const pending = pendingDeletesRef.current.get(chatId);
+            // Nothing is waiting: Undo, or an earlier answer, settled it.
+            if (!pending) return Promise.resolve("deleted");
+            if (pending.sending) return pending.sending;
+            pending.sending = (async (): Promise<ChatDeleteOutcome> => {
+                try {
+                    await deleteChat(chatId);
+                    return "deleted";
+                } catch (error) {
+                    // Already gone: deleted in another tab, or with every
+                    // chat from Settings, while this one waited on Undo.
+                    // That is what the person asked for.
+                    if (describeError(error).kind === "not_found") {
+                        return "deleted";
+                    }
+                    // The removal must not become a silent success: the row
+                    // comes back and the notice says why, to the person who
+                    // confirmed it while they are still signed in. No Retry:
+                    // deleting again is the row's own action, which asks
+                    // first.
+                    restoreDeletedChat(pending);
+                    if (report && userIdRef.current === pending.userId) {
+                        notifyError(error, {
+                            action: "delete the chat",
+                            dedupeKey: `chat-delete:${chatId}`,
+                        });
+                    }
+                    return "refused";
+                } finally {
+                    if (pendingDeletesRef.current.get(chatId) === pending) {
+                        pendingDeletesRef.current.delete(chatId);
+                    }
+                }
+            })();
+            // Undo is gone once the delete is sent. The notice's onClose
+            // sees the delete under way and leaves it alone.
+            dismissToast(pending.toastId);
+            return pending.sending;
         },
-        [currentChatId, loadChats],
+        [restoreDeletedChat, userIdRef],
     );
+
+    const undoChatDelete = useCallback(
+        (chatId: string) => {
+            const pending = pendingDeletesRef.current.get(chatId);
+            if (!pending || pending.sending) return;
+            pendingDeletesRef.current.delete(chatId);
+            dismissToast(pending.toastId);
+            restoreDeletedChat(pending);
+        },
+        [restoreDeletedChat],
+    );
+
+    const deleteChatWithUndo = useCallback(
+        (chat: Chat) => {
+            if (pendingDeletesRef.current.has(chat.id)) return;
+            const pending: PendingChatDelete = {
+                chat,
+                toastId: "",
+                listed:
+                    chatsRef.current?.some((entry) => entry.id === chat.id) ??
+                    false,
+                scopeKey: loadedScopeRef.current ?? scopeKey,
+                userId: userIdRef.current,
+                sending: null,
+            };
+            pendingDeletesRef.current.set(chat.id, pending);
+            setChats((current) =>
+                current
+                    ? current.filter((entry) => entry.id !== chat.id)
+                    : current,
+            );
+            setCurrentChatId((current) => (current === chat.id ? null : current));
+            const title = chat.title?.trim() || "Untitled chat";
+            pending.toastId = showToast({
+                tone: "info",
+                title: "Chat deleted",
+                message: `“${title}” was deleted.`,
+                // The notice's own lifetime is the undo window: it pauses
+                // while the notice is hovered or focused, and Undo never
+                // outlives it.
+                durationMs: CHAT_DELETE_UNDO_MS,
+                actions: [
+                    { label: "Undo", onClick: () => undoChatDelete(chat.id) },
+                ],
+                dedupeKey: `chat-delete:${chat.id}`,
+                onClose: (reason) => {
+                    if (
+                        pendingDeletesRef.current.get(chat.id) !== pending ||
+                        pending.sending
+                    )
+                        return;
+                    // Undo's own handler runs next and puts the row back.
+                    if (reason === "action") return;
+                    if (reason === "cleared") {
+                        // The session ended or another account signed in.
+                        // A delete sent now would not go out as the person
+                        // who confirmed it, so it is dropped and the chat
+                        // stays. Signing out sends it first.
+                        pendingDeletesRef.current.delete(chat.id);
+                        return;
+                    }
+                    // The window ran out or the notice was closed: Undo is
+                    // gone, so the delete goes now. Newer notices never push
+                    // this one out early (it has an onClose), so several
+                    // deletes in a row each keep their whole window.
+                    void commitChatDelete(chat.id);
+                },
+            });
+        },
+        [chatsRef, commitChatDelete, scopeKey, undoChatDelete, userIdRef],
+    );
+
+    const flushPendingChatDeletes = useCallback(
+        async ({ report = true }: { report?: boolean } = {}) => {
+            const sends = [...pendingDeletesRef.current.keys()].map((chatId) =>
+                commitChatDelete(chatId, report),
+            );
+            const flushed: ChatDeleteFlush = { refused: 0 };
+            if (sends.length === 0) return flushed;
+            const answered = Promise.all(
+                sends.map(async (send) => {
+                    if ((await send) === "refused") flushed.refused += 1;
+                }),
+            );
+            // Answers that come later still put a refused chat back; they
+            // just no longer hold up the caller.
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const limit = new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, CHAT_DELETE_FLUSH_MS);
+            });
+            await Promise.race([answered, limit]);
+            clearTimeout(timer);
+            return { refused: flushed.refused };
+        },
+        [commitChatDelete],
+    );
+
+    // A confirmed delete must not be lost with its notice. Leaving the app
+    // shell while signed in sends it at once (a session that ends has
+    // already dropped it, see onClose above); closing or reloading the tab
+    // sends it with keepalive, since the page cannot wait for the answer.
+    useEffect(() => {
+        const pending = pendingDeletesRef.current;
+        const sendOnPageHide = () => {
+            const entries = [...pending.entries()];
+            pending.clear();
+            // One already under way may be cut off with the page, so it is
+            // sent again; the server answers a repeat with not found.
+            for (const [chatId, entry] of entries) {
+                dismissToast(entry.toastId);
+                void deleteChat(chatId, { keepalive: true }).catch(() => {
+                    // The page is going away: there is no one left to tell,
+                    // and the chat simply stays listed on the next visit.
+                });
+            }
+        };
+        window.addEventListener("pagehide", sendOnPageHide);
+        return () => {
+            window.removeEventListener("pagehide", sendOnPageHide);
+            for (const chatId of [...pending.keys()]) {
+                void commitChatDelete(chatId);
+            }
+        };
+    }, [commitChatDelete]);
 
     const leaveChatFn = useCallback(async (chatId: string) => {
         const scopeVersion = scopeVersionRef.current;
@@ -443,7 +693,8 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             newChatMessages,
             setNewChatMessages,
             replaceChatId,
-            deleteChat: deleteChatFn,
+            deleteChatWithUndo,
+            flushPendingChatDeletes,
             leaveChat: leaveChatFn,
         }),
         [
@@ -462,7 +713,8 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
             newChatMessages,
             setNewChatMessages,
             replaceChatId,
-            deleteChatFn,
+            deleteChatWithUndo,
+            flushPendingChatDeletes,
             leaveChatFn,
         ],
     );

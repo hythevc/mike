@@ -5,6 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { useUserProfile } from "@/app/contexts/UserProfileContext";
 import { FullScreenLoader } from "@/app/components/shared/FullScreenLoader";
+import { DEFAULT_SIGNED_IN_PATH, safeAuthNext } from "@/app/lib/authRedirects";
+import { isPublicRoute } from "@/app/lib/publicRoutes";
 import { needsMfaVerification } from "../popups/MfaVerificationPopup";
 
 type GateState = "idle" | "checking" | "required" | "verified";
@@ -19,6 +21,9 @@ export function MfaLoginGate({ children }: { children: ReactNode }) {
     const { profile, loading } = useUserProfile();
     const [gateState, setGateState] = useState<GateState>("idle");
     const isVerifyPage = pathname === "/verify-mfa";
+    // Public pages (see publicRoutes.ts) show nothing a second factor
+    // protects, so they render while verification is still owed.
+    const isPublic = isPublicRoute(pathname);
 
     useEffect(() => {
         if (!user) {
@@ -66,7 +71,7 @@ export function MfaLoginGate({ children }: { children: ReactNode }) {
     }, [loading, profile?.mfaOnLogin, user?.id]);
 
     useEffect(() => {
-        if (!user || loading || !profile?.mfaOnLogin) return;
+        if (!user || loading || !profile?.mfaOnLogin || isPublic) return;
 
         if (gateState === "required" && !isVerifyPage) {
             if (hasRecentMfaVerification()) {
@@ -78,11 +83,14 @@ export function MfaLoginGate({ children }: { children: ReactNode }) {
             const next = `${pathname}${search ? `?${search}` : ""}`;
             router.replace(`/verify-mfa?next=${encodeURIComponent(next)}`);
         } else if (gateState === "verified" && isVerifyPage) {
-            const next = safeNextPath(searchParams.get("next"));
-            router.replace(next);
+            // Only a page of this app, and never the verification page.
+            router.replace(
+                safeAuthNext(searchParams.get("next"), DEFAULT_SIGNED_IN_PATH),
+            );
         }
     }, [
         gateState,
+        isPublic,
         isVerifyPage,
         loading,
         pathname,
@@ -91,6 +99,8 @@ export function MfaLoginGate({ children }: { children: ReactNode }) {
         searchParams,
         user,
     ]);
+
+    if (isPublic) return <>{children}</>;
 
     if (user && loading) {
         return gateState === "verified" ? (
@@ -117,14 +127,6 @@ export function MfaLoginGate({ children }: { children: ReactNode }) {
     }
 
     return <>{children}</>;
-}
-
-function safeNextPath(value: string | null) {
-    if (!value || !value.startsWith("/") || value.startsWith("//")) {
-        return "/assistant";
-    }
-    if (value.startsWith("/verify-mfa")) return "/assistant";
-    return value;
 }
 
 export function markMfaVerifiedForGate() {

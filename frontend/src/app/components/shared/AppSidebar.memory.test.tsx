@@ -54,6 +54,7 @@ vi.mock("@/app/contexts/ChatHistoryContext", () => ({
     loadingMoreChats: false,
     loadMoreChats: vi.fn(),
     setCurrentChatId: vi.fn(),
+    flushPendingChatDeletes: async () => ({ refused: 0 }),
   }),
 }));
 

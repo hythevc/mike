@@ -3438,6 +3438,19 @@ describe("thin endpoint wrappers", () => {
             expect(init.credentials).toBe("include");
         },
     );
+
+    it("lets a chat delete outlive the page only when asked", async () => {
+        fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+        await deleteChat("c1");
+        expect(lastFetchCall().init.keepalive).toBeUndefined();
+
+        await deleteChat("c1", { keepalive: true });
+        const { url, init } = lastFetchCall();
+        expect(url).toBe("/api/chat/c1");
+        expect(init.method).toBe("DELETE");
+        expect(init.keepalive).toBe(true);
+    });
 });
 
 // ---------------------------------------------------------------------------

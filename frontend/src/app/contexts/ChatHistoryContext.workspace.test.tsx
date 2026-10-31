@@ -6,6 +6,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
+import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
+import { CHAT_DELETE_UNDO_MS } from "@/app/lib/chatDeleteUndo";
 
 const listChats = vi.fn();
 const createChat = vi.fn();
@@ -26,7 +28,11 @@ vi.mock("@/app/lib/mikeApi", () => ({
     deleteChat: (...args: unknown[]) => deleteChat(...args),
     leaveChat: (...args: unknown[]) => leaveChat(...args),
 }));
-vi.mock("@/app/lib/userFacingError", () => ({ notifyError }));
+// The real classifier tells a chat that is already gone from a refusal.
+vi.mock("@/app/lib/userFacingError", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@/app/lib/userFacingError")>()),
+    notifyError,
+}));
 vi.mock("@/app/contexts/AuthContext", () => ({
     useAuth: () => ({ user: auth.user }),
 }));
@@ -218,15 +224,14 @@ describe("ChatHistoryProvider and the active workspace", () => {
         expect(latest.chats?.map(row => row.id)).toEqual(["personal"]);
     });
 
-    it.each(["renameChat", "deleteChat"] as const)("does not reload the old workspace when a pending %s fails", async (operation) => {
+    it("does not reload the old workspace when a pending renameChat fails", async () => {
         listChats.mockImplementation(async ({ workspace: scope }) => [chat(scope, scope)]);
         let reject!: (reason: Error) => void;
-        (operation === "renameChat" ? renameChat : deleteChat)
-            .mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+        renameChat.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
         const { rerender } = render(tree());
         await screen.findByText("personal");
         let pending!: Promise<unknown>;
-        act(() => { pending = latest[operation]("personal", "Renamed").catch(error => error); });
+        act(() => { pending = latest.renameChat("personal", "Renamed").catch(error => error); });
         workspace.current = "org-1";
         rerender(tree());
         await screen.findByText("org-1");
@@ -234,6 +239,37 @@ describe("ChatHistoryProvider and the active workspace", () => {
         await act(async () => { reject(new Error("Denied")); await pending; });
         expect(listChats).toHaveBeenCalledTimes(callCount);
         expect(latest.chats?.map(row => row.id)).toEqual(["org-1"]);
+    });
+
+    it("does not put a deleted chat into a newer workspace when its delete fails", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        // The Undo notice's own lifetime is the undo window.
+        const withNotices = () => <>{tree()}<ToastViewportUI /></>;
+        try {
+            listChats.mockImplementation(async ({ workspace: scope }) => [chat(scope, scope)]);
+            deleteChat.mockRejectedValueOnce(new Error("Denied"));
+            const { rerender } = render(withNotices());
+            await screen.findByText("personal");
+            act(() =>
+                latest.deleteChatWithUndo({
+                    ...chat("personal", "personal"),
+                    project_id: null,
+                }),
+            );
+            await screen.findByText("empty");
+            workspace.current = "org-1";
+            rerender(withNotices());
+            await screen.findByText("org-1");
+
+            await act(async () => { await vi.advanceTimersByTimeAsync(CHAT_DELETE_UNDO_MS); });
+
+            expect(deleteChat).toHaveBeenCalledWith("personal");
+            expect(notifyError).toHaveBeenCalled();
+            expect(latest.chats?.map(row => row.id)).toEqual(["org-1"]);
+        } finally {
+            clearToasts();
+            vi.useRealTimers();
+        }
     });
 
     it("drops old pagination after switching away and back and permits the new workspace to paginate", async () => {
