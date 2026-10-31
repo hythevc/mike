@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetClientAddressWarning } from "./clientAddress";
 import { GET, POST } from "./route";
 import { upstreamReportWindow } from "./upstreamFailure";
 
@@ -283,7 +282,6 @@ describe("same-origin API gateway", () => {
     // fresh budget on every request.
     describe("client address", () => {
         beforeEach(() => {
-            resetClientAddressWarning();
             fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
         });
 
@@ -354,16 +352,16 @@ describe("same-origin API gateway", () => {
             });
         });
 
-        it("warns once in production when no edge header is configured", async () => {
+        // instrumentation.ts warns about a missing setting once, at boot.
+        it("strips the client's address in production without warning per request", async () => {
             vi.stubEnv("NODE_ENV", "production");
             vi.stubEnv("API_BASE_URL", "https://backend.example.test");
             const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-            await forwardedHeaders({});
-            await forwardedHeaders({});
+            const forwarded = await forwardedHeaders({ "x-forwarded-for": "198.51.100.66" });
 
-            expect(warn).toHaveBeenCalledTimes(1);
-            expect(String(warn.mock.calls[0]?.[0])).toContain("CLIENT_IP_HEADER");
+            expect(forwarded.get("x-forwarded-for")).toBeNull();
+            expect(warn).not.toHaveBeenCalled();
         });
     });
 });

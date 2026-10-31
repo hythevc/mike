@@ -273,6 +273,10 @@ services:
     build: *backend-build
     image: *backend-image
     ports:
+      # Published on every interface of the host. On a server the API must be
+      # reachable only from the web app and the Word add-in host: set
+      # BACKEND_PORT=127.0.0.1:3001 or remove this mapping (docs/deployment.md,
+      # "Rate limits and client addresses").
       - "${BACKEND_PORT:-3001}:3001"
     # ponytail: both optional — local dev keeps secrets in backend/.env, hosted
     # deploys (Dokploy et al) write them to the compose-root .env. Whichever

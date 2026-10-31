@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
     clientAddressHeader,
     forwardClientAddress,
     trustedClientAddress,
+    warnAboutClientAddressSetting,
 } from "./clientAddress";
 
 const env = (CLIENT_IP_HEADER?: string) =>
@@ -79,4 +80,44 @@ describe("forwardClientAddress", () => {
         expect(outgoing.get("x-forwarded-for")).toBeNull();
         expect(outgoing.get("forwarded")).toBeNull();
     });
+});
+
+describe("warnAboutClientAddressSetting", () => {
+    const warningsFor = (NODE_ENV: string, CLIENT_IP_HEADER?: string) => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            warnAboutClientAddressSetting({ NODE_ENV, CLIENT_IP_HEADER } as NodeJS.ProcessEnv);
+            return warn.mock.calls.map((args) => String(args[0]));
+        } finally {
+            warn.mockRestore();
+        }
+    };
+
+    it("warns a production server that has no edge header", () => {
+        const warnings = warningsFor("production");
+
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain("CLIENT_IP_HEADER is not set");
+        expect(warnings[0]).toContain("Rate limits and client addresses");
+    });
+
+    it("treats a blank setting as unset", () => {
+        expect(warningsFor("production", "  ")).toHaveLength(1);
+    });
+
+    it("is quiet once the header is configured, or outside production", () => {
+        expect(warningsFor("production", "cf-connecting-ip")).toEqual([]);
+        expect(warningsFor("development")).toEqual([]);
+        expect(warningsFor("test")).toEqual([]);
+    });
+
+    it.each(["production", "development"])(
+        "reports a setting that is not a header name without throwing (%s)",
+        (NODE_ENV) => {
+            const warnings = warningsFor(NODE_ENV, "client ip");
+
+            expect(warnings).toHaveLength(1);
+            expect(warnings[0]).toContain("CLIENT_IP_HEADER is not an HTTP header name");
+        },
+    );
 });

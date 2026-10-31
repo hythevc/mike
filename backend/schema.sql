@@ -11043,11 +11043,15 @@ select public.backfill_document_text(100,false);
 -- Shared rate-limit counters. API replicas count the sign-in, MFA, email,
 -- public and model-calling lanes here, so a limit holds across replicas and
 -- restarts instead of per process. Each row is one fixed window for one key.
--- The API stores a SHA-256 digest of the key (a client address, a user id or
--- an already hashed email) behind a lane prefix, never the raw value. Only the
--- backend's service role reaches the counters, and only through the functions
--- below; the maintenance sweep deletes windows that have ended. Defined after
--- the service_role grant on all tables above, which must not cover it.
+-- The key is the lane name and an unsalted SHA-256 digest of what the lane
+-- counts (a client address, a user id or an already hashed email), not the
+-- value itself. That is pseudonymisation, not anonymisation: hashing
+-- candidates (every IPv4 address, or the user ids and email addresses in the
+-- database) finds the value behind a digest, so the rows are personal data.
+-- Only the backend's service role reaches the counters, and only through the
+-- functions below; a row is kept until its window ends and the next
+-- maintenance sweep deletes it. Defined after the service_role grant on all
+-- tables above, which must not cover it.
 create table if not exists public.rate_limit_windows (
   key text primary key check (length(key) between 1 and 200),
   hits integer not null check (hits >= 0),

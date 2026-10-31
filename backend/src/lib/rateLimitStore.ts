@@ -20,9 +20,12 @@
 // also be able to switch off brute-force protection.
 //
 // Keys never reach the database in the clear. A key is a client address, a
-// user id or an already hashed email; the store keeps a SHA-256 digest of it
-// behind the lane name, and the maintenance sweep deletes rows whose window
-// has ended (pruneExpiredRateLimitWindows).
+// user id or an already hashed email; the store keeps an unsalted SHA-256
+// digest of it behind the lane name. That is pseudonymisation, not
+// anonymisation: hashing candidates (every IPv4 address, or the user ids and
+// email addresses in the database) finds the value behind a digest, so the
+// rows are personal data. A row is kept until its window ends and the next
+// maintenance sweep deletes it (pruneExpiredRateLimitWindows).
 
 import { createHash } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";

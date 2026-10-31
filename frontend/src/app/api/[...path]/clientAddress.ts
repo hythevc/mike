@@ -15,8 +15,6 @@ const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
 // Headers that state a client address and so must not pass through as sent.
 const CLIENT_ADDRESS_HEADERS = ["x-forwarded-for", "forwarded"];
 
-let warnedUnconfigured = false;
-
 /** The configured edge header, lower-cased, or null when none is set. */
 export function clientAddressHeader(
     env: NodeJS.ProcessEnv = process.env,
@@ -75,20 +73,37 @@ export function forwardClientAddress(
     const address = trustedClientAddress(incoming, env);
     for (const name of CLIENT_ADDRESS_HEADERS) outgoing.delete(name);
     if (address) outgoing.set("x-forwarded-for", address);
-
-    if (!warnedUnconfigured && env.NODE_ENV === "production" && !clientAddressHeader(env)) {
-        warnedUnconfigured = true;
-        // A warning, not an error: the console bridge files errors as events.
-        console.warn(
-            "[api-gateway] CLIENT_IP_HEADER is not set, so the API sees every " +
-                "browser at this server's address and per-address rate limits " +
-                "are shared by all users. Set it to the client-address header " +
-                "your edge sets (docs/deployment.md).",
-        );
-    }
 }
 
-/** Test seam: forget that the missing-setting warning was printed. */
-export function resetClientAddressWarning(): void {
-    warnedUnconfigured = false;
+/**
+ * Called once when the server starts (instrumentation.ts). A production web
+ * app without CLIENT_IP_HEADER forwards no client address, so the API counts
+ * every browser against this server's address. Saying so at boot puts that in
+ * the log an operator reads right after an upgrade. A value that is not a
+ * header name is reported as well, since every proxied request fails until it
+ * is corrected. Warnings, not errors: the console bridge files errors as
+ * events.
+ */
+export function warnAboutClientAddressSetting(
+    env: NodeJS.ProcessEnv = process.env,
+): void {
+    let name: string | null;
+    try {
+        name = clientAddressHeader(env);
+    } catch {
+        console.warn(
+            "[api-gateway] CLIENT_IP_HEADER is not an HTTP header name, so " +
+                "every /api request fails until it is corrected " +
+                "(docs/deployment.md, \"Rate limits and client addresses\").",
+        );
+        return;
+    }
+    if (name || env.NODE_ENV !== "production") return;
+    console.warn(
+        "[api-gateway] CLIENT_IP_HEADER is not set, so the API sees every " +
+            "browser at this server's address and all users share the " +
+            "per-address rate limits, sign-in included. Set it to the header " +
+            "in which your edge passes the client's address " +
+            "(docs/deployment.md, \"Rate limits and client addresses\").",
+    );
 }
