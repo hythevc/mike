@@ -345,9 +345,9 @@ jobs:
             echo "R2_ACCESS_KEY_ID=rustfsadmin"
             echo "R2_SECRET_ACCESS_KEY=rustfsadmin"
             echo "R2_BUCKET_NAME=mike"
-            # Keep the release-job fixture reproducible even when the source
-            # repository's main branch changes independently of this PR.
-            echo "MIKE_WORKFLOWS_REF=ce62e6a2d3f47e1d3567a4f2edc61898cfe9e78a"
+            # The workflow sync below uses the catalog commit pinned in
+            # backend/src/lib/workflowCatalogPin.ts, the same default a
+            # release syncs, so the fixture stays reproducible without a ref here.
             echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
             echo "ANTHROPIC_BASE_URL=$ANTHROPIC_BASE_URL"
             # Error reporting is on by default; CI runs must not report.

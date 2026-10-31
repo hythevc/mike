@@ -4,18 +4,94 @@ import { tmpdir } from "os";
 import path from "path";
 import JSZip, { type JSZipObject } from "jszip";
 import { parse as parseYaml } from "yaml";
+import { WORKFLOW_CATALOG_PIN } from "./workflowCatalogPin";
 
-const DEFAULT_REPOSITORY = "Open-Legal-Products/mike-workflows";
-const DEFAULT_REF = "main";
+const DEFAULT_REPOSITORY = WORKFLOW_CATALOG_PIN.repository;
+// The pinned commit is only a default for the pinned repository: any other
+// repository must name its own ref.
+const DEFAULT_REF = WORKFLOW_CATALOG_PIN.commit;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const WORKFLOW_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
 const MAX_EXTRACTED_BYTES = 50 * 1024 * 1024;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_NOTICE_BYTES = 256 * 1024;
+const MAX_ATTRIBUTION_LENGTH = 2_000;
 const MAX_WORKFLOWS = 1_000;
 const MAX_ASSETS_PER_WORKFLOW = 50;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
+
+const COLLECTION_PREFIXES = [
+  "assistant-workflows/",
+  "tabular-review-workflows/",
+] as const;
+
+// Licences a catalog workflow may ship under, keyed by the lower-cased SPDX
+// identifier the catalog declares. "AGPL-3.0" is the deprecated identifier for
+// AGPL-3.0-only and is stored under that name.
+export const WORKFLOW_LICENSES = [
+  "AGPL-3.0-only",
+  "AGPL-3.0-or-later",
+  "Apache-2.0",
+  "CC-BY-4.0",
+  "MIT",
+] as const;
+export type WorkflowLicense = (typeof WORKFLOW_LICENSES)[number];
+const LICENSE_BY_DECLARED_ID = new Map<string, WorkflowLicense>([
+  ["agpl-3.0", "AGPL-3.0-only"],
+  ["agpl-3.0-only", "AGPL-3.0-only"],
+  ["agpl-3.0-or-later", "AGPL-3.0-or-later"],
+  ["apache-2.0", "Apache-2.0"],
+  ["cc-by-4.0", "CC-BY-4.0"],
+  ["mit", "MIT"],
+]);
+
+/**
+ * How the catalog knows a workflow's licence: a licence file shipped with
+ * it, or only the author's declaration in a skill manifest.
+ */
+export type WorkflowLicenseEvidence = "file" | "manifest-only";
+
+const LICENSE_FILENAMES = ["LICENSE", "LICENSE.md", "LICENSE.txt"];
+const NOTICE_FILENAMES = ["NOTICE", "NOTICE.md", "NOTICE.txt"];
+const CHANGES_FILENAME = "CHANGES.md";
+const CONFIRMED_PATTERN = /^confirmed (\d{4}-\d{2}-\d{2})$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// Nothing executable ships with a workflow. Anywhere under a collection, the
+// sync refuses these folders, these file types (scripts, binaries, and Office
+// formats that carry macros), symlinks, and files with an executable bit.
+const NEVER_SHIP_FOLDERS = new Set(["scripts", "bin", "hooks"]);
+const NEVER_SHIP_EXTENSIONS = new Set([
+  "py",
+  "sh",
+  "bash",
+  "zsh",
+  "js",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "rb",
+  "pl",
+  "ps1",
+  "bat",
+  "cmd",
+  "exe",
+  "dll",
+  "so",
+  "dylib",
+  "jar",
+  "php",
+  "wasm",
+  "docm",
+  "xlsm",
+  "pptm",
+]);
+const FILE_TYPE_MASK = 0o170000;
+const SYMLINK_TYPE = 0o120000;
+const EXECUTABLE_BITS = 0o111;
 
 const DEFAULT_QUICK_ACTION_PROMPT =
   "Execute this workflow on the selected documents.";
@@ -57,6 +133,27 @@ export type WorkflowCatalogAssetSource = {
   temporary_path: string;
 };
 
+/**
+ * Where a catalog workflow lives and where the catalog adapted it from. The
+ * source fields are null for workflows whose metadata does not name a source
+ * (the catalog's own workflows).
+ */
+export type WorkflowCatalogProvenance = {
+  /** The catalog repository (owner/name) the workflow was synced from. */
+  catalog_repository: string;
+  /** The workflow's folder inside that repository. */
+  catalog_path: string;
+  /** The licence text that governs the workflow, as a repository path. */
+  license_file: string;
+  source_repository: string | null;
+  source_path: string | null;
+  source_commit: string | null;
+  source_name: string | null;
+  source_version: string | null;
+  /** The date by which a lawyer should review the workflow again. */
+  review_by: string | null;
+};
+
 export type WorkflowCatalogSourceWorkflow = {
   workflow_key: string;
   distribution: "default" | "addon";
@@ -85,6 +182,13 @@ export type WorkflowCatalogSourceWorkflow = {
   document_upload: boolean;
   word_quick_action: boolean;
   word_quick_action_prompt: string | null;
+  license: WorkflowLicense;
+  license_evidence: WorkflowLicenseEvidence;
+  author_confirmation: string | null;
+  attribution: string | null;
+  provenance: WorkflowCatalogProvenance;
+  notice_md: string | null;
+  changes_md: string | null;
   assets: WorkflowCatalogAssetSource[];
   content_hash: string;
 };
@@ -109,6 +213,13 @@ export type WorkflowCatalogSourceOptions = {
   githubToken?: string;
   fetchImpl?: typeof fetch;
   temporaryRoot?: string;
+  /**
+   * Refuse workflows whose licence is declared only in a manifest until the
+   * author has confirmed it, and any workflow whose author confirmation is
+   * pending. Defaults to MIKE_WORKFLOWS_REQUIRE_CONFIRMED_LICENSES, which is
+   * on unless set to false.
+   */
+  requireConfirmedLicenses?: boolean;
 };
 
 type ParsedPack = {
@@ -150,6 +261,22 @@ function stringArray(value: unknown, label: string): string[] {
   return value.map((item) => item.trim()).filter(Boolean);
 }
 
+/** A quoted, bounded form of an untrusted value for an error message. */
+function quoted(value: string): string {
+  return JSON.stringify(value.length > 200 ? `${value.slice(0, 200)}…` : value);
+}
+
+function isCalendarDate(value: string): boolean {
+  if (!DATE_PATTERN.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
 function validateColumnsConfig(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${label} must be a non-empty array`);
@@ -189,6 +316,50 @@ function parseSkill(source: string, label: string) {
   };
 }
 
+/** Text files that travel with a workflow, as stored: LF, no BOM. */
+function normalizedText(value: string): string {
+  return value.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").trimEnd();
+}
+
+/**
+ * The licence a workflow declares, in its canonical SPDX form. Anything
+ * outside the accepted list fails the sync and names the workflow.
+ */
+export function canonicalWorkflowLicense(
+  declared: unknown,
+  workflowKey: string,
+): WorkflowLicense {
+  const value = typeof declared === "string" ? declared.trim() : "";
+  if (!value) {
+    throw new Error(
+      `Workflow '${workflowKey}' must declare its licence in the frontmatter`,
+    );
+  }
+  const license = LICENSE_BY_DECLARED_ID.get(value.toLowerCase());
+  if (!license) {
+    throw new Error(
+      `Workflow '${workflowKey}' declares licence ${quoted(value)}, which the ` +
+        `catalog does not accept (accepted: ${WORKFLOW_LICENSES.join(", ")})`,
+    );
+  }
+  return license;
+}
+
+/**
+ * The confirmation flag. On unless MIKE_WORKFLOWS_REQUIRE_CONFIRMED_LICENSES
+ * is explicitly false; an unrecognised value keeps it on.
+ */
+export function confirmedLicensesRequired(
+  options: Pick<WorkflowCatalogSourceOptions, "requireConfirmedLicenses"> = {},
+): boolean {
+  if (options.requireConfirmedLicenses !== undefined) {
+    return options.requireConfirmedLicenses;
+  }
+  const value = process.env.MIKE_WORKFLOWS_REQUIRE_CONFIRMED_LICENSES?.trim()
+    .toLowerCase();
+  return !(value === "false" || value === "0" || value === "no" || value === "off");
+}
+
 function githubHeaders(token?: string): Record<string, string> {
   return {
     Accept: "application/vnd.github+json",
@@ -197,22 +368,47 @@ function githubHeaders(token?: string): Record<string, string> {
   };
 }
 
+/** A setting that is present and not blank; dotenv turns `KEY=` into "". */
+function configured(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function sourceConfiguration(options: WorkflowCatalogSourceOptions) {
   const repository =
-    options.repository ??
-    process.env.MIKE_WORKFLOWS_REPOSITORY ??
+    configured(options.repository) ??
+    configured(process.env.MIKE_WORKFLOWS_REPOSITORY) ??
     DEFAULT_REPOSITORY;
-  const ref = options.ref ?? process.env.MIKE_WORKFLOWS_REF ?? DEFAULT_REF;
-  const githubToken =
-    options.githubToken ?? process.env.MIKE_WORKFLOWS_GITHUB_TOKEN;
   if (!REPOSITORY_PATTERN.test(repository)) {
     throw new Error(
       "MIKE_WORKFLOWS_REPOSITORY must use the owner/repository form",
     );
   }
-  if (!ref.trim() || ref.length > 200) {
+  let ref =
+    configured(options.ref) ?? configured(process.env.MIKE_WORKFLOWS_REF);
+  if (ref === undefined) {
+    if (repository.toLowerCase() !== DEFAULT_REPOSITORY.toLowerCase()) {
+      throw new Error(
+        "MIKE_WORKFLOWS_REF must be set when MIKE_WORKFLOWS_REPOSITORY names " +
+          "a catalog other than the pinned default",
+      );
+    }
+    ref = DEFAULT_REF;
+  }
+  if (ref.length > 200) {
     throw new Error("MIKE_WORKFLOWS_REF must be between 1 and 200 characters");
   }
+  if (/^[0-9a-f]{40}$/i.test(ref)) ref = ref.toLowerCase();
+  // A branch or tag can move after a release; only a commit names exactly
+  // the catalog that was reviewed.
+  if (process.env.NODE_ENV === "production" && !COMMIT_PATTERN.test(ref)) {
+    throw new Error(
+      "MIKE_WORKFLOWS_REF must be a 40-character commit SHA in production; " +
+        "branch and tag names are refused",
+    );
+  }
+  const githubToken =
+    options.githubToken ?? process.env.MIKE_WORKFLOWS_GITHUB_TOKEN;
   return { repository, ref, githubToken };
 }
 
@@ -312,8 +508,29 @@ async function downloadArchive(
   }
 }
 
+// JSZip resolves "." and ".." segments while loading and keeps the name as
+// written in `unsafeOriginalName`, so an entry such as
+// "assistant-workflows/x/assets/../../y" would otherwise land silently at
+// "y". Every entry must name its own location exactly.
+function unsafeArchivePath(name: string): boolean {
+  if (!name || /[\\\0]/.test(name)) return true;
+  if (name.startsWith("/") || /^[A-Za-z]:/.test(name)) return true;
+  return name
+    .split("/")
+    .some((segment) => segment === "" || segment === "." || segment === "..");
+}
+
 function archiveFiles(zip: JSZip): Map<string, JSZipObject> {
   const entries = Object.values(zip.files).filter((entry) => !entry.dir);
+  for (const entry of entries) {
+    const original = entry.unsafeOriginalName ?? entry.name;
+    if (unsafeArchivePath(original)) {
+      throw new Error(
+        `Workflow archive contains an unsafe path ${quoted(original)}: ` +
+          "every file must stay inside its own folder",
+      );
+    }
+  }
   const first = entries[0]?.name;
   if (!first?.includes("/"))
     throw new Error("Workflow archive has no root directory");
@@ -347,15 +564,82 @@ function declaredEntrySize(entry: JSZipObject): number | null {
     : null;
 }
 
+function unixMode(entry: JSZipObject): number | null {
+  const mode = entry.unixPermissions;
+  if (typeof mode === "number") return mode;
+  if (typeof mode === "string" && /^[0-7]+$/.test(mode)) {
+    return Number.parseInt(mode, 8);
+  }
+  return null;
+}
+
+function inCollection(entryPath: string): boolean {
+  return COLLECTION_PREFIXES.some((prefix) => entryPath.startsWith(prefix));
+}
+
+/** The workflow (or, failing that, the folder) a collection file belongs to. */
+function ownerOf(entryPath: string, files: Map<string, JSZipObject>): string {
+  const segments = entryPath.split("/");
+  for (let end = segments.length - 1; end >= 2; end -= 1) {
+    const directory = segments.slice(0, end).join("/");
+    if (files.has(`${directory}/SKILL.md`)) {
+      return `Workflow '${segments[end - 1]}'`;
+    }
+  }
+  return `Workflow folder ${quoted(segments.slice(0, -1).join("/"))}`;
+}
+
+// Applies the never-ship rules to every file under a collection, including
+// files the parser itself never reads, so nothing executable can sit in a
+// published workflow folder.
+function refuseUnshippableFiles(files: Map<string, JSZipObject>): void {
+  for (const [entryPath, entry] of files) {
+    if (!inCollection(entryPath)) continue;
+    const segments = entryPath.split("/");
+    const owner = () => ownerOf(entryPath, files);
+    const folder = segments
+      .slice(1, -1)
+      .find((segment) => NEVER_SHIP_FOLDERS.has(segment.toLowerCase()));
+    if (folder) {
+      throw new Error(
+        `${owner()} contains a ${folder}/ folder (${quoted(entryPath)}); ` +
+          "scripts never ship with a workflow",
+      );
+    }
+    const mode = unixMode(entry);
+    if (mode !== null && (mode & FILE_TYPE_MASK) === SYMLINK_TYPE) {
+      throw new Error(
+        `${owner()} contains a symlink (${quoted(entryPath)}); ` +
+          "workflow files must be regular files",
+      );
+    }
+    const extension = path.extname(segments.at(-1)!).slice(1).toLowerCase();
+    if (NEVER_SHIP_EXTENSIONS.has(extension)) {
+      throw new Error(
+        `${owner()} contains a script or executable file ` +
+          `(${quoted(entryPath)}); these never ship with a workflow`,
+      );
+    }
+    if (mode !== null && (mode & EXECUTABLE_BITS) !== 0) {
+      throw new Error(
+        `${owner()} contains an executable file (${quoted(entryPath)}); ` +
+          "these never ship with a workflow",
+      );
+    }
+  }
+}
+
 async function parseArchive(
   archivePath: string,
   assetDirectory: string,
   repository: string,
   ref: string,
   commit: string,
+  policy: { requireConfirmedLicenses: boolean },
 ): Promise<WorkflowCatalogSourceDocument> {
   const zip = await JSZip.loadAsync(await readFile(archivePath));
   const files = archiveFiles(zip);
+  refuseUnshippableFiles(files);
   let extractedBytes = 0;
   const textCache = new Map<string, string>();
 
@@ -385,12 +669,43 @@ async function parseArchive(
     return value;
   }
 
+  // The licence file in `directory` ("" for the archive root), if one exists
+  // and has some text in it.
+  async function licenceFileIn(directory: string): Promise<string | null> {
+    for (const name of LICENSE_FILENAMES) {
+      const entryPath = directory ? `${directory}/${name}` : name;
+      if (!files.has(entryPath)) continue;
+      if (normalizedText(await readText(entryPath))) return entryPath;
+    }
+    return null;
+  }
+
+  // NOTICE and CHANGES.md travel with the catalog row, so they are capped
+  // well below the per-file limit.
+  async function companionText(
+    directory: string,
+    names: readonly string[],
+    workflowKey: string,
+  ): Promise<string | null> {
+    for (const name of names) {
+      const entryPath = `${directory}/${name}`;
+      const entry = files.get(entryPath);
+      if (!entry) continue;
+      const tooLarge = () =>
+        new Error(`Workflow '${workflowKey}' ${name} exceeds the 256 KB limit`);
+      const declared = declaredEntrySize(entry);
+      if (declared !== null && declared > MAX_NOTICE_BYTES) throw tooLarge();
+      const text = normalizedText(await readText(entryPath));
+      if (Buffer.byteLength(text, "utf8") > MAX_NOTICE_BYTES) throw tooLarge();
+      return text || null;
+    }
+    return null;
+  }
+
   const skillPaths = [...files.keys()]
     .filter(
       (entryPath) =>
-        (entryPath.startsWith("assistant-workflows/") ||
-          entryPath.startsWith("tabular-review-workflows/")) &&
-        entryPath.endsWith("/SKILL.md"),
+        inCollection(entryPath) && entryPath.endsWith("/SKILL.md"),
     )
     .sort((a, b) => a.localeCompare(b, "en"));
   if (!skillPaths.length)
@@ -398,6 +713,10 @@ async function parseArchive(
   if (skillPaths.length > MAX_WORKFLOWS) {
     throw new Error("Workflow archive exceeds the 1,000 workflow limit");
   }
+
+  // The repository's own licence covers workflows that carry no licence
+  // metadata of their own, such as the vendored defaults.
+  const rootLicenseFile = await licenceFileIn("");
 
   const packCache = new Map<string, ParsedPack>();
   const discoveredPackWorkflows = new Map<string, Set<string>>();
@@ -482,7 +801,7 @@ async function parseArchive(
     if (requiredString(frontmatter.name, `${skillPath}.name`) !== workflowKey) {
       throw new Error(`${skillPath}.name must match its directory`);
     }
-    requiredString(frontmatter.license, `${skillPath}.license`);
+    const license = canonicalWorkflowLicense(frontmatter.license, workflowKey);
     const metadata = asRecord(frontmatter.metadata, `${skillPath}.metadata`);
     const metadataType = requiredString(
       metadata["mike-type"],
@@ -529,6 +848,156 @@ async function parseArchive(
     }
 
     const workflowDirectory = skillPath.slice(0, -"/SKILL.md".length);
+
+    // Licence evidence. A workflow whose metadata declares where its licence
+    // comes from (an adapted third-party work) carries its own LICENSE,
+    // CHANGES.md and credit line. One without that metadata, such as a
+    // vendored default, is covered by a licence file in its folder or at the
+    // archive root.
+    const declaredEvidence = optionalString(
+      metadata["license-evidence"],
+      `${skillPath}.metadata.license-evidence`,
+    );
+    if (
+      declaredEvidence !== null &&
+      declaredEvidence !== "file" &&
+      declaredEvidence !== "manifest-only"
+    ) {
+      throw new Error(
+        `Workflow '${workflowKey}' has an invalid license-evidence ` +
+          `${quoted(declaredEvidence)}; use file or manifest-only`,
+      );
+    }
+    const authorConfirmation = optionalString(
+      metadata["author-confirmation"],
+      `${skillPath}.metadata.author-confirmation`,
+    );
+    const confirmedOn = authorConfirmation?.match(CONFIRMED_PATTERN)?.[1];
+    if (
+      authorConfirmation !== null &&
+      authorConfirmation !== "not-required" &&
+      authorConfirmation !== "pending" &&
+      !(confirmedOn && isCalendarDate(confirmedOn))
+    ) {
+      throw new Error(
+        `Workflow '${workflowKey}' has an invalid author-confirmation ` +
+          `${quoted(authorConfirmation)}; use not-required, pending or ` +
+          "confirmed YYYY-MM-DD",
+      );
+    }
+    const ownLicenseFile = await licenceFileIn(workflowDirectory);
+    if (declaredEvidence !== null && !ownLicenseFile) {
+      throw new Error(
+        `Workflow '${workflowKey}' declares license-evidence but its folder ` +
+          "has no LICENSE file",
+      );
+    }
+    const licenseFile = ownLicenseFile ?? rootLicenseFile;
+    if (!licenseFile) {
+      throw new Error(
+        `Workflow '${workflowKey}' has no licence file: add a LICENSE to its ` +
+          "folder or to the root of the catalog",
+      );
+    }
+    const licenseEvidence: WorkflowLicenseEvidence =
+      declaredEvidence ?? "file";
+    if (policy.requireConfirmedLicenses) {
+      if (authorConfirmation === "pending") {
+        throw new Error(
+          `Workflow '${workflowKey}' is waiting for its author to confirm the ` +
+            "licence (author-confirmation: pending) and cannot be published yet",
+        );
+      }
+      if (licenseEvidence === "manifest-only" && !confirmedOn) {
+        throw new Error(
+          `Workflow '${workflowKey}' declares its licence only in a manifest; ` +
+            "it needs author-confirmation 'confirmed YYYY-MM-DD' before it " +
+            "can be published",
+        );
+      }
+    }
+    const attribution = optionalString(
+      metadata.attribution,
+      `${skillPath}.metadata.attribution`,
+    );
+    if (attribution && attribution.length > MAX_ATTRIBUTION_LENGTH) {
+      throw new Error(
+        `Workflow '${workflowKey}' attribution exceeds ${MAX_ATTRIBUTION_LENGTH} characters`,
+      );
+    }
+    const noticeMd = await companionText(
+      workflowDirectory,
+      NOTICE_FILENAMES,
+      workflowKey,
+    );
+    const changesMd = await companionText(
+      workflowDirectory,
+      [CHANGES_FILENAME],
+      workflowKey,
+    );
+    if (declaredEvidence !== null) {
+      if (!attribution) {
+        throw new Error(
+          `Workflow '${workflowKey}' declares license-evidence but has no ` +
+            "attribution credit line",
+        );
+      }
+      if (!changesMd) {
+        throw new Error(
+          `Workflow '${workflowKey}' declares license-evidence but its folder ` +
+            `has no ${CHANGES_FILENAME}`,
+        );
+      }
+    }
+    const sourceRepository = optionalString(
+      metadata["source-repository"],
+      `${skillPath}.metadata.source-repository`,
+    );
+    if (sourceRepository && !REPOSITORY_PATTERN.test(sourceRepository)) {
+      throw new Error(
+        `Workflow '${workflowKey}' source-repository must use the ` +
+          "owner/repository form",
+      );
+    }
+    const sourceCommit = optionalString(
+      metadata["source-commit"],
+      `${skillPath}.metadata.source-commit`,
+    );
+    if (sourceCommit && !COMMIT_PATTERN.test(sourceCommit)) {
+      throw new Error(
+        `Workflow '${workflowKey}' source-commit must be a 40-character commit SHA`,
+      );
+    }
+    const reviewBy = optionalString(
+      metadata["review-by"],
+      `${skillPath}.metadata.review-by`,
+    );
+    if (reviewBy && !isCalendarDate(reviewBy)) {
+      throw new Error(
+        `Workflow '${workflowKey}' review-by must be a date (YYYY-MM-DD)`,
+      );
+    }
+    const provenance: WorkflowCatalogProvenance = {
+      catalog_repository: repository,
+      catalog_path: workflowDirectory,
+      license_file: licenseFile,
+      source_repository: sourceRepository,
+      source_path: optionalString(
+        metadata["source-path"],
+        `${skillPath}.metadata.source-path`,
+      ),
+      source_commit: sourceCommit,
+      source_name: optionalString(
+        metadata["source-name"],
+        `${skillPath}.metadata.source-name`,
+      ),
+      source_version: optionalString(
+        metadata["source-version"],
+        `${skillPath}.metadata.source-version`,
+      ),
+      review_by: reviewBy,
+    };
+
     const assetPrefix = `${workflowDirectory}/assets/`;
     const assetPaths = [...files.keys()]
       .filter((entryPath) => {
@@ -545,6 +1014,13 @@ async function parseArchive(
     const assets: WorkflowCatalogAssetSource[] = [];
     for (const [index, assetPath] of assetPaths.entries()) {
       const bytes = await readEntry(assetPath);
+      // A script with an innocent extension is still a script.
+      if (bytes.subarray(0, 2).toString("latin1") === "#!") {
+        throw new Error(
+          `Workflow '${workflowKey}' asset ${quoted(assetPath)} is a script; ` +
+            "these never ship with a workflow",
+        );
+      }
       const contentHash = sha256(bytes);
       const temporaryPath = path.join(
         assetDirectory,
@@ -590,7 +1066,10 @@ async function parseArchive(
       contributors: [
         {
           name: requiredString(metadata.author, `${skillPath}.metadata.author`),
-          organisation: null,
+          organisation: optionalString(
+            metadata["author-organisation"],
+            `${skillPath}.metadata.author-organisation`,
+          ),
           role: null,
           linkedin: null,
         },
@@ -618,8 +1097,17 @@ async function parseArchive(
       word_quick_action_prompt: defaultConfig?.wordQuickAction
         ? DEFAULT_WORD_QUICK_ACTION_PROMPT
         : null,
+      license,
+      license_evidence: licenseEvidence,
+      author_confirmation: authorConfirmation,
+      attribution,
+      provenance,
+      notice_md: noticeMd,
+      changes_md: changesMd,
       assets,
     };
+    // The licence, credit and provenance are part of what a row is: a change
+    // to any of them produces a new content-addressed catalog row.
     const hashPayload = {
       ...payload,
       assets: assets.map(({ temporary_path: _path, ...asset }) => asset),
@@ -654,6 +1142,15 @@ async function parseArchive(
     source_commit: commit,
     workflows,
   };
+}
+
+function optionalDocumentString(
+  value: unknown,
+  label: string,
+): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") throw new Error(`${label} must be a string`);
+  return value;
 }
 
 export function validateWorkflowCatalogDocument(
@@ -708,6 +1205,37 @@ export function validateWorkflowCatalogDocument(
     ) {
       throw new Error(`Workflow '${key}' has an invalid content hash`);
     }
+    if (
+      !(WORKFLOW_LICENSES as readonly unknown[]).includes(workflow.license)
+    ) {
+      throw new Error(`Workflow '${key}' has a licence the catalog does not accept`);
+    }
+    if (
+      workflow.license_evidence !== "file" &&
+      workflow.license_evidence !== "manifest-only"
+    ) {
+      throw new Error(`Workflow '${key}' has invalid licence evidence`);
+    }
+    for (const field of [
+      "author_confirmation",
+      "attribution",
+      "notice_md",
+      "changes_md",
+    ]) {
+      optionalDocumentString(workflow[field], `Workflow '${key}' ${field}`);
+    }
+    const provenance = asRecord(
+      workflow.provenance,
+      `Workflow '${key}' provenance`,
+    );
+    requiredString(
+      provenance.catalog_path,
+      `Workflow '${key}' provenance catalog_path`,
+    );
+    requiredString(
+      provenance.license_file,
+      `Workflow '${key}' provenance license_file`,
+    );
     if (!Array.isArray(workflow.assets)) {
       throw new Error(`Workflow '${key}' has invalid assets`);
     }
@@ -769,6 +1297,7 @@ export async function prepareWorkflowCatalog(
       repository,
       ref,
       commit,
+      { requireConfirmedLicenses: confirmedLicensesRequired(options) },
     );
     const catalogPath = path.join(directory, "workflow-catalog.json");
     await writeFile(catalogPath, `${JSON.stringify(document, null, 2)}\n`, {

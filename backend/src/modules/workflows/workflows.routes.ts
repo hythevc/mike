@@ -16,6 +16,8 @@ import {
 import { parseWorkflowSort } from "../../lib/sort";
 import { parseWorkflowScope } from "./workflows.overview";
 import { sendInternalError } from "../../lib/httpError";
+import { reportError, setOperation } from "../../lib/observability/sentry";
+import { sendServiceFailure } from "../../lib/serviceResult";
 import {
   DOCUMENT_WORKSPACE_MISMATCH_CODE,
   DOCUMENT_WORKSPACE_MISMATCH_DETAIL,
@@ -43,6 +45,9 @@ import {
   listWorkflowShares,
   deleteWorkflowShare,
   shareWorkflow,
+  duplicateBuiltInWorkflow,
+  serializeNewCatalogCopy,
+  type CatalogCopyFailure,
   type Db,
   type WorkflowAssetFailure,
   type WorkflowMetadata,
@@ -96,6 +101,17 @@ function sendWorkflowAssetFailure(res: Response, failure: WorkflowAssetFailure) 
     case "db_error":
       return void sendInternalError(res, failure.error);
   }
+}
+
+// The asset-copy rollback answers 500 with its own detail; every other
+// failure goes through the shared status-code policy in lib/serviceResult.
+function sendCatalogCopyFailure(res: Response, failure: CatalogCopyFailure) {
+  if (failure.kind === "assets_copy_failed") {
+    reportError(failure.error);
+    console.error("[workflows] duplicate failed", failure.error);
+    return void res.status(500).json({ detail: failure.detail });
+  }
+  return void sendServiceFailure(res, failure);
 }
 
 const WORKFLOW_PAGINATION_QUERY_KEYS = [
@@ -358,6 +374,26 @@ workflowsRouter.post("/:workflowId/open-source", requireAuth, asyncRoute(async (
 
   res.status(result.status).json(result.body);
 }));
+
+// POST /workflows/:workflowId/duplicate
+// An editable copy of a built-in (builtin-<key>) that the catalog still
+// serves. The copy keeps the built-in's licence, credit and source, and its
+// assets are copied into the caller's library as with an add-on import.
+workflowsRouter.post(
+  "/:workflowId/duplicate",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    setOperation("workflows.duplicate_builtin");
+    const userId = res.locals.userId as string;
+    const db = createServerSupabase();
+    const result = await duplicateBuiltInWorkflow(db, {
+      workflowId: req.params.workflowId,
+      userId,
+    });
+    if (!result.ok) return void sendCatalogCopyFailure(res, result);
+    res.status(201).json(serializeNewCatalogCopy(result.data));
+  }),
+);
 
 // GET /workflows/:workflowId/assets
 workflowsRouter.get("/:workflowId/assets", requireAuth, asyncRoute(async (req, res) => {

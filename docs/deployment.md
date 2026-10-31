@@ -175,12 +175,60 @@ npm run sync:workflows
 ```
 
 The job resolves `MIKE_WORKFLOWS_REF`, downloads and validates the raw
-`Open-Legal-Products/mike-workflows` archive, uploads reference assets to the
-configured S3-compatible storage, and transactionally replaces the active
-`mike_workflows` catalog. Temporary archive and JSON files are deleted when the
-job exits. Run this as a release job before directing traffic to the new
-backend; backend startup itself only reads the database. Docker Compose runs
-this sequence automatically for local/self-hosted deployments.
+catalog archive, uploads reference assets to the configured S3-compatible
+storage, and transactionally replaces the active `mike_workflows` catalog.
+Temporary archive and JSON files are deleted when the job exits. Run this as a
+release job before directing traffic to the new backend; backend startup itself
+only reads the database. Docker Compose runs this sequence automatically for
+local/self-hosted deployments.
+
+### Workflow catalog source and licences
+
+With `MIKE_WORKFLOWS_REPOSITORY` and `MIKE_WORKFLOWS_REF` unset, the job syncs
+the catalog pinned in `backend/src/lib/workflowCatalogPin.ts`: a repository
+and a full 40-character commit, so every sync of a release reads the same
+archive and makes no GitHub API call. Moving to a newer catalog release is a
+one-line change to that file. To sync another catalog, set both variables; a
+repository other than the pinned one has no default ref.
+
+**Upgrade note:** with `NODE_ENV=production` (the default in the backend
+image), `MIKE_WORKFLOWS_REF` must be a 40-character commit SHA. A branch or tag
+name such as `main` now fails the sync before anything is downloaded. Earlier
+versions of `backend/.env.example` set `MIKE_WORKFLOWS_REF=main`; if your
+`.env` still has that line, remove it to use the pinned catalog, or replace it
+with the commit you want.
+
+The sync refuses the whole catalog, naming the workflow, when a workflow:
+
+- declares a licence other than `AGPL-3.0-only` (the deprecated `AGPL-3.0`
+  is read as `-only`), `AGPL-3.0-or-later`, `Apache-2.0`, `CC-BY-4.0` or
+  `MIT`;
+- has no licence file. A workflow whose metadata says where its licence comes
+  from (`license-evidence`) must carry its own `LICENSE`, `CHANGES.md` and
+  `attribution` credit line; one without that metadata, such as the vendored
+  defaults, may rely on a `LICENSE` at the root of the catalog;
+- declares its licence only in a skill manifest (`license-evidence:
+  manifest-only`) without `author-confirmation: "confirmed YYYY-MM-DD"`, or
+  has `author-confirmation: "pending"`, while
+  `MIKE_WORKFLOWS_REQUIRE_CONFIRMED_LICENSES` is on. It is on unless set to
+  `false` (or `0`, `no`, `off`), and should stay on for any catalog people
+  rely on;
+- ships anything executable: a `scripts/`, `bin/` or `hooks/` folder, a
+  script or binary file (for example `.py`, `.sh`, `.js`, `.ts`, `.exe`,
+  `.jar`, `.wasm`, or a macro-enabled Office file), a symlink, a file with an
+  executable bit, or an asset that starts with `#!`;
+- contains a path that leaves its folder (`..`, `.`, an absolute path or a
+  backslash).
+
+Each catalog row stores its licence, licence evidence, author confirmation,
+credit line, provenance (catalog folder, licence file and upstream source),
+`NOTICE` and `CHANGES.md`. These are part of a row's content hash, so the first
+sync after this upgrade stores every workflow as a new row; earlier rows stay
+readable for chat history. Imported add-ons and duplicated built-ins
+(`POST /workflows/builtin-<key>/duplicate`) keep the licence, credit and
+provenance read-only, and their detail reports `catalog_status`: `current`,
+`update_available` when the catalog serves a newer version, or `withdrawn`
+when the catalog no longer has the workflow.
 
 ## Document parsing resources
 

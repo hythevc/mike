@@ -4,6 +4,7 @@ import {
   catalogWorkflowId,
   catalogWorkflowToLegacy,
   ensureDefaultWorkflows,
+  findActiveCatalogVersions,
   resetEnsuredDefaultUsersForTests,
   type WorkflowCatalogRow,
 } from "../workflowCatalog";
@@ -63,6 +64,83 @@ describe("workflow catalog identifiers", () => {
         assets: [],
       }),
     );
+  });
+
+  it("reports the catalog licence, credit, provenance and notices on the built-in detail", () => {
+    const provenance = {
+      catalog_repository: "example/workflow-catalog",
+      catalog_path: "assistant-workflows/proofread",
+      license_file: "LICENSE",
+    };
+    expect(
+      catalogWorkflowToLegacy({
+        ...CATALOG_ROW,
+        license: "MIT",
+        license_evidence: "file",
+        author_confirmation: null,
+        attribution: "Proofread by Sample Author",
+        provenance,
+        notice_md: "Notice text",
+        changes_md: "## 1.0.0",
+      }),
+    ).toMatchObject({
+      license: "MIT",
+      license_evidence: "file",
+      author_confirmation: null,
+      attribution: "Proofread by Sample Author",
+      provenance,
+      notice_md: "Notice text",
+      changes_md: "## 1.0.0",
+      source_commit: "a".repeat(40),
+    });
+    // Rows synced before the licence fields existed read as null.
+    expect(catalogWorkflowToLegacy(CATALOG_ROW)).toMatchObject({
+      license: null,
+      attribution: null,
+      provenance: null,
+      notice_md: null,
+    });
+  });
+});
+
+describe("findActiveCatalogVersions", () => {
+  it("maps each key the active catalog still serves to its version", async () => {
+    const calls: unknown[][] = [];
+    const query = {
+      select: (...args: unknown[]) => (calls.push(["select", ...args]), query),
+      eq: (...args: unknown[]) => (calls.push(["eq", ...args]), query),
+      in: (...args: unknown[]) => (calls.push(["in", ...args]), query),
+      then: (resolve: (value: unknown) => unknown) =>
+        Promise.resolve({
+          data: [{ workflow_key: "proofread", version: "1.1.0" }],
+          error: null,
+        }).then(resolve),
+    };
+    const from = vi.fn(() => query);
+
+    const versions = await findActiveCatalogVersions({ from } as never, [
+      "proofread",
+      "proofread",
+      "withdrawn-key",
+      "not a key",
+    ]);
+
+    expect(versions).toEqual(new Map([["proofread", "1.1.0"]]));
+    expect(from).toHaveBeenCalledWith("mike_workflows");
+    expect(calls).toContainEqual(["eq", "active", true]);
+    expect(calls).toContainEqual([
+      "in",
+      "workflow_key",
+      ["proofread", "withdrawn-key"],
+    ]);
+  });
+
+  it("makes no query for no keys", async () => {
+    const from = vi.fn();
+    await expect(
+      findActiveCatalogVersions({ from } as never, []),
+    ).resolves.toEqual(new Map());
+    expect(from).not.toHaveBeenCalled();
   });
 });
 

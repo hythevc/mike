@@ -16,9 +16,8 @@ import {
   importWorkflowAddon,
   listWorkflowAddons,
   loadWorkflowAddonAssetDisplay,
-  withDatabaseWorkflow,
+  serializeNewCatalogCopy,
   type WorkflowAddonImportFailure,
-  type WorkflowRecord,
 } from "./workflows.service";
 
 export const workflowAddonsRouter = Router();
@@ -109,17 +108,11 @@ workflowAddonsRouter.post(
     });
     if (!result.ok) return void sendImportFailure(res, result);
     // Serialize through the workflows facade so the imported workflow comes
-    // back in exactly the shape GET /workflows/:id returns. Rebuilding that
-    // shape by hand had drifted from the route on four fields: metadata.name,
-    // the default contributor, version, and is_default.
-    res.status(201).json({
-      ...withDatabaseWorkflow(result.data as unknown as WorkflowRecord),
-      is_owner: true,
-      allow_edit: true,
-      access_role: "owner",
-      // An imported add-on is never one of the installed default workflows.
-      is_default: false,
-    });
+    // back in exactly the shape GET /workflows/:id returns, licence and
+    // catalog status included. Rebuilding that shape by hand had drifted
+    // from the route on four fields: metadata.name, the default contributor,
+    // version, and is_default.
+    res.status(201).json(serializeNewCatalogCopy(result.data));
   }),
 );
 

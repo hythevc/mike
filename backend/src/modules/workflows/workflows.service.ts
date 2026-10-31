@@ -49,3 +49,8 @@ export {
   importWorkflowAddon,
   type WorkflowAddonImportFailure,
 } from "./workflows.addons";
+export {
+  duplicateBuiltInWorkflow,
+  serializeNewCatalogCopy,
+  type CatalogCopyFailure,
+} from "./workflows.catalogCopy";

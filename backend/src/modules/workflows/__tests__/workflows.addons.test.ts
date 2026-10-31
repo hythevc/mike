@@ -6,12 +6,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  copyFile,
   downloadFile,
   uploadFile,
   loadDocumentDisplay,
   prepareDocumentDisplay,
   enqueueStorageCleanup,
 } = vi.hoisted(() => ({
+  copyFile: vi.fn(),
   downloadFile: vi.fn(),
   uploadFile: vi.fn(),
   loadDocumentDisplay: vi.fn(),
@@ -21,7 +23,7 @@ const {
 
 vi.mock("../../../lib/storage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/storage")>();
-  return { ...actual, downloadFile, uploadFile };
+  return { ...actual, copyFile, downloadFile, uploadFile };
 });
 
 vi.mock("../../../lib/documentDisplay", async (importOriginal) => {
@@ -87,9 +89,12 @@ function makeDb(results: Record<string, Result[]>) {
     };
     return builder;
   }
-  return { db: { from, rpc: async (name: string, args: { p_document_id: string; p_version: Record<string, unknown> }) => {
-    expect(name).toBe("create_document_version");
-    calls.push({ table: "document_versions", op: "insert", payload: { ...args.p_version, document_id: args.p_document_id }, filters: [] });
+  return { db: { from, rpc: async (name: string, args: { p_versions: Record<string, unknown>[] }) => {
+    // Asset versions are created in one batch through the documents facade.
+    expect(name).toBe("create_document_versions");
+    for (const version of args.p_versions) {
+      calls.push({ table: "document_versions", op: "insert", payload: version, filters: [] });
+    }
     return results.document_versions?.shift() ?? { data: null, error: null };
   } } as unknown as Db, calls };
 }
@@ -398,13 +403,32 @@ describe("getWorkflowAddon", () => {
 describe("importWorkflowAddon", () => {
   const catalogRow = {
     id: "a1",
+    workflow_key: "design-partner-draft",
+    version: "1.2.0",
     title: "Design Partner Draft",
     type: "assistant",
     prompt_md: "Draft from the precedent.",
     columns_config: null,
+    contributors: [
+      { name: "Sample Author", organisation: "Sample Practice LLP", role: null, linkedin: null },
+    ],
     language: null,
     practice: null,
     jurisdictions: null,
+    license: "Apache-2.0",
+    attribution: "Adapted from Design Partner Draft by Sample Author.",
+    provenance: {
+      catalog_repository: "example/workflow-catalog",
+      catalog_path: "assistant-workflows/design-partner-draft",
+      license_file: "assistant-workflows/design-partner-draft/LICENSE",
+      source_repository: "example/legal-skills",
+      source_path: "skills/design-partner",
+      source_commit: null,
+      source_name: null,
+      source_version: "1.0.0",
+      review_by: null,
+    },
+    source_commit: "e".repeat(40),
   };
   const workflowRow = {
     id: "w1",
@@ -448,7 +472,34 @@ describe("importWorkflowAddon", () => {
     });
   });
 
+  it("copies the add-on's key, version, licence, credit and provenance onto the copy", async () => {
+    const { db, calls } = makeDb({
+      mike_workflows: [{ data: catalogRow, error: null }],
+      workflows: [{ data: workflowRow, error: null }],
+      mike_workflow_assets: [{ data: [], error: null }],
+    });
+
+    await importWorkflowAddon(db, { addonId: "a1", userId: "u1" });
+
+    const insert = calls.find((c) => c.table === "workflows" && c.op === "insert");
+    expect(insert?.payload).toMatchObject({
+      catalog_workflow_key: "design-partner-draft",
+      catalog_version: "1.2.0",
+      license: "Apache-2.0",
+      attribution: "Adapted from Design Partner Draft by Sample Author.",
+      provenance: {
+        ...catalogRow.provenance,
+        // What only a copy records: where and when it was taken, who was
+        // credited then, and the body as copied.
+        catalog_commit: "e".repeat(40),
+        contributors: catalogRow.contributors,
+        content_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+    });
+  });
+
   it("copies each asset into a document + version and returns the inserted row", async () => {
+    copyFile.mockResolvedValue(undefined);
     downloadFile.mockResolvedValue(new TextEncoder().encode("reference").buffer);
     uploadFile.mockResolvedValue(undefined);
     prepareDocumentDisplay.mockResolvedValue({
@@ -467,6 +518,7 @@ describe("importWorkflowAddon", () => {
               file_type: "docx",
               storage_path: "mike-workflows/a1/precedent.docx",
               size_bytes: 9,
+              content_hash: "f".repeat(64),
             },
           ],
           error: null,
@@ -482,18 +534,31 @@ describe("importWorkflowAddon", () => {
     // GET /workflows/:id shape is workflowAddons.routes.ts's job, through the
     // facade's withDatabaseWorkflow.
     expect(result).toEqual({ ok: true, data: workflowRow });
+    // The source object is copied server-side by the documents module...
+    expect(copyFile).toHaveBeenCalledTimes(1);
+    expect(copyFile).toHaveBeenCalledWith(
+      "mike-workflows/a1/precedent.docx",
+      expect.stringMatching(/^documents\/u1\/.+\/source\.docx$/),
+    );
+    // ...and a Word file also gets its PDF rendition, rendered from the bytes.
     expect(downloadFile).toHaveBeenCalledWith("mike-workflows/a1/precedent.docx");
-    // Source bytes plus the converted PDF rendition for a Word file.
-    expect(uploadFile).toHaveBeenCalledTimes(2);
+    expect(uploadFile).toHaveBeenCalledTimes(1);
+    expect(uploadFile).toHaveBeenCalledWith(
+      expect.stringMatching(/^converted-pdfs\/u1\/.+\.pdf$/),
+      expect.anything(),
+      "application/pdf",
+    );
     const documentInsert = calls.find(
       (c) => c.table === "documents" && c.op === "insert",
     );
-    expect(documentInsert?.payload).toMatchObject({
-      workflow_id: "w1",
-      user_id: "u1",
-      status: "processing",
-      library_kind: "workflow_asset",
-    });
+    expect(documentInsert?.payload).toEqual([
+      expect.objectContaining({
+        workflow_id: "w1",
+        user_id: "u1",
+        status: "processing",
+        library_kind: "workflow_asset",
+      }),
+    ]);
     const versionInsert = calls.find(
       (c) => c.table === "document_versions" && c.op === "insert",
     );
@@ -502,12 +567,15 @@ describe("importWorkflowAddon", () => {
       filename: "Precedent.docx",
       file_type: "docx",
       size_bytes: 9,
+      // The catalog's own hash of the asset bytes.
+      content_sha256: "f".repeat(64),
     });
     const ready = calls.find((c) => c.table === "documents" && c.op === "update");
     expect(ready?.payload).toMatchObject({ status: "ready" });
   });
 
   it("rolls the workflow back and queues storage cleanup when an asset copy fails", async () => {
+    copyFile.mockResolvedValue(undefined);
     downloadFile.mockResolvedValue(new TextEncoder().encode("reference").buffer);
     uploadFile.mockResolvedValue(undefined);
     prepareDocumentDisplay.mockResolvedValue({

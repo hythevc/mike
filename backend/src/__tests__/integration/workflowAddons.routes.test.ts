@@ -2,10 +2,11 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { from, eq, downloadFile, uploadFile, deleteFile, docxToPdf, reportError } =
+const { from, eq, copyFile, downloadFile, uploadFile, deleteFile, docxToPdf, reportError } =
   vi.hoisted(() => ({
     from: vi.fn(),
     eq: vi.fn(),
+    copyFile: vi.fn(),
     downloadFile: vi.fn(),
     uploadFile: vi.fn(),
     deleteFile: vi.fn(),
@@ -19,9 +20,13 @@ vi.mock("../../lib/observability/sentry", async (importOriginal) => ({
 }));
 
 vi.mock("../../lib/supabase", () => ({
-  createServerSupabase: () => ({ from, rpc: async (name: string, args: { p_document_id: string; p_version: Record<string, unknown> }) => {
-    expect(name).toBe("create_document_version");
-    return from("document_versions").insert({ ...args.p_version, document_id: args.p_document_id });
+  // Asset versions are created in one batch through the documents facade.
+  createServerSupabase: () => ({ from, rpc: async (name: string, args: { p_versions: Record<string, unknown>[] }) => {
+    expect(name).toBe("create_document_versions");
+    for (const version of args.p_versions) {
+      await from("document_versions").insert(version);
+    }
+    return { data: null, error: null };
   } }),
 }));
 
@@ -40,6 +45,7 @@ vi.mock("../../lib/storage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/storage")>();
   return {
     ...actual,
+    copyFile,
     downloadFile,
     uploadFile,
     deleteFile,
@@ -88,6 +94,7 @@ app.use("/workflow-addons", workflowAddonsRouter);
 describe("workflow add-on catalog routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    copyFile.mockResolvedValue(undefined);
     downloadFile.mockResolvedValue(
       new TextEncoder().encode("reference").buffer,
     );
@@ -160,10 +167,18 @@ describe("workflow add-on catalog routes", () => {
   it("copies catalog assets into documents and document versions when imported", async () => {
     const insertedDocuments: unknown[] = [];
     const insertedVersions: unknown[] = [];
+    const insertedWorkflows: unknown[] = [];
+    const provenance = {
+      catalog_repository: "example/workflow-catalog",
+      catalog_path: "assistant-workflows/design-partner-draft",
+      license_file: "LICENSE",
+    };
     from.mockImplementation((table: string) => {
       if (table === "mike_workflows") {
         return singleQueryReturning({
           id: "c0a7a1e1-0000-4000-8000-000000000001",
+          workflow_key: "design-partner-draft",
+          version: "1.0.0",
           title: "Design Partner Draft",
           type: "assistant",
           prompt_md: "Draft from the precedent.",
@@ -171,10 +186,14 @@ describe("workflow add-on catalog routes", () => {
           language: "English",
           practice: "General Transactions",
           jurisdictions: ["General"],
+          license: "MIT",
+          attribution: "Design Partner Draft by Open Legal Products.",
+          provenance,
+          source_commit: "a".repeat(40),
         });
       }
       if (table === "workflows") {
-        return singleQueryReturning({
+        const query = singleQueryReturning({
           id: "workflow-1",
           user_id: "u1",
           title: "Design Partner Draft",
@@ -185,7 +204,17 @@ describe("workflow add-on catalog routes", () => {
           practice: "General Transactions",
           jurisdictions: ["General"],
           created_at: "2026-08-28T00:00:00.000Z",
+          catalog_workflow_key: "design-partner-draft",
+          catalog_version: "1.0.0",
+          license: "MIT",
+          attribution: "Design Partner Draft by Open Legal Products.",
+          provenance,
         });
+        query.insert = vi.fn((value: unknown) => {
+          insertedWorkflows.push(value);
+          return query;
+        });
+        return query;
       }
       if (table === "mike_workflow_assets") {
         return queryReturning([
@@ -200,10 +229,11 @@ describe("workflow add-on catalog routes", () => {
       if (table === "documents") {
         const query = singleQueryReturning(null);
         query.insert = vi.fn((value: unknown) => {
-          insertedDocuments.push(value);
+          insertedDocuments.push(...[value].flat());
           return query;
         });
         query.update = vi.fn(() => query);
+        query.in = vi.fn(() => query);
         return query;
       }
       if (table === "document_versions") {
@@ -222,10 +252,39 @@ describe("workflow add-on catalog routes", () => {
     );
 
     expect(response.status, JSON.stringify(response.body)).toBe(201);
+    // The copy keeps the add-on's licence, credit and provenance, and reports
+    // where it stands against the catalog.
+    expect(insertedWorkflows).toEqual([
+      expect.objectContaining({
+        catalog_workflow_key: "design-partner-draft",
+        catalog_version: "1.0.0",
+        license: "MIT",
+        attribution: "Design Partner Draft by Open Legal Products.",
+        provenance: expect.objectContaining({
+          ...provenance,
+          catalog_commit: "a".repeat(40),
+        }),
+      }),
+    ]);
+    expect(response.body).toMatchObject({
+      id: "workflow-1",
+      license: "MIT",
+      attribution: "Design Partner Draft by Open Legal Products.",
+      provenance,
+      catalog_workflow_key: "design-partner-draft",
+      catalog_status: "current",
+      is_default: false,
+    });
+    // The source object is copied server-side through the documents module;
+    // the Word file's PDF rendition is rendered from its bytes.
+    expect(copyFile).toHaveBeenCalledWith(
+      "mike-workflows/c0a7a1e1-0000-4000-8000-000000000001/precedent.docx",
+      expect.stringMatching(/^documents\/u1\/.+\/source\.docx$/),
+    );
     expect(downloadFile).toHaveBeenCalledWith(
       "mike-workflows/c0a7a1e1-0000-4000-8000-000000000001/precedent.docx",
     );
-    expect(uploadFile).toHaveBeenCalledTimes(2);
+    expect(uploadFile).toHaveBeenCalledTimes(1);
     expect(insertedDocuments).toEqual([
       expect.objectContaining({
         workflow_id: "workflow-1",
@@ -251,7 +310,7 @@ describe("workflow add-on catalog routes", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const cause = Object.assign(new Error("bucket gone"), { name: "NoSuchKey" });
-    downloadFile.mockRejectedValue(cause);
+    copyFile.mockRejectedValue(cause);
     from.mockImplementation((table: string) => {
       if (table === "mike_workflows") {
         return singleQueryReturning({
@@ -267,6 +326,10 @@ describe("workflow add-on catalog routes", () => {
       }
       if (table === "workflows") {
         return singleQueryReturning({ id: "workflow-1", user_id: "u1" });
+      }
+      // The target key of the failed copy goes to the durable cleanup job.
+      if (table === "db_jobs") {
+        return singleQueryReturning({ id: "job-1" });
       }
       if (table === "mike_workflow_assets") {
         return queryReturning([

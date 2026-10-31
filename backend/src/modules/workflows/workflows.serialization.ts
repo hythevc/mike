@@ -44,6 +44,16 @@ export function workflowTypeFrom(value: unknown): WorkflowType {
   return value === "tabular" ? "tabular" : "assistant";
 }
 
+// A copy of a catalog workflow credits whoever the catalog credited when the
+// copy was made, kept in its read-only provenance.
+function catalogContributors(provenance: unknown): WorkflowContributor[] | null {
+  if (!provenance || typeof provenance !== "object" || Array.isArray(provenance))
+    return null;
+  return normalizeContributors(
+    (provenance as Record<string, unknown>).contributors,
+  );
+}
+
 export function metadataFromWorkflowRecord(
   workflow: WorkflowRecord,
 ): WorkflowMetadata {
@@ -53,11 +63,13 @@ export function metadataFromWorkflowRecord(
     title: workflow.title ?? "",
     description: null,
     type,
-    contributors: normalizeContributors(workflow.contributors) ?? [
-      DEFAULT_WORKFLOW_CONTRIBUTOR,
-    ],
+    contributors: normalizeContributors(workflow.contributors) ??
+      catalogContributors(workflow.provenance) ?? [DEFAULT_WORKFLOW_CONTRIBUTOR],
     language: workflow.language ?? DEFAULT_WORKFLOW_LANGUAGE,
-    version: workflow.version ?? null,
+    version:
+      workflow.version ??
+      normalizeOptionalString(workflow.catalog_version) ??
+      null,
     practice: workflow.practice ?? DEFAULT_WORKFLOW_PRACTICE,
     jurisdictions: workflow.jurisdictions ?? DEFAULT_WORKFLOW_JURISDICTIONS,
   };

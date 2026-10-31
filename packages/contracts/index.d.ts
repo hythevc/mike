@@ -739,3 +739,105 @@ export interface AuditActorPage {
   users: AuditActor[];
   nextOffset: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// Workflow catalog licences and provenance
+// ---------------------------------------------------------------------------
+
+/**
+ * SPDX identifiers a catalog workflow may ship under. The catalog's
+ * deprecated "AGPL-3.0" is stored as "AGPL-3.0-only".
+ */
+export type WorkflowLicense =
+  | "AGPL-3.0-only"
+  | "AGPL-3.0-or-later"
+  | "Apache-2.0"
+  | "CC-BY-4.0"
+  | "MIT";
+
+/** How the catalog knows the licence: a licence file, or only the author's manifest. */
+export type WorkflowLicenseEvidence = "file" | "manifest-only";
+
+/** A person or organisation credited on a catalog workflow. */
+export interface WorkflowCatalogContributor {
+  name: string;
+  organisation: string | null;
+  role: string | null;
+  linkedin: string | null;
+}
+
+/**
+ * Where a catalog workflow lives and where the catalog adapted it from.
+ * Source fields are null when the catalog names no outside source.
+ */
+export interface WorkflowProvenance {
+  /** The catalog repository, owner/name. */
+  catalog_repository: string | null;
+  /** The workflow's folder in that repository. */
+  catalog_path: string | null;
+  /** The repository path of the licence text that governs the workflow. */
+  license_file: string | null;
+  source_repository: string | null;
+  source_path: string | null;
+  source_commit: string | null;
+  source_name: string | null;
+  source_version: string | null;
+  /** When a lawyer should review the workflow again (YYYY-MM-DD). */
+  review_by: string | null;
+  /** Editable copies only: the catalog commit the copy was made from. */
+  catalog_commit?: string | null;
+  /** Editable copies only: who the catalog credited when the copy was made. */
+  contributors?: WorkflowCatalogContributor[];
+  /** Editable copies only: SHA-256 of the instructions and columns as copied. */
+  content_sha256?: string | null;
+}
+
+/**
+ * Licence, credit and notices of a catalog workflow, as the built-in detail
+ * (GET /workflows/builtin-<key>) and add-on detail (GET /workflow-addons/:id)
+ * report them. Null on catalog rows synced before these fields existed.
+ */
+export interface WorkflowCatalogLicensing {
+  license: WorkflowLicense | null;
+  license_evidence: WorkflowLicenseEvidence | null;
+  /** "not-required", "pending" or "confirmed YYYY-MM-DD". */
+  author_confirmation: string | null;
+  /** The one-line credit the catalog gives the original author. */
+  attribution: string | null;
+  provenance: WorkflowProvenance | null;
+  /** The workflow's NOTICE file, verbatim, when it has one. */
+  notice_md: string | null;
+  /** The workflow's change log (CHANGES.md). */
+  changes_md: string | null;
+  /** The catalog commit the content was synced from. */
+  source_commit: string | null;
+}
+
+/**
+ * current: the copy matches the catalog's version. update_available: the
+ * catalog now serves a newer version. withdrawn: the catalog no longer has
+ * the workflow.
+ */
+export type WorkflowCatalogStatus = "current" | "update_available" | "withdrawn";
+
+/**
+ * What an editable copy keeps from the catalog workflow it was imported or
+ * duplicated from. These fields are read-only: editing the copy never
+ * changes them. Every field is null (and `catalog_modified` false) for a
+ * workflow that was not copied from the catalog.
+ */
+export interface WorkflowCatalogCopy {
+  catalog_workflow_key: string | null;
+  /** The catalog version the copy was made from. */
+  catalog_version: string | null;
+  license: WorkflowLicense | null;
+  attribution: string | null;
+  provenance: WorkflowProvenance | null;
+  catalog_status: WorkflowCatalogStatus | null;
+  /** The version the catalog serves now; null when withdrawn. */
+  catalog_latest_version: string | null;
+  /** The copy's instructions or columns differ from what was copied. */
+  catalog_modified: boolean;
+  /** "Modified by your organisation" once the copy is modified. */
+  modification_notice: string | null;
+}

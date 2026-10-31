@@ -14,6 +14,8 @@ import { resolveWorkflowAccess, resolveCreatorScopedWorkflow } from "./workflows
 
 import { getLatestOpenSourceSubmission } from "./workflows.submissions";
 
+import { resolveCatalogCopyFields } from "./workflows.catalogCopy";
+
 export type CreateWorkflowResult =
   | { ok: true; workflow: Record<string, unknown> }
   | { ok: false; kind: "validation"; detail: string }
@@ -207,6 +209,8 @@ export async function updateWorkflow(
       };
     updates.visibility = requestedVisibility.visibility;
   }
+  // `updates` names only the editable columns, so a copy's catalog licence,
+  // credit and provenance can never be changed through here.
   const { data, error } = await db
     .from("workflows")
     .update(updates)
@@ -214,13 +218,17 @@ export async function updateWorkflow(
     .select("*")
     .single();
   if (error || !data) return { ok: false, kind: "not_editable" };
+  const record = data as WorkflowRecord;
   return {
     ok: true,
-    body: withWorkflowAccess(withDatabaseWorkflow(data as WorkflowRecord), {
-      role: access.role,
-      allowEdit: access.allowEdit,
-      isOwner: access.isOwner,
-    }),
+    body: {
+      ...withWorkflowAccess(withDatabaseWorkflow(record), {
+        role: access.role,
+        allowEdit: access.allowEdit,
+        isOwner: access.isOwner,
+      }),
+      ...(await resolveCatalogCopyFields(db, record)),
+    },
   };
 }
 
@@ -286,6 +294,9 @@ export async function getWorkflowDetail(
         }),
         openSourceSubmission,
       ),
+      // Licence, credit and source of a catalog copy, with how it stands
+      // against the catalog today (current, update_available, withdrawn).
+      ...(await resolveCatalogCopyFields(db, access.workflow)),
       is_default: !!installation,
     },
   };

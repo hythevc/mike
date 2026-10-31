@@ -1,4 +1,3 @@
-import { createDocumentVersion } from "../documents/documents.service";
 // Business logic + data access for the workflow ADD-ON CATALOG — the
 // read-only `mike_workflows` rows (distribution = "addon") a user can browse
 // and import into their own `workflows` table.
@@ -9,30 +8,24 @@ import { createDocumentVersion } from "../documents/documents.service";
 // status codes. Its functions are re-exported by name from
 // workflows.service.ts, the module facade.
 
-import crypto from "crypto";
-import { AppError } from "../../lib/appError";
 import type { Db } from "../../lib/supabase";
-import { downloadFile, storageKey, uploadFile } from "../../lib/storage";
-import { enqueueStorageCleanup } from "../../lib/dbq/enqueue";
 import { chunkArray } from "../../lib/arrays";
 import {
-  contentTypeForDocumentType,
-  shouldConvertToPdf,
-} from "../../lib/documentTypes";
-import { contentSha256 } from "../../lib/documentVersions";
-import { convertedPdfKey } from "../../lib/convert";
-import {
   loadDocumentDisplay,
-  prepareDocumentDisplay,
   type DocumentDisplayPayload,
 } from "../../lib/documentDisplay";
 import {
   failure,
   internalFailure,
   ok,
-  type ServiceFailure,
   type ServiceResult,
 } from "../../lib/serviceResult";
+import {
+  copyCatalogWorkflow,
+  type CatalogCopyFailure,
+  type CatalogCopyResult,
+  type CatalogWorkflowCopy,
+} from "./workflows.catalogCopy";
 
 // The catalog columns the list endpoint projects. Kept as one string so the
 // select list stays byte-identical to the pre-move query.
@@ -189,40 +182,26 @@ export async function getWorkflowAddon(
 
 /** The workflow payload returned to the client after a successful import. */
 // The freshly inserted `workflows` row, handed back RAW. Serializing it is the
-// route's job, through the same withDatabaseWorkflow the workflows facade uses
-// for GET /workflows/:id — rebuilding the shape here is what let it drift.
-export type ImportedWorkflow = Record<string, unknown> & {
-  id: string;
-  user_id: string | null;
-};
+// route's job, through serializeNewCatalogCopy, which builds on the same
+// withDatabaseWorkflow the workflows facade uses for GET /workflows/:id —
+// rebuilding the shape here is what let it drift.
+export type ImportedWorkflow = CatalogWorkflowCopy;
 
-// Copying the add-on's assets can fail after the workflow row exists. That
-// path is its own failure kind because it answers 500 with a SPECIFIC detail
-// ("Failed to copy add-on assets") rather than the opaque internal-error body
-// `sendServiceFailure` produces for kind "error".
-export type WorkflowAddonImportFailure =
-  | ServiceFailure
-  | {
-      ok: false;
-      kind: "assets_copy_failed";
-      detail: string;
-      /** What went wrong, for the route's report; never for the response. */
-      error: AppError;
-    };
+// Copying the add-on's assets can fail after the workflow row exists; that
+// failure answers 500 with its own detail (see workflows.catalogCopy.ts).
+export type WorkflowAddonImportFailure = CatalogCopyFailure;
 
-export type ImportWorkflowAddonResult =
-  | { ok: true; data: ImportedWorkflow }
-  | WorkflowAddonImportFailure;
+export type ImportWorkflowAddonResult = CatalogCopyResult;
 
 /**
- * Copy a catalog add-on into the caller's own workflows, duplicating any
- * assistant assets into their document library.
+ * Copy a catalog add-on into the caller's own workflows, with its licence,
+ * credit and provenance, duplicating any assistant assets into their
+ * document library.
  */
 export async function importWorkflowAddon(
   db: Db,
   params: { addonId: string; userId: string },
 ): Promise<ImportWorkflowAddonResult> {
-  const { userId } = params;
   const { data: addon, error: addonError } = await db
     .from("mike_workflows")
     .select("*")
@@ -234,127 +213,9 @@ export async function importWorkflowAddon(
   // told the user to stop retrying a request that might well succeed.
   if (addonError) return internalFailure(addonError);
   if (!addon) return failure("not_found", "Add-on not found");
-
-  const { data: workflow, error } = await db
-    .from("workflows")
-    .insert({
-      user_id: userId,
-      title: addon.title,
-      type: addon.type,
-      prompt_md: addon.prompt_md,
-      columns_config: addon.columns_config,
-      // Catalog rows may omit these; fall back to the workflows
-      // column defaults rather than inserting explicit nulls.
-      language: addon.language ?? "English",
-      practice: addon.practice ?? "General Transactions",
-      jurisdictions: addon.jurisdictions ?? ["General"],
-    })
-    .select("*")
-    .single();
-  if (error || !workflow) {
-    return internalFailure(
-      error ?? new Error("Workflow add-on import returned no data"),
-    );
-  }
-
-  const createdStoragePaths: string[] = [];
-  try {
-    const { data: assets, error: assetsError } =
-      addon.type === "assistant"
-        ? await db
-            .from("mike_workflow_assets")
-            .select("filename, file_type, storage_path, size_bytes")
-            .eq("mike_workflow_id", addon.id)
-            .order("created_at", { ascending: true })
-        : { data: [], error: null };
-    if (assetsError) throw assetsError;
-    for (const asset of assets ?? []) {
-      const bytes = await downloadFile(asset.storage_path);
-      if (!bytes) throw new Error(`Asset '${asset.filename}' is unavailable`);
-      const documentId = crypto.randomUUID();
-      const versionId = crypto.randomUUID();
-      const contentHash = contentSha256(bytes);
-      const sourcePath = storageKey(userId, documentId, asset.filename);
-      await uploadFile(
-        sourcePath,
-        bytes,
-        contentTypeForDocumentType(asset.file_type),
-      );
-      createdStoragePaths.push(sourcePath);
-      let pdfStoragePath: string | null = null;
-      if (shouldConvertToPdf(asset.file_type)) {
-        const display = await prepareDocumentDisplay({
-          filename: asset.filename,
-          fileType: asset.file_type,
-          sourceBytes: bytes,
-        });
-        pdfStoragePath = convertedPdfKey(userId, documentId);
-        await uploadFile(
-          pdfStoragePath,
-          display.bytes.buffer.slice(
-            display.bytes.byteOffset,
-            display.bytes.byteOffset + display.bytes.byteLength,
-          ) as ArrayBuffer,
-          display.contentType,
-        );
-        createdStoragePaths.push(pdfStoragePath);
-      }
-      const { error: documentError } = await db.from("documents").insert({
-        id: documentId,
-        workflow_id: workflow.id,
-        user_id: userId,
-        status: "processing",
-        library_kind: "workflow_asset",
-      });
-      if (documentError) throw documentError;
-      const { error: versionError } = await createDocumentVersion(db, {
-          id: versionId,
-          document_id: documentId,
-          storage_path: sourcePath,
-          pdf_storage_path: pdfStoragePath,
-          source: "upload",
-          version_number: 1,
-          filename: asset.filename,
-          file_type: asset.file_type,
-          size_bytes: asset.size_bytes ?? bytes.byteLength,
-          content_sha256: contentHash,
-        });
-      if (versionError) throw versionError;
-      const { error: readyError } = await db
-        .from("documents")
-        .update({
-          status: "ready",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", documentId);
-      if (readyError) throw readyError;
-    }
-  } catch (error) {
-    // Rollback order matters: drop the workflow row first, so nothing can
-    // reference the half-made copies, then hand the object deletes to the
-    // durable storage.cleanup job. A Promise.all of best-effort
-    // deletes died with the request — a restart mid-loop, or a single
-    // storage error, leaked every copy made so far with no row left
-    // pointing at them. The job retries until they are actually gone.
-    await db
-      .from("workflows")
-      .delete()
-      .eq("id", workflow.id)
-      .eq("user_id", userId);
-    await enqueueStorageCleanup(db, createdStoragePaths);
-    // The storage or database failure is the cause: its code reaches
-    // Sentry as failure_code, where the bare detail string said nothing.
-    return {
-      ok: false,
-      kind: "assets_copy_failed",
-      detail: "Failed to copy add-on assets",
-      error: new AppError(
-        "workflows.addon_failed",
-        "Workflow add-on assets could not be copied",
-        { cause: error },
-      ),
-    };
-  }
-
-  return ok(workflow as ImportedWorkflow);
+  return copyCatalogWorkflow(db, {
+    catalog: addon as Record<string, unknown>,
+    userId: params.userId,
+    origin: "addon",
+  });
 }
