@@ -6,7 +6,10 @@
 
 import { recordAudit } from "../../lib/audit";
 import { chunkArray } from "../../lib/arrays";
-import type { TabularReviewHistoryStatus } from "@mike/contracts";
+import type {
+    TabularQuoteSummary,
+    TabularReviewHistoryStatus,
+} from "@mike/contracts";
 import {
     checkProjectAccess,
     creatorScopedAllowed,
@@ -61,6 +64,13 @@ import {
     type TabularFailure,
     type TabularResult,
 } from "./tabular.shared";
+import {
+    cellStaleness,
+    quoteFieldsOf,
+    recordedSourceIds,
+    summarizeQuoteChecks,
+    type ActiveSourceVersion,
+} from "./tabular.verify";
 
 export type DocumentGrouping = "document" | "folder";
 
@@ -686,6 +696,8 @@ export type ReviewDetail = {
     cells: Record<string, unknown>[];
     rows: ReviewRow[];
     documents: Record<string, unknown>[];
+    /** Review-wide quote-check counts over the cells returned. */
+    quote_summary: TabularQuoteSummary;
 };
 
 /** Load an accessible review with rows, cells and metadata limited to readable sources. */
@@ -752,6 +764,47 @@ export async function getTabularReviewDetail(
     delete clientReview.active_generation_id;
     delete clientReview.generation_lease_expires_at;
 
+    // Each answered cell reports whether a source it was drawn from has
+    // changed since. That needs the active version of every source the cells
+    // recorded; the review's documents cover them unless a source left the
+    // document list, which is looked up here among those the caller may read.
+    const visibleCells = (cells ?? []).filter((cell) =>
+        visibleRowIds.has(cell.row_id as string),
+    );
+    const activeVersions = new Map<string, ActiveSourceVersion>();
+    const noteActiveVersion = (doc: {
+        id: string;
+        current_version_id?: string | null;
+        content_sha256?: string | null;
+    }) =>
+        activeVersions.set(doc.id, {
+            version_id: doc.current_version_id ?? null,
+            content_sha256: doc.content_sha256 ?? null,
+        });
+    docs.forEach(noteActiveVersion);
+    const unlistedSourceIds = [
+        ...new Set(visibleCells.flatMap(recordedSourceIds)),
+    ].filter((id) => !activeVersions.has(id) && readableDocumentIds.has(id));
+    if (unlistedSourceIds.length) {
+        try {
+            (await fetchSourceDocuments(db, unlistedSourceIds)).forEach(
+                noteActiveVersion,
+            );
+        } catch (sourceError) {
+            return internalFailure(sourceError);
+        }
+    }
+    const clientCells = visibleCells.map((cell: Record<string, unknown>) => {
+        // Which version of each source the answer read is server bookkeeping.
+        const { source_versions: _recorded, ...stored } = cell;
+        return {
+            ...stored,
+            content: parseCellContent(cell.content),
+            ...quoteFieldsOf(cell, readableDocumentIds),
+            ...cellStaleness(cell, activeVersions, readableDocumentIds),
+        };
+    });
+
     return {
         ok: true,
         data: {
@@ -761,14 +814,10 @@ export async function getTabularReviewDetail(
                 access_role: access.projectRole,
                 is_running: isReviewGenerationRunning(review),
             },
-            cells: (cells ?? [])
-                .filter((cell) => visibleRowIds.has(cell.row_id as string))
-                .map((cell) => ({
-                    ...cell,
-                    content: parseCellContent(cell.content),
-                })),
+            cells: clientCells,
             rows,
             documents: docs as unknown as Record<string, unknown>[],
+            quote_summary: summarizeQuoteChecks(clientCells),
         },
     };
 }

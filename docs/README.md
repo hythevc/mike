@@ -32,6 +32,8 @@
   setup, sideloading, builds, storage behavior, testing, and troubleshooting
 - [Tamper-evident exports](tamper-evident-exports.md) — document hashes and
   optional signed manifests
+- [Tabular review quote checks](tabular-quote-checks.md) — what each cell's
+  quote status means, what is not checked, rows without text, stale cells
 
 ## Backend
 

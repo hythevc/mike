@@ -104,7 +104,18 @@ beforeEach(() => {
     });
     filterAccessibleDocumentIds.mockResolvedValue(["doc-1"]);
     loadReviewRows.mockResolvedValue([ROW]);
-    loadRowDocumentText.mockResolvedValue("markdown");
+    loadRowDocumentText.mockResolvedValue({
+        text: "markdown",
+        sources: [
+            {
+                documentId: "doc-1",
+                versionId: "ver-1",
+                contentSha256: null,
+                filename: "Contract.pdf",
+                markdown: "markdown",
+            },
+        ],
+    });
     validateSelectedModel.mockResolvedValue({
         ok: true,
         model: "claude-sonnet-5",
@@ -208,6 +219,12 @@ describe("clearTabularReviewCells", () => {
             op: "update",
             payload: { content: null, status: "pending", generation_id: null },
             filters: { review_id: "rev-1", row_id: ["row-1", "row-2"] },
+        });
+        // A cleared cell keeps no quote check from its old answer.
+        expect(callTo(fake.calls, "tabular_cells")?.payload).toMatchObject({
+            quote_status: null,
+            quote_checks: null,
+            source_versions: null,
         });
         const begin = fake.rpcCalls[0];
         expect(begin.fn).toBe("begin_tabular_review_generation");
@@ -371,6 +388,96 @@ describe("regenerateTabularCell", () => {
         });
         expect(callTo(fake.calls, "tabular_cells", 1)).toMatchObject({
             payload: { status: "done", generation_id: null },
+            filters: { generation_id: generationId },
+        });
+        expect(fake.rpcCalls[1].fn).toBe("finish_tabular_review_generation");
+    });
+
+    it("writes the answer's quote check with it", async () => {
+        queryTabularCell.mockResolvedValue({
+            summary: "Yes [[document:doc-1||page:1||quote:markdown]]",
+            flag: "green",
+            reasoning: "Also [[document:doc-1||page:2||quote:not in the source]]",
+        });
+        const fake = makeFakeDb({
+            tables: { tabular_reviews: { data: REVIEW, error: null } },
+            rpc: (fn) =>
+                fn === "begin_tabular_review_generation"
+                    ? started()
+                    : { data: null, error: null },
+        });
+        const result = await regenerateTabularCell(fake.db, {
+            reviewId: "rev-1",
+            ...WHO,
+            rowId: "row-1",
+            columnIndex: 0,
+            log: LOG,
+        });
+        expect(result.ok).toBe(true);
+        // Marking the cell generating clears any earlier check with the answer.
+        expect(callTo(fake.calls, "tabular_cells", 0)?.payload).toMatchObject({
+            status: "generating",
+            content: null,
+            quote_status: null,
+            quote_checks: null,
+            source_versions: null,
+        });
+        expect(callTo(fake.calls, "tabular_cells", 1)?.payload).toMatchObject({
+            status: "done",
+            quote_status: "partly_found",
+            quote_checks: [
+                expect.objectContaining({ field: "summary", status: "found" }),
+                expect.objectContaining({ field: "reasoning", status: "not_found" }),
+            ],
+            source_versions: {
+                "doc-1": { version_id: "ver-1", content_sha256: null, has_text: true },
+            },
+        });
+    });
+
+    it("does not ask the model about a row whose source has no text", async () => {
+        loadRowDocumentText.mockResolvedValue({
+            text: "## Source document: Contract.pdf\nSource document ID: doc-1\n\n",
+            sources: [
+                {
+                    documentId: "doc-1",
+                    versionId: "ver-1",
+                    contentSha256: null,
+                    filename: "Contract.pdf",
+                    markdown: "",
+                },
+            ],
+        });
+        const fake = makeFakeDb({
+            tables: { tabular_reviews: { data: REVIEW, error: null } },
+            rpc: (fn) =>
+                fn === "begin_tabular_review_generation"
+                    ? started()
+                    : { data: null, error: null },
+        });
+        const result = await regenerateTabularCell(fake.db, {
+            reviewId: "rev-1",
+            ...WHO,
+            rowId: "row-1",
+            columnIndex: 0,
+            log: LOG,
+        });
+        expect(queryTabularCell).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+            ok: true,
+            data: { status: 200, body: { summary: "", flag: "grey", reasoning: "" } },
+        });
+        const generationId = fake.rpcCalls[0].args.target_generation_id;
+        expect(callTo(fake.calls, "tabular_cells", 1)).toMatchObject({
+            payload: {
+                status: "done",
+                content: JSON.stringify({ summary: "", flag: "grey", reasoning: "" }),
+                quote_status: "no_text",
+                quote_checks: [],
+                source_versions: {
+                    "doc-1": { version_id: "ver-1", content_sha256: null, has_text: false },
+                },
+            },
             filters: { generation_id: generationId },
         });
         expect(fake.rpcCalls[1].fn).toBe("finish_tabular_review_generation");

@@ -248,9 +248,10 @@ remaining inline queries per routes file and only ever goes down.
 - **Cross-domain primitives** that several modules and the job handlers share:
   `access` (project/document authorization), `audit` (audit-row writes),
   `documentTypes`, `documentVersions`, `modelSelection`, `routerModels`,
-  `userLookup`, `workflowCatalog*` (used by the chat tools), `sourceDocuments`
-  and pure shared utilities. Document-version reads can join across domains;
-  mutations have one owner in the documents module.
+  `userLookup`, `workflowCatalog*` (used by the chat tools), `sourceDocuments`,
+  `citations/` (the quote matcher behind chat citation verification and
+  tabular quote checks) and pure shared utilities. Document-version reads can
+  join across domains; mutations have one owner in the documents module.
 
 The assistant engine lives in `modules/chat/engine/`. Other chat surfaces use
 named exports from `chat.service.ts`. HTTP framing lives in `lib/assistantSse.ts`;

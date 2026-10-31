@@ -32,6 +32,7 @@
 
 import IORedis from "ioredis";
 import type { Response } from "express";
+import type { TabularCellQuoteFields } from "@mike/contracts";
 import { REDIS_URL } from "../../lib/queue/connection";
 import { redisEnabled } from "../../lib/dbq/driver";
 import { startSseHeartbeat } from "../../lib/sseHeartbeat";
@@ -53,6 +54,7 @@ import {
     type Db,
     type Log,
 } from "./tabular.shared";
+import { quoteFieldsOf } from "./tabular.verify";
 
 /**
  * The progress channel could not be subscribed: the stream falls back to
@@ -295,7 +297,9 @@ async function tailTabularRun(args: {
         void (async () => {
             const { data: cells } = await db
                 .from("tabular_cells")
-                .select("row_id, column_index, status, content")
+                .select(
+                    "row_id, column_index, status, content, quote_status, quote_checks, source_versions",
+                )
                 .eq("review_id", reviewId);
             for (const c of (cells ?? []) as {
                 row_id: string;
@@ -312,6 +316,7 @@ async function tailTabularRun(args: {
                         column_index: c.column_index,
                         content: parseCellContent(c.content),
                         status: "done",
+                        ...quoteFieldsOf(c),
                     });
                 } else if (c.status === "error") {
                     resolve(key, {
@@ -618,14 +623,17 @@ export async function streamTabularGenerateSync(args: {
     } = args;
 
     let nextRowIndex = 0;
+    // A finished cell's frame also carries its quote check; the others keep
+    // the bare shape.
     const cellFrame = (
         rowId: string,
         columnIndex: number,
         content: unknown,
         status: "generating" | "done" | "error" | "pending",
+        quote?: TabularCellQuoteFields,
     ): void => {
         write(
-            `data: ${JSON.stringify({ type: "cell_update", row_id: rowId, column_index: columnIndex, content, status })}\n\n`,
+            `data: ${JSON.stringify({ type: "cell_update", row_id: rowId, column_index: columnIndex, content, status, ...quote })}\n\n`,
         );
     };
 
@@ -655,8 +663,8 @@ export async function streamTabularGenerateSync(args: {
                 activity: args.onActivity,
                 generating: (rowId, columnIndex) =>
                     cellFrame(rowId, columnIndex, null, "generating"),
-                done: (rowId, columnIndex, result) =>
-                    cellFrame(rowId, columnIndex, result, "done"),
+                done: (rowId, columnIndex, result, quote) =>
+                    cellFrame(rowId, columnIndex, result, "done", quote),
             },
         });
 

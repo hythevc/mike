@@ -498,6 +498,148 @@ describe("getTabularReviewDetail", () => {
     });
 });
 
+describe("getTabularReviewDetail quote checks", () => {
+    const found = {
+        field: "summary",
+        quote: "pay rent",
+        document_id: "doc-a",
+        page: 1,
+        status: "found",
+        source_excerpt: "pay rent",
+    };
+    const notFound = { ...found, quote: "rent is waived", status: "not_found" };
+    delete (notFound as { source_excerpt?: string }).source_excerpt;
+    const readFrom = (versions: Record<string, [string, boolean]>) =>
+        Object.fromEntries(
+            Object.entries(versions).map(([id, [version, hasText]]) => [
+                id,
+                { version_id: version, content_sha256: null, has_text: hasText },
+            ]),
+        );
+
+    it("returns each cell's status and staleness, and counts the review", async () => {
+        loadReviewRows.mockResolvedValue([
+            { id: "row-1", label: "Leases", source_document_ids: ["doc-a", "doc-b"] },
+            { id: "row-2", label: "Scan.pdf", source_document_ids: ["doc-c"] },
+        ]);
+        filterAccessibleDocumentIds.mockResolvedValue(["doc-a", "doc-b", "doc-c"]);
+        // doc-c is a source that is no longer in the review's document list.
+        fetchSourceDocuments.mockResolvedValue([
+            { id: "doc-c", current_version_id: "c-v1", content_sha256: null },
+        ]);
+        const { db } = makeFakeDb({
+            tables: {
+                tabular_reviews: {
+                    data: { id: "rev-1", document_ids: ["doc-a", "doc-b"] },
+                    error: null,
+                },
+                documents: {
+                    data: [
+                        // A new version of doc-a was activated after c1 was answered.
+                        { id: "doc-a", current_version_id: "a-v2", content_sha256: null },
+                        { id: "doc-b", current_version_id: "b-v1", content_sha256: null },
+                    ],
+                    error: null,
+                },
+                tabular_cells: {
+                    data: [
+                        {
+                            id: "c1",
+                            row_id: "row-1",
+                            column_index: 0,
+                            status: "done",
+                            content: '{"summary":"Rent","flag":"green"}',
+                            quote_status: "found",
+                            quote_checks: [found],
+                            source_versions: readFrom({
+                                "doc-a": ["a-v1", true],
+                                "doc-b": ["b-v1", true],
+                            }),
+                        },
+                        {
+                            id: "c2",
+                            row_id: "row-1",
+                            column_index: 1,
+                            status: "done",
+                            content: '{"summary":"Waived","flag":"red"}',
+                            quote_status: "not_found",
+                            quote_checks: [notFound],
+                            source_versions: readFrom({
+                                "doc-a": ["a-v2", true],
+                                "doc-b": ["b-v1", true],
+                            }),
+                        },
+                        {
+                            id: "c3",
+                            row_id: "row-2",
+                            column_index: 0,
+                            status: "done",
+                            content: '{"summary":"","flag":"grey","reasoning":""}',
+                            quote_status: "no_text",
+                            quote_checks: [],
+                            source_versions: readFrom({ "doc-c": ["c-v1", false] }),
+                        },
+                        {
+                            id: "c4",
+                            row_id: "row-2",
+                            column_index: 1,
+                            status: "pending",
+                            content: null,
+                            quote_status: null,
+                            quote_checks: null,
+                            source_versions: null,
+                        },
+                    ],
+                    error: null,
+                },
+            },
+        });
+
+        const result = await getTabularReviewDetail(db, { reviewId: "rev-1", ...WHO });
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        const byId = new Map(result.data.cells.map((cell) => [cell.id, cell]));
+        expect(byId.get("c1")).toMatchObject({
+            quote_status: "found",
+            quote_checks: [found],
+            no_text_document_ids: [],
+            stale: true,
+            stale_document_ids: ["doc-a"],
+        });
+        expect(byId.get("c2")).toMatchObject({
+            quote_status: "not_found",
+            stale: false,
+            stale_document_ids: [],
+        });
+        expect(byId.get("c3")).toMatchObject({
+            content: { summary: "" },
+            quote_status: "no_text",
+            no_text_document_ids: ["doc-c"],
+            stale: false,
+        });
+        expect(byId.get("c4")).toMatchObject({
+            quote_status: null,
+            quote_checks: [],
+            stale: false,
+        });
+        for (const cell of result.data.cells) {
+            expect(cell).not.toHaveProperty("source_versions");
+        }
+        expect(fetchSourceDocuments).toHaveBeenCalledWith(db, ["doc-c"]);
+        expect(result.data.quote_summary).toEqual({
+            quotes: 2,
+            found: 1,
+            partly_found: 0,
+            not_found: 1,
+            cells_without_quote: 0,
+            cells_unchecked: 0,
+            cells_stale: 1,
+            rows_without_text: 1,
+        });
+    });
+});
+
 describe("getTabularReviewDetail document visibility", () => {
     it("returns an internal failure when the document access lookup fails", async () => {
         const error = new Error("Document access lookup failed");

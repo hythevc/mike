@@ -6,6 +6,104 @@ export type TabularReviewHistoryStatus = {
   is_complete: boolean;
 };
 
+/**
+ * Outcome of matching one quote in a tabular cell against the text extracted
+ * from the source document it cites. Only the quoted text is matched: the
+ * page, sheet or cell the citation names is not checked.
+ */
+export type TabularQuoteMatchStatus = "found" | "partly_found" | "not_found";
+
+/**
+ * Outcome of a tabular cell's quote checks:
+ * - `found`: every quote was found in its cited source's text;
+ * - `partly_found`: some quoted text was found and some was not, or the parts
+ *   of a quote with omissions ("..." or "…") were not found together, in order;
+ * - `not_found`: no quote was found;
+ * - `no_quote`: the answer carries no quote;
+ * - `no_text`: a source of the row yielded no extractable text (a scanned,
+ *   encrypted or damaged file), so the row was not answered.
+ */
+export type TabularQuoteStatus =
+  | TabularQuoteMatchStatus
+  | "no_quote"
+  | "no_text";
+
+/** One quote in a tabular cell and what matching it against its source found. */
+export type TabularQuoteCheck = {
+  /** The part of the cell the quote appears in. */
+  field: "summary" | "reasoning";
+  /** The quote as the cell gives it. */
+  quote: string;
+  /**
+   * The source document the quote was checked against: the one it cites, or
+   * the row's source it was found in when the citation names none. When a
+   * citation names a document outside the row, this is that reference and
+   * the status is `not_found`. Null when the quote names no document and was
+   * found in none of the row's several sources.
+   */
+  document_id: string | null;
+  /** Where the citation says the quote is. Not checked. */
+  page?: number;
+  sheet?: string;
+  cell?: string;
+  status: TabularQuoteMatchStatus;
+  /** For a quote with omissions: how many parts it has, and how many were found. */
+  segments?: number;
+  segments_found?: number;
+  /**
+   * The source text that matched, character for character (the parts of a
+   * quote with omissions joined by " … "). Absent when nothing was found.
+   */
+  source_excerpt?: string;
+  /** Up to about 160 characters of source text on each side of the match, whitespace collapsed. */
+  context_before?: string;
+  context_after?: string;
+};
+
+/** Quote-check fields on every tabular cell the API returns, and on `cell_update` frames for finished cells. */
+export type TabularCellQuoteFields = {
+  /**
+   * Null while the cell has no finished answer, and for answers finished
+   * before quote checks existed (regenerating such a cell checks it).
+   */
+  quote_status: TabularQuoteStatus | null;
+  quote_checks: TabularQuoteCheck[];
+  /** Sources of the cell's row that yielded no extractable text. Set when `quote_status` is `no_text`. */
+  no_text_document_ids: string[];
+};
+
+/** Detail endpoint only: whether a source has changed since the cell was answered. */
+export type TabularCellStaleness = {
+  /**
+   * True when any source's active version is no longer the one whose text the
+   * answer was drawn from (a new version, an in-place change to the active
+   * version, or a deleted document).
+   */
+  stale: boolean;
+  /** The changed sources the caller may read. */
+  stale_document_ids: string[];
+};
+
+/** Review-wide counts of the quote checks (detail endpoint `quote_summary`). */
+export type TabularQuoteSummary = {
+  /** Quotes checked across finished cells, summary and reasoning alike. */
+  quotes: number;
+  found: number;
+  partly_found: number;
+  not_found: number;
+  /** Finished cells whose answer carries no quote. */
+  cells_without_quote: number;
+  /** Finished cells answered before quote checks existed. */
+  cells_unchecked: number;
+  /** Checked cells with a source that has changed since. */
+  cells_stale: number;
+  /**
+   * Rows not answered because a source yielded no extractable text. They add
+   * no quotes, found or not found, to the counts above.
+   */
+  rows_without_text: number;
+};
+
 export type SourceDocumentType =
   | "docx"
   | "pdf"

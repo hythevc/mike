@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // Locate a quoted passage in extracted source text, and verify citation
-// quotes against it. Lives in the kernel so that more than one module can
-// match quotes the same way; chat citations use `verifyQuoteAgainstSource`.
+// quotes against it. Chat citations use `verifyQuoteAgainstSource`; tabular
+// cells match through `sourceMatcher.ts`, which shares the segment rules and
+// the ordered segment search below.
 
 import type { QuoteVerification } from "@mike/contracts";
 import { normalizeWithMap } from "./normalize";
