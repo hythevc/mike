@@ -548,7 +548,7 @@ describe("startBrowserErrorReporting", () => {
         const init = vi.fn();
         const fetch = answer({ reports: "none", see: "docs/observability.md#configuration" });
         await expect(startBrowserErrorReporting({}, { init, fetch })).resolves.toBe(false);
-        expect(fetch).toHaveBeenCalledWith("/monitoring", { cache: "no-store", credentials: "omit" });
+        expect(fetch).toHaveBeenCalledWith("/monitoring", { cache: "no-store", credentials: "same-origin" });
         expect(init).not.toHaveBeenCalled();
     });
 

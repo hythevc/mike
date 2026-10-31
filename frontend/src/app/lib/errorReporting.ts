@@ -419,7 +419,9 @@ async function serverHasDestination(fetchImpl: typeof fetch | undefined): Promis
     try {
         const response = await fetchImpl(SENTRY_TUNNEL_PATH, {
             cache: "no-store",
-            credentials: "omit",
+            // Same-origin cookies, so a deployment behind access protection
+            // can answer; the route itself reads none.
+            credentials: "same-origin",
         });
         if (!response.ok) return false;
         const body: unknown = await response.json();
