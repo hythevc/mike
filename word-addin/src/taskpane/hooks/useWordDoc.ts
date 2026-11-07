@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 /// <reference types="office-js" />
 
 import { useCallback } from "react";
@@ -1364,7 +1365,7 @@ async function resolveTrackedEditNow(
         handle,
         status: "error",
         error:
-          "The revisions in this passage changed after Mike applied the edit. Review them directly in Word.",
+          `The revisions in this passage changed after ${brand.productName} applied the edit. Review them directly in Word.`,
       };
     }
     if (entry.stableEditId && entry.bookmarkName) {
@@ -2991,7 +2992,7 @@ export function useWordDoc() {
                 result.reason = outcome.reason;
                 if (outcome.status === "applied-unmanaged") {
                   result.error =
-                    "Applied in Word, but Mike couldn’t retain its review controls. Review it from Word’s Review tab.";
+                    `Applied in Word, but ${brand.productName} couldn’t retain its review controls. Review it from Word’s Review tab.`;
                   if (edit.stableEditId) {
                     newlyAppliedEditIds.push(edit.stableEditId);
                   }

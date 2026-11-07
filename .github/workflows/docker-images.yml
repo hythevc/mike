@@ -47,11 +47,14 @@ jobs:
             context: .
             dockerfile: word-addin/Dockerfile
             # The production webpack build refuses to run without the web app
-            # URL (word-addin/webpack.config.js). Placeholder values, as the
-            # word-addin workflow uses for its own build; nothing is deployed.
+            # URL (word-addin/webpack.config.js), and scripts/build-manifest.js
+            # refuses the development placeholder add-in Id. Placeholder values,
+            # as the word-addin workflow uses for its own build; nothing is
+            # deployed.
             build_args: |
               REACT_APP_WEB_APP_URL=https://app.example.com
               WORD_ADDIN_PUBLIC_URL=https://word.example.com
+              WORD_ADDIN_MANIFEST_ID=00000000-0000-4000-8000-000000000000
     steps:
       - uses: actions/checkout@v7
 

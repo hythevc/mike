@@ -125,18 +125,39 @@ sideloads the current manifest.
 
 ## Production build
 
-Production builds require explicit service endpoints and a public add-in URL:
+Production builds require explicit service endpoints, a public add-in URL, and
+the add-in's manifest Id:
 
 ```bash
 cd word-addin
 REACT_APP_API_BASE_URL=/api \
 REACT_APP_WEB_APP_URL=https://app.example.com \
 WORD_ADDIN_PUBLIC_URL=https://word.example.com \
+WORD_ADDIN_MANIFEST_ID=123e4567-e89b-42d3-a456-426614174000 \
 npm run build
 ```
 
 The build writes task-pane assets and a URL-rewritten manifest to `dist/`.
 The checked-in `manifest.xml` remains configured for localhost.
+
+### Manifest Id
+
+Every Office add-in needs a single, stable `<Id>` GUID that uniquely identifies
+it to Word and AppSource. The checked-in `manifest.xml` carries the development
+placeholder `a1b2c3d4-e5f6-7890-abcd-ef1234567890`, which is fine for local
+sideloading but must never ship. `scripts/build-manifest.js` therefore:
+
+- replaces `<Id>` with the GUID in `WORD_ADDIN_MANIFEST_ID` (which must be a
+  GUID and must not be the placeholder), and
+- fails the build if the manifest still carries the placeholder — so a
+  production build without a real `WORD_ADDIN_MANIFEST_ID` cannot succeed.
+
+Generate one once (for example `uuidgen`), keep it stable across releases of the
+same listing, and pass it as `WORD_ADDIN_MANIFEST_ID` for every production and
+image build (`.github/workflows/docker-images.yml` passes a placeholder GUID for
+its build-only check). The display name, provider name and description in the
+built manifest are taken from the brand module, so a rebrand needs no manifest
+edit.
 
 The add-in host must reverse-proxy `https://word.example.com/api/*` to the Mike
 backend while preserving `Cookie`, `Origin`, response `Set-Cookie` headers, and

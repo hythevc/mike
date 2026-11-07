@@ -70,6 +70,10 @@ export default defineConfig({
             // `@mike/*` aliases (see word-addin/webpack.config.js). Mirror them
             // so add-in modules under test here resolve the same files.
             {
+                find: "@mike/brand",
+                replacement: resolvePath("./src/shared/brand.generated.ts"),
+            },
+            {
                 find: "@mike/sentry-event",
                 replacement: resolvePath("./src/shared/lib/sentryEvent.ts"),
             },

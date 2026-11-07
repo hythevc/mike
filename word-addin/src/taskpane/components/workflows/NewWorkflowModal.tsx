@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React, { useEffect, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { WorkflowSlashCommandUI } from "@mike/workflow-slash-command-ui";
@@ -177,7 +178,7 @@ export function NewWorkflowModal({
     } catch (reason) {
       setError(
         reportFault(reason, {
-          fallback: "Mike couldn't create that workflow. Try again.",
+          fallback: `${brand.productName} couldn't create that workflow. Try again.`,
           operation: "workflows.run",
         }).message
       );

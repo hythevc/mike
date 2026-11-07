@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React, { useEffect, useState } from "react";
 import type { Workflow } from "../../types";
 import { listWorkflows } from "../../api/mikeApi";
@@ -43,7 +44,7 @@ export function WorkflowModal({
         setWorkflows([]);
         setError(
           reportFault(reason, {
-            fallback: "Mike couldn't load your workflows. Try again.",
+            fallback: `${brand.productName} couldn't load your workflows. Try again.`,
             operation: "workflows.run",
           }).message
         );

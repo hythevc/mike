@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { Workflow } from "../../types";
 import { Spinner } from "../../../shared/ui/spinner";
@@ -204,7 +205,7 @@ export function WorkflowPicker({
           setSaveError(
             reportFault(reason, {
               fallback:
-                "Mike couldn't save these instructions. Try again.",
+                `${brand.productName} couldn't save these instructions. Try again.`,
               operation: "workflows.run",
             }).message
           );

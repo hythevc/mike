@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React, { useEffect, useRef, useState } from "react";
 import type { Document } from "../../types";
 import {
@@ -44,7 +45,7 @@ export function WorkflowAssets({
           setFiles([]);
           setError(
             reportFault(reason, {
-              fallback: "Mike couldn't load this workflow's files. Try again.",
+              fallback: `${brand.productName} couldn't load this workflow's files. Try again.`,
               operation: "workflows.run",
             }).message,
           );
@@ -68,7 +69,7 @@ export function WorkflowAssets({
     } catch (reason) {
       setError(
         reportFault(reason, {
-          fallback: "Mike couldn't upload that file. Try again.",
+          fallback: `${brand.productName} couldn't upload that file. Try again.`,
           operation: "workflows.run",
         }).message,
       );
@@ -87,7 +88,7 @@ export function WorkflowAssets({
     } catch (reason) {
       setError(
         reportFault(reason, {
-          fallback: "Mike couldn't upload the new version. Try again.",
+          fallback: `${brand.productName} couldn't upload the new version. Try again.`,
           operation: "workflows.run",
         }).message,
       );
@@ -158,7 +159,7 @@ export function WorkflowAssets({
                     .catch((reason: unknown) =>
                       setError(
                         reportFault(reason, {
-                          fallback: "Mike couldn't open that file. Try again.",
+                          fallback: `${brand.productName} couldn't open that file. Try again.`,
                           operation: "workflows.run",
                         }).message,
                       ),
@@ -189,7 +190,7 @@ export function WorkflowAssets({
                           setError(
                             reportFault(reason, {
                               fallback:
-                                "Mike couldn't delete that file. Try again.",
+                                `${brand.productName} couldn't delete that file. Try again.`,
                               operation: "workflows.run",
                             }).message,
                           ),

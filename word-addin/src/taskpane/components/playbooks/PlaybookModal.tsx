@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React, { useEffect, useMemo, useState } from "react";
 import type { Playbook } from "../../types";
 import { listPlaybooks } from "../../api/mikeApi";
@@ -50,7 +51,7 @@ export function PlaybookModal({
         setPlaybooks([]);
         setError(
           reportFault(reason, {
-            fallback: "Mike couldn't load your playbooks. Try again.",
+            fallback: `${brand.productName} couldn't load your playbooks. Try again.`,
             operation: "playbooks.review",
           }).message,
         );

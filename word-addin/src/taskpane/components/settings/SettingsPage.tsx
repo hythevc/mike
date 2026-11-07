@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React from "react";
 import { Trash2 } from "lucide-react";
 import { ToggleSwitchUI } from "@mike/toggle-switch-ui";
@@ -23,6 +24,10 @@ export function SettingsPage({
   const [error, setError] = React.useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
+  const gitSha = process.env.REACT_APP_GIT_SHA ?? "";
+  const sourceCodeUrl = gitSha
+    ? `${brand.sourceRepositoryUrl}/tree/${gitSha}`
+    : brand.sourceRepositoryUrl;
 
   const updateMode = async (cloud: boolean): Promise<void> => {
     setSaving(true);
@@ -32,7 +37,7 @@ export function SettingsPage({
     } catch (reason) {
       setError(
         reportFault(reason, {
-          fallback: "Mike couldn't save that setting. Try again.",
+          fallback: `${brand.productName} couldn't save that setting. Try again.`,
           operation: "settings.keys",
         }).message,
       );
@@ -98,6 +103,28 @@ export function SettingsPage({
         </GlassCardUI>
       </section>
 
+      <section className="mt-3">
+        <GlassCardUI>
+          <div className="p-4">
+            <h2 className="text-sm font-medium text-gray-900">Source code</h2>
+            <p className="mt-1 text-xs leading-5 text-gray-500">
+              {brand.productName} is a modified version of{" "}
+              {brand.upstreamAttribution.projectName}, released under the{" "}
+              {brand.upstreamAttribution.license} licence. The complete source
+              for this running build is published online.
+            </p>
+            <a
+              href={sourceCodeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-block text-xs font-medium underline"
+            >
+              Source code
+            </a>
+          </div>
+        </GlassCardUI>
+      </section>
+
       <Modal
         open={clearConfirmOpen}
         onClose={() => !clearing && setClearConfirmOpen(false)}
@@ -115,7 +142,7 @@ export function SettingsPage({
                 setError(
                   reportFault(reason, {
                     fallback:
-                      "Mike couldn't delete the device-only chats. Try again.",
+                      `${brand.productName} couldn't delete the device-only chats. Try again.`,
                     operation: "settings.keys",
                   }).message,
                 ),

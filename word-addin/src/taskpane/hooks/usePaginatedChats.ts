@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Chat } from "../types";
 import { listCloudWordChats } from "../api/mikeApi";
@@ -109,7 +110,7 @@ export function usePaginatedChats(
           timedOut
             ? "Chat history took too long to load."
             : reportFault(reason, {
-                fallback: "Mike couldn't load your chat history. Try again.",
+                fallback: `${brand.productName} couldn't load your chat history. Try again.`,
                 operation: "word_chat.turn",
               }).message,
         );

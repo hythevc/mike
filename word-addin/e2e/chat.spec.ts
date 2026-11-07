@@ -95,7 +95,7 @@ test("uses a floating icon header with no logo, tabs, or visible sign-out button
   await addin.expectAuthedShell();
 
   await expect(page.getByRole("tab")).toHaveCount(0);
-  await expect(page.getByText("Mike", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Glossa", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
 
   const header = page.getByTestId("floating-header");
@@ -275,7 +275,7 @@ test("does not send without the required Word document context", async ({
   await page.getByRole("button", { name: "Send" }).click();
 
   await expect(page.getByRole("alert")).toHaveText(
-    "Mike couldn't read this Word document. Try again.",
+    "Glossa couldn't read this Word document. Try again.",
   );
   await expect(composer).toHaveValue("Review this document");
   await expect(page.locator("[data-message-id]")).toHaveCount(0);
@@ -2313,7 +2313,7 @@ test("says it cannot confirm the outcome when the mutation sync failed mid-batch
   // failed (it might have landed) nor invite a retry that would double-apply.
   await expect(
     page.getByText(
-      "Mike couldn't confirm whether this change was applied — check the document before retrying.",
+      "Glossa couldn't confirm whether this change was applied — check the document before retrying.",
     ),
   ).toBeVisible();
   await expect(
@@ -2426,7 +2426,7 @@ test("does not broaden one edit across repeated exact passages", async ({
 
   await expect(
     page.getByText(
-      "Skipped — this text appears 2 times in the document. Tell Mike which one to change.",
+      "Skipped — this text appears 2 times in the document. Tell Glossa which one to change.",
     ),
   ).toBeVisible();
   await expect(

@@ -12,6 +12,23 @@ const frontendShared = (...segments) =>
   path.resolve(__dirname, "..", "frontend", "src", "shared", ...segments);
 const frontendSharedUi = (filename) => frontendShared("ui", filename);
 
+// The brand module (names and addresses) is generated from
+// packages/brand/brand.json. The add-in reads it from frontend/src/shared —
+// the same source the @mike/brand alias resolves and the Dockerfile copies
+// into the image — so the add-in never reaches into packages/.
+const brandModule = fs.readFileSync(frontendShared("brand.generated.ts"), "utf8");
+const brandField = (field) => {
+  const marker = `${field}: "`;
+  const start = brandModule.indexOf(marker);
+  if (start < 0) {
+    throw new Error(`Could not read ${field} from the brand module`);
+  }
+  const from = start + marker.length;
+  return brandModule.slice(from, brandModule.indexOf('"', from));
+};
+const brandProductName = brandField("productName");
+const brandAppUrl = brandField("appUrl");
+
 module.exports = async (_env, options) => {
   const isDev = options.mode !== "production";
 
@@ -295,16 +312,19 @@ module.exports = async (_env, options) => {
         filename: "taskpane.html",
         template: "./src/taskpane/index.html",
         chunks: ["taskpane"],
+        templateParameters: { brandProductName },
       }),
       new HtmlWebpackPlugin({
         filename: "commands.html",
         template: "./src/commands/commands.html",
         chunks: ["commands"],
+        templateParameters: { brandProductName },
       }),
       new HtmlWebpackPlugin({
         filename: "oauth-dialog.html",
         template: "./src/oauth-dialog/index.html",
         chunks: ["oauthDialog"],
+        templateParameters: { brandProductName },
       }),
       // Expose env vars to the bundle so TypeScript process.env calls compile
       new webpack.EnvironmentPlugin({
@@ -322,7 +342,7 @@ module.exports = async (_env, options) => {
         // The Mike web app origin — the task pane links here (e.g. the
         // account/api-keys page); it never fetches from it.
         REACT_APP_WEB_APP_URL: isDev
-          ? process.env.REACT_APP_WEB_APP_URL || "https://app.mikeoss.com"
+          ? process.env.REACT_APP_WEB_APP_URL || brandAppUrl
           : undefined,
         // Sentry is off unless a DSN is baked in at build time (the pane is
         // a static bundle; there is no runtime environment to read).

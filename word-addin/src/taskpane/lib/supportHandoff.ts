@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 /**
  * Getting a failure from the task pane to a human.
  *
@@ -48,7 +49,7 @@ export function buildSupportDiagnostics(
   context: SupportContext = {},
 ): string {
   const lines: string[] = [
-    "Mike support details",
+    `${brand.productName} support details`,
     `What happened: ${error.title}`,
     `Message shown: ${error.message}`,
   ];

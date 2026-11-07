@@ -27,6 +27,7 @@
       "@mike/upload-session-client": ["./src/shared/api/uploadSessionClient.ts"],
       "@mike/secure-uuid": ["./src/shared/lib/secureUuid.ts"],
       "@mike/sentry-event": ["./src/shared/lib/sentryEvent.ts"],
+      "@mike/brand": ["./src/shared/brand.generated.ts"],
       "@mike/user-error": ["./src/shared/lib/userError.ts"],
       "@mike/toast-store": ["./src/shared/lib/toastStore.ts"],
       "@mike/error-notifier": ["./src/shared/lib/errorNotifier.ts"],

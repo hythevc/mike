@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React, { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { ToggleSwitchUI } from "@mike/toggle-switch-ui";
@@ -65,7 +66,7 @@ export function DocumentActions({
         if (cancelled) return;
         setWorkflowsError(
           reportFault(reason, {
-            fallback: "Mike couldn't load your quick actions. Try again.",
+            fallback: `${brand.productName} couldn't load your quick actions. Try again.`,
             operation: "quick_actions.run",
           }).message,
         );

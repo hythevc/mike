@@ -45,7 +45,7 @@ describe("buildSupportDiagnostics", () => {
             }),
         ).toBe(
             [
-                "Mike support details",
+                "Glossa support details",
                 "What happened: Couldn't save the document",
                 "Message shown: Something went wrong on our side. Try again.",
                 "Details: Applying a tracked change.",
@@ -75,7 +75,7 @@ describe("buildSupportDiagnostics", () => {
         );
         expect(block).toBe(
             [
-                "Mike support details",
+                "Glossa support details",
                 "What happened: Connection problem",
                 "Message shown: Mike couldn't reach the server.",
                 "Category: network",
@@ -94,7 +94,7 @@ describe("buildSupportDiagnostics", () => {
 });
 
 describe("supportHandoffResult", () => {
-    const details = "Mike support details\nRequest ID: req-abc123";
+    const details = "Glossa support details\nRequest ID: req-abc123";
 
     it("confirms both when the draft opened and the block was copied", () => {
         expect(
