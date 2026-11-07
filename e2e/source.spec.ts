@@ -45,3 +45,29 @@ test.describe("public /source page", () => {
         await expect(page.getByText(/Based on Mike/)).toBeVisible();
     });
 });
+
+test.describe("auth footer", () => {
+    // The footer is mounted by login/layout.tsx and signup/layout.tsx, so it
+    // appears on the signed-out auth pages.
+    test.use({ storageState: { cookies: [], origins: [] } });
+
+    for (const path of ["/login", "/signup"]) {
+        test(`${path} shows the source, terms and privacy footer`, async ({
+            page,
+        }) => {
+            await page.goto(path);
+            const footer = page.getByRole("contentinfo");
+            const source = footer.getByRole("link", { name: "Source" });
+            await expect(source).toBeVisible();
+            // The Source link carries the running commit in a stamped build.
+            const href = await source.getAttribute("href");
+            expect(href).toMatch(/^https?:\/\//);
+            await expect(
+                footer.getByRole("link", { name: "Terms" }),
+            ).toBeVisible();
+            await expect(
+                footer.getByRole("link", { name: "Privacy" }),
+            ).toBeVisible();
+        });
+    }
+});
