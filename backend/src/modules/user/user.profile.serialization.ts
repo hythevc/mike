@@ -12,8 +12,16 @@ export function serializeProfile(
     routerModels: RouterModelSelections,
     row: UserProfileRow,
     apiKeyStatus?: ApiKeyStatus,
+    // Which current legal documents the user still owes acceptance on. Absent
+    // or null means it could not be determined, which must not lock a user
+    // out: the same fail-open stance as the onboarding version below.
+    legal?: { outstanding: readonly string[] } | null,
 ) {
     const creditsUsed = row.message_credits_used ?? 0;
+    const outstandingLegal = legal?.outstanding ?? [];
+    const baseOnboardingComplete =
+        row.onboarding_version === undefined ||
+        row.onboarding_version !== null;
     return {
         displayName: row.display_name,
         profilePhoto: row.profile_photo ?? null,
@@ -29,9 +37,12 @@ export function serializeProfile(
         // needs onboarding; 0 identifies a legacy-exempt user; 1 is complete.
         onboardingVersion:
             row.onboarding_version === undefined ? 0 : row.onboarding_version,
+        // Onboarding is complete only once the personalisation steps are done
+        // (above) AND the current Terms and Privacy versions are accepted.
         onboardingComplete:
-            row.onboarding_version === undefined ||
-            row.onboarding_version !== null,
+            baseOnboardingComplete && outstandingLegal.length === 0,
+        // The gating documents still to accept, for the onboarding step.
+        legalAcceptanceRequired: [...outstandingLegal],
         passwordSet: !!row.password_set_at,
         messageCreditsUsed: creditsUsed,
         creditsResetDate: row.credits_reset_date,

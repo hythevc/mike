@@ -5,6 +5,7 @@ import { errorMessage, type Db } from "./user.shared";
 import { selectProfile, UserProfileRow } from "./user.profile.storage";
 
 import { serializeProfile } from "./user.profile.serialization";
+import { loadOutstandingLegalAcceptances } from "./user.legal";
 
 export async function ensureProfileRow(db: Db, userId: string) {
     const { error } = await db
@@ -65,8 +66,14 @@ export async function loadProfile(
 
     try {
         const routerModels = await getAllUserRouterModels(userId, db);
+        const legal = await loadOutstandingLegalAcceptances(db, userId);
         return {
-            data: serializeProfile(routerModels, row, options.apiKeyStatus),
+            data: serializeProfile(
+                routerModels,
+                row,
+                options.apiKeyStatus,
+                legal,
+            ),
             error: null,
         };
     } catch (routerModelsError) {

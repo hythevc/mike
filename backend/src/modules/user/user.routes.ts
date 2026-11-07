@@ -72,6 +72,8 @@ import {
     getMcpConnector,
     getUserExportStatus,
     getUserProfile,
+    parseLegalAcceptancePayload,
+    recordLegalAcceptances,
     loadUserExportArtifact,
     lookupUserByEmail,
     listMcpConnectors,
@@ -464,6 +466,24 @@ userRouter.post("/onboarding", requireAuth, asyncRoute(async (req, res) => {
     const result = await completeUserOnboarding(db, userId, parsed.update);
     if (!result.ok) return void sendInternalError(res, result.error);
     res.json(result.body);
+}));
+
+// POST /user/legal-acceptances
+// Record the user's acceptance of one or more legal documents at their
+// current version, then return the refreshed profile so onboardingComplete
+// reflects the new state.
+userRouter.post("/legal-acceptances", requireAuth, asyncRoute(async (req, res) => {
+    const parsed = parseLegalAcceptancePayload(req.body);
+    if (!parsed.ok) return void res.status(400).json({ detail: parsed.detail });
+
+    const userId = res.locals.userId as string;
+    const db = createServerSupabase();
+    const result = await recordLegalAcceptances(db, userId, parsed.acceptances);
+    if (!result.ok) return void sendServiceFailure(res, result);
+
+    const profile = await getUserProfile(db, userId);
+    if (!profile.ok) return void sendInternalError(res, profile.error);
+    res.json(profile.body);
 }));
 
 // POST /user/security/password-set

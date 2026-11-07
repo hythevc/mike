@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.hoisted(() => { process.env.RATE_LIMIT_DATA_DELETE_MAX = "1000"; });
 import request from "supertest";
 import { AppError } from "../../lib/appError";
+import { brand } from "../../lib/brand.generated";
 
 // Every unexpected 5xx these routes answer is ONE Sentry event, reported by
 // sendInternalError with the route's identity: asserted by kind and cause.
@@ -93,7 +94,18 @@ let supabaseState: {
 
 function resetSupabaseState() {
     supabaseState = {
-        tables: {},
+        // Default: the gating legal documents are accepted at their current
+        // versions, so loadProfile reports onboardingComplete from the
+        // onboarding version alone (legal gating is covered in user.legal.test.ts).
+        tables: {
+            user_legal_acceptances: {
+                data: [
+                    { document: "terms", version: brand.legalDocuments.terms.version },
+                    { document: "privacy", version: brand.legalDocuments.privacy.version },
+                ],
+                error: null,
+            },
+        },
         updates: {},
         inserts: {},
         selects: {},
@@ -1596,6 +1608,61 @@ describe("user.routes", () => {
             const written = supabaseState.updates.user_profiles?.at(-1) as
                 Record<string, unknown> | undefined;
             expect(written?.[column]).toBe("x".repeat(200));
+        });
+    });
+
+    describe("POST /user/legal-acceptances", () => {
+        it("records the accepted documents and returns the refreshed profile", async () => {
+            supabaseState.tables.user_profiles = {
+                data: profileRow({ onboarding_version: 1 }),
+                error: null,
+            };
+
+            const res = await request(app)
+                .post("/user/legal-acceptances")
+                .set(...AUTH)
+                .send({
+                    acceptances: [
+                        { document: "terms", version: brand.legalDocuments.terms.version },
+                        { document: "privacy", version: brand.legalDocuments.privacy.version },
+                    ],
+                });
+
+            expect(res.status).toBe(200);
+            expect(res.body).toMatchObject({
+                onboardingComplete: true,
+                legalAcceptanceRequired: [],
+            });
+            const recorded = supabaseState.inserts.user_legal_acceptances ?? [];
+            expect(recorded).toHaveLength(1);
+            expect(recorded[0]).toEqual([
+                expect.objectContaining({
+                    document: "terms",
+                    version: brand.legalDocuments.terms.version,
+                    sign_in_method: "unknown",
+                }),
+                expect.objectContaining({
+                    document: "privacy",
+                    version: brand.legalDocuments.privacy.version,
+                    sign_in_method: "unknown",
+                }),
+            ]);
+        });
+
+        it("rejects a malformed body with 400", async () => {
+            const res = await request(app)
+                .post("/user/legal-acceptances")
+                .set(...AUTH)
+                .send({});
+            expect(res.status).toBe(400);
+        });
+
+        it("rejects a stale version with 409", async () => {
+            const res = await request(app)
+                .post("/user/legal-acceptances")
+                .set(...AUTH)
+                .send({ acceptances: [{ document: "terms", version: "0.0.1" }] });
+            expect(res.status).toBe(409);
         });
     });
 

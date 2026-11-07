@@ -64,6 +64,7 @@ interface UserProfile extends RouterProfileLists {
     practiceAreas: string[];
     onboardingVersion: number | null;
     onboardingComplete: boolean;
+    legalAcceptanceRequired: string[];
     passwordSet: boolean;
     messageCreditsUsed: number;
     creditsResetDate: string;
@@ -289,6 +290,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 practiceAreas: [],
                 onboardingVersion: 0,
                 onboardingComplete: true,
+                legalAcceptanceRequired: [],
                 passwordSet: false,
                 messageCreditsUsed: 0,
                 creditsResetDate: futureResetDate.toISOString(),

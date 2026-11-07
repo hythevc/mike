@@ -50,6 +50,17 @@ export {
     recordPasswordSet,
 } from "./user.profile";
 
+export {
+    GATING_LEGAL_DOCUMENTS,
+    isLegalDocumentKey,
+    loadOutstandingLegalAcceptances,
+    parseLegalAcceptancePayload,
+    recordLegalAcceptances,
+    signInMethodFromUser,
+    type LegalAcceptanceInput,
+    type SignInMethod,
+} from "./user.legal";
+
 export { setUserProfilePhoto } from "./user.photo";
 
 export { setMfaOnLogin } from "./user.mfa";

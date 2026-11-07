@@ -164,6 +164,8 @@ test.describe("unauthenticated", () => {
 
         /* A new account is sent through onboarding first... */
         await page.waitForURL(/\/onboarding\/profile/, { timeout: 15_000 });
+        const acceptance = page.getByRole("checkbox");
+        if (await acceptance.count()) await acceptance.first().check();
         await page.getByRole("button", { name: "Continue" }).click();
         await page.waitForURL(/\/onboarding\/practice/, { timeout: 15_000 });
         await page.getByRole("button", { name: "Skip" }).click();
