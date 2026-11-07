@@ -1,5 +1,6 @@
 import { getImageProps } from "next/image";
 import { preload } from "react-dom";
+import { Inbox } from "lucide-react";
 import { SvgAssetIcon, type SvgAssetIconProps } from "@/app/components/ui/svg-asset-icon";
 import chat from "../../../../public/icons/features/chat.svg";
 import chatComplete from "../../../../public/icons/features/chat-complete.svg";
@@ -111,4 +112,14 @@ export function SettingsSkeuoIcon(props: IconProps) {
 
 export function SignOutSkeuoIcon(props: IconProps) {
   return <AppSidebarIcon name="sign-out" {...props} />;
+}
+
+/**
+ * The request desk's navigation glyph. It has no skeuomorphic asset yet, so it
+ * uses the Lucide inbox mark (currentColor, sized by the caller's className),
+ * matching the design system's icon guidance. Swap in a feature SVG here if
+ * one is drawn later, without touching the nav.
+ */
+export function IntakeSkeuoIcon({ className }: { className?: string }) {
+  return <Inbox aria-hidden="true" className={className} />;
 }

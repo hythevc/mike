@@ -32,6 +32,10 @@
         "/library": {
             "light": { "serious": 1, "rules": ["color-contrast"] },
             "dark": { "serious": 0, "rules": [] }
+        },
+        "/intake": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
         }
     }
 }

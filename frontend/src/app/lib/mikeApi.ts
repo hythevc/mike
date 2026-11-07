@@ -4830,3 +4830,253 @@ export async function deletePlaybook(playbookId: string): Promise<void> {
         method: "DELETE",
     });
 }
+
+// ---------------------------------------------------------------------------
+// Request desk (intake). Organization workspaces only.
+// ---------------------------------------------------------------------------
+//
+// The board, the request list and every request operation live behind the
+// `/intake` gateway routes. Wire shapes are declared once in
+// packages/contracts and re-exported here so screens take one import.
+
+export type {
+    RequestDeskStatus,
+    RequestDeskPriority,
+    RequestDeskSource,
+    RequestDeskRole,
+    RequestDeskPerson,
+    RequestDeskMatter,
+    RequestDeskRequest,
+    RequestDeskRequestPage,
+    RequestDeskCommentKind,
+    RequestDeskEvent,
+    RequestDeskComment,
+    RequestDeskChange,
+    RequestDeskMatterCreated,
+    RequestDeskBoardSummary,
+} from "@mike/contracts";
+
+import type {
+    RequestDeskBoardSummary,
+    RequestDeskChange,
+    RequestDeskComment,
+    RequestDeskMatterCreated,
+    RequestDeskPriority,
+    RequestDeskRequest,
+    RequestDeskRequestPage,
+    RequestDeskStatus,
+} from "@mike/contracts";
+
+/** Columns the board can sort on; the server maps these to table columns. */
+export type IntakeSortKey =
+    | "created"
+    | "updated"
+    | "due"
+    | "priority"
+    | "reference";
+
+/**
+ * The filters the request list understands. `assignee` is "me", "none" or a
+ * member's user id; omit it for everyone. Empty arrays are treated as "no
+ * filter" so a cleared control lists everything again.
+ */
+export interface IntakeRequestFilters {
+    statuses?: RequestDeskStatus[];
+    priorities?: RequestDeskPriority[];
+    assignee?: "me" | "none" | string;
+    overdue?: boolean;
+    dueBefore?: string;
+    sortKey?: IntakeSortKey;
+    sortDirection?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+}
+
+/** Fields a member sets when logging a request, or edits afterwards. */
+export interface IntakeRequestInput {
+    title: string;
+    details: string;
+    request_type?: string | null;
+    priority?: RequestDeskPriority;
+    requester_name?: string | null;
+    requester_email?: string | null;
+    sla_due_at?: string | null;
+}
+
+function intakeListQuery(
+    workspace: string,
+    filters: IntakeRequestFilters,
+): string {
+    const params = new URLSearchParams({ workspace });
+    if (filters.statuses && filters.statuses.length > 0)
+        params.set("status", filters.statuses.join(","));
+    if (filters.priorities && filters.priorities.length > 0)
+        params.set("priority", filters.priorities.join(","));
+    if (filters.assignee) params.set("assignee", filters.assignee);
+    if (filters.overdue) params.set("overdue", "true");
+    if (filters.dueBefore) params.set("due_before", filters.dueBefore);
+    if (filters.sortKey) params.set("sort_key", filters.sortKey);
+    if (filters.sortDirection) params.set("sort_direction", filters.sortDirection);
+    if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+    if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+    return params.toString();
+}
+
+/** One page of an organization's requests, filtered and sorted. */
+export async function listIntakeRequests(
+    workspace: string,
+    filters: IntakeRequestFilters = {},
+    signal?: AbortSignal,
+): Promise<RequestDeskRequestPage> {
+    return apiRequest(
+        "intake.requests",
+        `/intake/requests?${intakeListQuery(workspace, filters)}`,
+        { signal },
+    );
+}
+
+/** The triage board's server-computed counts for an organization. */
+export async function getIntakeBoard(
+    workspace: string,
+    signal?: AbortSignal,
+): Promise<RequestDeskBoardSummary> {
+    return apiRequest(
+        "intake.board",
+        `/intake/board?${new URLSearchParams({ workspace })}`,
+        { signal },
+    );
+}
+
+/** One request, with the caller's standing on it. */
+export async function getIntakeRequest(
+    requestId: string,
+    signal?: AbortSignal,
+): Promise<RequestDeskRequest> {
+    return apiRequest(
+        "intake.request",
+        `/intake/requests/${encodeURIComponent(requestId)}`,
+        { signal },
+    );
+}
+
+/** Log a request in the organization's request desk. */
+export async function createIntakeRequest(
+    workspace: string,
+    input: IntakeRequestInput & { assignee_email?: string | null },
+): Promise<RequestDeskRequest> {
+    return apiRequest("intake.requests", "/intake/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, org_id: workspace }),
+    });
+}
+
+/** Edit a request's details. Owners and editors only. */
+export async function updateIntakeRequest(
+    requestId: string,
+    input: Partial<IntakeRequestInput>,
+): Promise<RequestDeskRequest> {
+    return apiRequest(
+        "intake.request",
+        `/intake/requests/${encodeURIComponent(requestId)}`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+        },
+    );
+}
+
+/**
+ * Move a request to another status. `expectedStatus` makes a request someone
+ * else moved meanwhile a conflict rather than overwriting their change.
+ */
+export async function changeIntakeRequestStatus(
+    requestId: string,
+    status: RequestDeskStatus,
+    options: { note?: string; expectedStatus?: RequestDeskStatus } = {},
+): Promise<RequestDeskChange> {
+    return apiRequest(
+        "intake.request.status",
+        `/intake/requests/${encodeURIComponent(requestId)}/status`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                status,
+                ...(options.note !== undefined ? { note: options.note } : {}),
+                ...(options.expectedStatus
+                    ? { expected_status: options.expectedStatus }
+                    : {}),
+            }),
+        },
+    );
+}
+
+/** Assign a request to a member by email, or pass null to unassign it. */
+export async function assignIntakeRequest(
+    requestId: string,
+    assigneeEmail: string | null,
+): Promise<RequestDeskChange> {
+    return apiRequest(
+        "intake.request.assignee",
+        `/intake/requests/${encodeURIComponent(requestId)}/assignee`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ assignee_email: assigneeEmail }),
+        },
+    );
+}
+
+/** A request's activity trail, oldest first. */
+export async function listIntakeRequestComments(
+    requestId: string,
+    signal?: AbortSignal,
+): Promise<RequestDeskComment[]> {
+    return apiRequest(
+        "intake.request.comments",
+        `/intake/requests/${encodeURIComponent(requestId)}/comments`,
+        { signal },
+    );
+}
+
+/** Add a comment to a request. */
+export async function addIntakeRequestComment(
+    requestId: string,
+    body: string,
+): Promise<RequestDeskComment> {
+    return apiRequest(
+        "intake.request.comments",
+        `/intake/requests/${encodeURIComponent(requestId)}/comments`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ body }),
+        },
+    );
+}
+
+/**
+ * Create a matter (an ordinary project) from a request and link it. Owners and
+ * editors only; the request carries the matter afterwards on `request.matter`.
+ */
+export async function createIntakeMatter(
+    requestId: string,
+    input: {
+        name?: string;
+        cm_number?: string;
+        practice?: string;
+        visibility?: string;
+    } = {},
+): Promise<RequestDeskMatterCreated> {
+    return apiRequest(
+        "intake.request.matter",
+        `/intake/requests/${encodeURIComponent(requestId)}/matter`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+        },
+    );
+}

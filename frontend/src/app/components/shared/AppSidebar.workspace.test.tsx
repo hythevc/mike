@@ -168,6 +168,24 @@ describe("AppSidebar workspace switcher", () => {
     expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
   });
 
+  it("shows the Intake destination only in an organization workspace", () => {
+    const primaryNav = () =>
+      within(screen.getByRole("navigation", { name: "Primary" }));
+
+    const personal = render(<AppSidebar isOpen onToggle={vi.fn()} />);
+    expect(
+      primaryNav().queryByRole("link", { name: "Intake" }),
+    ).not.toBeInTheDocument();
+    personal.unmount();
+
+    state.organizations = [ACME];
+    state.workspaceId = ACME.id;
+    render(<AppSidebar isOpen onToggle={vi.fn()} />);
+    expect(
+      primaryNav().getByRole("link", { name: "Intake" }),
+    ).toHaveAttribute("href", "/intake");
+  });
+
   it("heads the sidebar with the organization's name in its workspace", () => {
     state.organizations = [ACME, BETA];
     state.workspaceId = ACME.id;
