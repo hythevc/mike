@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-only
 -- Migration date: 2026-11-07
 --
 -- Matter AI controls (W18).
