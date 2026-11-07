@@ -1,0 +1,6 @@
+packs:
+  contract-review:
+    collection: assistant
+    title: "Contract Review"
+    description: "Workflows that review commercial contracts. Every workflow produces drafts for lawyer review and keeps its own licence."
+    version: "1.0.0"

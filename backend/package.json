@@ -9,6 +9,8 @@
     "typecheck:contracts": "tsc -p ../packages/contracts/tsconfig.json",
     "start": "node --enable-source-maps dist/index.js",
     "sync:workflows": "node dist/jobs/syncWorkflows.js",
+    "convert:legal-skills": "node dist/jobs/convertLegalSkills.js",
+    "validate:catalog": "node dist/jobs/validateWorkflowCatalog.js",
     "report:usage": "node dist/jobs/reportUsage.js",
     "test": "vitest run",
     "test:stack": "bash scripts/test-stack.sh",

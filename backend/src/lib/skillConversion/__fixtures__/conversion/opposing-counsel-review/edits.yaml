@@ -1,0 +1,7 @@
+edits:
+  - op: replace
+    file: SKILL.md
+    find: "Draft negotiation points the lawyer can use."
+    with: "Draft negotiation points for the lawyer to review."
+    reason: "neutral phrasing; no change of substance"
+    category: branding

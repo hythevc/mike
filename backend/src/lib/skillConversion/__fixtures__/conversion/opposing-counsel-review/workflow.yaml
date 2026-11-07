@@ -1,0 +1,33 @@
+key: opposing-counsel-review
+displayName: "Opposing Counsel Review"
+sourceSkill: opposing-counsel-review
+collection: assistant
+pack: contract-review
+description: "Reviews a commercial contract from the other side's perspective and drafts negotiation points for each clause. Draft for lawyer review."
+practice: "Commercial Contracts"
+jurisdictionCodes: ["ALL"]
+languageCode: en
+license: Apache-2.0
+licenseEvidence: file
+authorCredit: "Example Author"
+copyrightLines: ["Copyright 2026 Example Author"]
+originalTitle: "Opposing Counsel Review"
+upstreamVersion: "1.2.0"
+version: "1.0.0"
+assetPrefix: ocr
+assets:
+  - from: references/playbook.md
+    as: docx
+    title: "Negotiation Playbook"
+    purpose: "the standard negotiation playbook for commercial terms"
+  - from: references/positions.md
+    as: inline
+    title: "Fallback Language"
+    purpose: "short fallback clauses"
+webUse: none
+reviewBy: "2027-05-01"
+changeSummary: "converted to Mike format, references moved to Word and an appendix, guardrails added"
+removed:
+  - "allowed-tools, argument-hint, tags and version frontmatter"
+  - "Related skills section"
+reviewedBy: null
