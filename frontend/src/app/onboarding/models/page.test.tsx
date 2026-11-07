@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API_KEY_PROVIDERS } from "@/app/lib/apiKeyState";
 import { rememberPostOnboardingDestination } from "@/app/lib/authRedirects";
+import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
 import OnboardingModelsPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -61,6 +62,7 @@ describe("OnboardingModelsPage", () => {
         mocks.updateApiKey.mockResolvedValue(true);
         mocks.listOrgs.mockResolvedValue([]);
         mocks.getOrgApiKeys.mockResolvedValue({ effective: {} });
+        clearToasts();
     });
 
     it("offers every provider and finishes onboarding without a key", async () => {
@@ -148,15 +150,30 @@ describe("OnboardingModelsPage", () => {
         expect(mocks.completeOnboarding).not.toHaveBeenCalled();
     });
 
-    it("allows retrying when completion fails", async () => {
+    it("shows a retryable notice on failure, and Retry finishes again", async () => {
         mocks.completeOnboarding.mockResolvedValueOnce(false);
         const user = userEvent.setup();
-        render(<OnboardingModelsPage />);
+        render(
+            <>
+                <ToastViewportUI />
+                <OnboardingModelsPage />
+            </>,
+        );
         await user.click(screen.getByRole("button", { name: "Finish" }));
-        expect(await screen.findByRole("alert")).toHaveTextContent("Unable to finish setup");
+
+        // The failure is an honest, retryable notice — not a dead-end popup.
+        expect(
+            await screen.findByText("Couldn't finish setting up your workspace"),
+        ).toBeVisible();
+        const retry = screen.getByRole("button", { name: "Retry" });
         expect(mocks.replace).not.toHaveBeenCalled();
-        await user.click(screen.getByRole("button", { name: "Finish" }));
+
+        // Retry runs completeOnboarding again; the next attempt succeeds and
+        // redirects, so the user is not stranded on the step.
+        await user.click(retry);
         expect(mocks.completeOnboarding).toHaveBeenCalledTimes(2);
-        expect(mocks.replace).toHaveBeenCalledWith("/assistant");
+        await vi.waitFor(() =>
+            expect(mocks.replace).toHaveBeenCalledWith("/assistant"),
+        );
     });
 });

@@ -15,7 +15,12 @@ function responseContent(body) {
         .map(message => textOf(message.content)).find(Boolean) ?? "";
     const echo = prompt.match(/Reply with exactly: ([^\n]+)/);
     if (echo) return [{ type: "text", text: echo[1].trim() }];
-    if (!prompt.includes("Read test.pdf and quote its first line.")) {
+    // Two document scripts: quote the first line plainly, or quote it as a
+    // citation the app can match to the source and mark found. Both read
+    // test.pdf through the advertised tool first.
+    const plainQuote = prompt.includes("Read test.pdf and quote its first line.");
+    const citedQuote = prompt.includes("Quote the first line of test.pdf with a citation");
+    if (!plainQuote && !citedQuote) {
         throw new Error("Unexpected chat prompt in E2E provider fixture");
     }
     const result = body.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
@@ -30,6 +35,21 @@ function responseContent(body) {
         // the instructions would feed their <CITATIONS> example into the app's
         // citation parser and hide the rest of the answer.
         const source = [...toolText.matchAll(/<untrusted-content\b[^>]*>\n([\s\S]*?)\n<\/untrusted-content\b[^>]*>/g)].at(-1)?.[1] ?? toolText;
+        if (citedQuote) {
+            // The doc-N label came back as the tool call's own input; reuse it
+            // so the citation points at the document the app sent.
+            const toolUse = body.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+                .find(block => block.type === "tool_use" && block.id === "toolu_e2e_read");
+            const docId = typeof toolUse?.input?.doc_id === "string" ? toolUse.input.doc_id : "doc-0";
+            // The first real line of the source, skipping any [Page N] / ## Page N
+            // markers. Quoting it verbatim is what lets the app mark it found.
+            const firstLine = source.split(/\r?\n/).map(line => line.trim())
+                .find(line => line && !/^(\[page \d+\]|#{1,6}\s*page\s+\d+)$/i.test(line)) ?? "";
+            const citations = JSON.stringify([
+                { ref: 1, doc_id: docId, quotes: [{ page: 1, quote: firstLine }] },
+            ]);
+            return [{ type: "text", text: `The first line of test.pdf is "${firstLine}". [1]\n\n<CITATIONS>\n${citations}\n</CITATIONS>` }];
+        }
         return [{ type: "text", text: `Document tool result:\n\n\`\`\`text\n${source}\n\`\`\`` }];
     }
     const document = textOf(body.system).match(/^- (doc-\d+): (?:<untrusted-content[^>]*>\s*)?test\.pdf(?:\s|<|$)/m);

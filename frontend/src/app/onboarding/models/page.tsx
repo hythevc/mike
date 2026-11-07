@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { OnboardingShell } from "@/app/components/auth/OnboardingShell";
-import { WarningPopup } from "@/app/components/popups/WarningPopup";
 import { MODEL_API_KEY_FIELDS } from "@/app/components/settings/modelProviders";
 import { PersonalProviderKeys } from "@/app/components/settings/PersonalProviderKeys";
 import { FullScreenLoader } from "@/app/components/shared/FullScreenLoader";
@@ -16,6 +15,7 @@ import {
 import { apiKeyStateFromStatus } from "@/app/lib/apiKeyState";
 import { postOnboardingDestination } from "@/app/lib/authRedirects";
 import { getOrgApiKeys, listOrgs, type ApiKeyState } from "@/app/lib/mikeApi";
+import { notifyError, UserVisibleError } from "@/app/lib/userFacingError";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 
 export default function OnboardingModelsPage() {
@@ -114,20 +114,34 @@ function ModelStep({ userId }: { userId: string }) {
     const { profile, completeOnboarding } = useUserProfile();
     const joined = useJoinedOrganization(userId);
     const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState(false);
 
     async function finish() {
         if (submitting) return;
         setSubmitting(true);
-        setError(false);
         const saved = await completeOnboarding();
         if (saved) {
             // Back to the page the user asked for before onboarding, if any.
             router.replace(postOnboardingDestination(userId));
-        } else {
-            setError(true);
-            setSubmitting(false);
+            return;
         }
+        // Let the user try again instead of stranding them on a dead step.
+        setSubmitting(false);
+        notifyError(
+            new UserVisibleError(
+                "We couldn't finish setting up your workspace.",
+                { kind: "server", retryable: true },
+            ),
+            {
+                operation: "onboarding_complete",
+                action: "finish setting up your workspace",
+                // completeOnboarding reports this same failure itself; reuse its
+                // dedupe key so this finish-specific message with an honest Retry
+                // that redirects replaces that generic notice rather than
+                // stacking a second toast beside it.
+                dedupeKey: "profile:save your practice details",
+                onRetry: () => finish(),
+            },
+        );
     }
 
     return (
@@ -138,12 +152,6 @@ function ModelStep({ userId }: { userId: string }) {
             width="wide"
         >
             <PersonalProviderKeys intro={null} />
-            <WarningPopup
-                open={error}
-                onClose={() => setError(false)}
-                title="Unable to finish setup"
-                message="Please try again."
-            />
             <div className="flex items-center justify-between gap-3 pt-6">
                 <PillButtonUI
                     type="button"

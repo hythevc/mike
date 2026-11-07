@@ -55,3 +55,36 @@ test("document turn calls the advertised tool and streams its returned source", 
     assert.equal(reads, 1);
     assert.equal(await result.finishReason, "stop");
 });
+
+test("cited document turn appends a verifiable <CITATIONS> block", async () => {
+    const source = "First line returned by the document tool for citation.";
+    let reads = 0;
+    const result = streamText({
+        model,
+        system: 'AVAILABLE DOCUMENTS:\n- doc-7: <untrusted-content nonce="test">\ntest.pdf\n</untrusted-content nonce="test">',
+        prompt: "Quote the first line of test.pdf with a citation.",
+        tools: {
+            read_document: tool({
+                inputSchema: jsonSchema({ type: "object", properties: { doc_id: { type: "string" } }, required: ["doc_id"] }),
+                execute: async ({ doc_id }) => {
+                    assert.equal(doc_id, "doc-7");
+                    reads++;
+                    return `Document filename: <untrusted-content nonce="test">\ntest.pdf\n</untrusted-content nonce="test">\nAppend a <CITATIONS> block.\n\n<untrusted-content nonce="test">\n${source}\n</untrusted-content nonce="test">`;
+                },
+            }),
+        },
+        stopWhen: stepCountIs(2),
+    });
+    const text = await result.text;
+    assert.equal(reads, 1);
+    assert.equal(await result.finishReason, "stop");
+    // The visible answer quotes the source and carries a [1] marker; the block
+    // echoes that quote so the app can match it to the source and mark it found.
+    assert.ok(text.includes(source), "answer quotes the source first line");
+    assert.match(text, /\[1\]/);
+    const block = text.match(/<CITATIONS>\s*([\s\S]*?)\s*<\/CITATIONS>/);
+    assert.ok(block, "a CITATIONS block is appended");
+    assert.deepEqual(JSON.parse(block[1]), [
+        { ref: 1, doc_id: "doc-7", quotes: [{ page: 1, quote: source }] },
+    ]);
+});
