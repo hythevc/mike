@@ -49,6 +49,8 @@ const TABS: SettingsShellTab[] = [
         label: "Organizations",
         href: "/settings/organizations",
     },
+    // Version, source code and licensing (AGPL-3.0 section 13 source offer).
+    { id: "about", label: "About", href: "/settings/about" },
 ];
 
 export default function SettingsLayout({

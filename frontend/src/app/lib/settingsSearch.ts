@@ -290,6 +290,16 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
         keywords: ["invite", "invitation", "invited", "join", "join team", "pending invitations", "accept invitation", "decline"],
         href: "/settings/organizations#my-invitations-heading",
     },
+    // About
+    {
+        id: "about-source",
+        tabId: "about",
+        tab: "About",
+        title: "About",
+        description: "The version and commit of this build, its source code, licence and notices.",
+        keywords: ["about", "version", "build", "commit", "source", "source code", "open source", "agpl", "license", "licence", "licensing", "notice", "credits", "attribution", "upstream"],
+        href: "/settings/about",
+    },
 ];
 
 // Words that carry no meaning on their own; a query of only these matches
