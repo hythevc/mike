@@ -66,4 +66,21 @@ describe("TabularCell", () => {
         expect(screen.getByText("Five years")).toBeInTheDocument();
         expect(screen.queryByText("No readable text")).not.toBeInTheDocument();
     });
+
+    it("shows the quote-status marker on an answered cell", () => {
+        const cell = {
+            id: "cell-1",
+            status: "done",
+            quote_status: "not_found",
+            content: { summary: "The term is five years", flag: "grey" },
+        } as TabularCellData;
+
+        render(<TabularCell cell={cell} onExpand={vi.fn()} />);
+
+        const marker = screen.getByText("Quote not found - check source");
+        expect(marker).toBeInTheDocument();
+        expect(
+            marker.closest("[data-quote-marker='not_found']"),
+        ).toHaveAttribute("title");
+    });
 });

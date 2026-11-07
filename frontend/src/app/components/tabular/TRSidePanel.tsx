@@ -23,10 +23,12 @@ import type {
     ColumnConfig,
     Document,
     TabularCell,
+    TabularQuoteCheck,
     TabularReviewRow,
 } from "../shared/types";
 import { preprocessCitations, type ParsedCitation } from "./citation-utils";
 import { getPillClass } from "./pillUtils";
+import { TabularQuoteMarker } from "./TabularQuoteMarker";
 import { PdfView } from "../shared/views/PdfView";
 import { SpreadsheetView } from "../shared/views/SpreadsheetView";
 import { DocxView } from "../shared/views/DocxView";
@@ -52,6 +54,11 @@ interface Props {
     documents: Document[];
     column: ColumnConfig;
     columns: ColumnConfig[];
+    /**
+     * The open cell's checked quotes, each with the source passage it matched.
+     * Null while they load; an empty array when the cell has none.
+     */
+    quoteChecks?: TabularQuoteCheck[] | null;
     onClose: () => void;
     onNavigate: (rowId: string, columnIndex: number) => void;
     onRegenerate?: () => Promise<void>;
@@ -106,6 +113,7 @@ export function TRSidePanel({
     documents,
     column,
     columns,
+    quoteChecks,
     onClose,
     onNavigate,
     onRegenerate,
@@ -677,6 +685,16 @@ export function TRSidePanel({
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Quote checks: each quote beside the source
+                                    passage it matched. The page it cites is not
+                                    checked; only the quoted text is matched. */}
+                                {cell.quote_status &&
+                                    cell.quote_status !== "no_text" && (
+                                        <QuoteChecksSection
+                                            quoteChecks={quoteChecks}
+                                        />
+                                    )}
                             </>
                         )}
                     </div>
@@ -772,6 +790,104 @@ function CellNavigatorButton({
         >
             {children}
         </button>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Quote checks
+// ---------------------------------------------------------------------------
+
+/** Where a quote says it is: a cell locator, a page, or a cited reference. */
+function quoteCheckLocation(check: TabularQuoteCheck): string | null {
+    if (check.sheet && check.cell) return `${check.sheet}!${check.cell}`;
+    if (check.cell) return check.cell;
+    if (typeof check.page === "number") return `Page ${check.page}`;
+    if (check.cited_reference) return check.cited_reference;
+    return null;
+}
+
+/**
+ * The open cell's checked quotes, each shown beside the source passage it
+ * matched. Only the quoted text is matched; the page or cell a quote cites is
+ * not checked, as the note says.
+ */
+function QuoteChecksSection({
+    quoteChecks,
+}: {
+    quoteChecks?: TabularQuoteCheck[] | null;
+}) {
+    if (quoteChecks === undefined || quoteChecks === null) {
+        return (
+            <div className="mt-6">
+                <h4 className="mb-2 text-xs font-medium text-gray-900">
+                    Quote checks
+                </h4>
+                <p className="text-xs text-gray-600">Loading quote checks…</p>
+            </div>
+        );
+    }
+    if (quoteChecks.length === 0) return null;
+    return (
+        <div className="mt-6">
+            <h4 className="mb-2 text-xs font-medium text-gray-900">
+                Quote checks
+            </h4>
+            <p className="mb-3 text-[11px] leading-relaxed text-gray-600">
+                Only the quoted text is matched against the source. The page or
+                cell a quote cites is not checked.
+            </p>
+            <ul className="space-y-2.5">
+                {quoteChecks.map((check, index) => {
+                    const location = quoteCheckLocation(check);
+                    return (
+                        <li
+                            key={index}
+                            className="rounded-md border border-gray-200 p-2"
+                        >
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                                <TabularQuoteMarker
+                                    kind={check.status}
+                                    className="text-[11px]"
+                                />
+                                {location && (
+                                    <span className="shrink-0 text-[11px] text-gray-600">
+                                        {location}
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs leading-relaxed text-gray-800">
+                                <span className="text-gray-600">Quote: </span>
+                                <span className="italic">“{check.quote}”</span>
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed">
+                                <span className="text-gray-600">Source: </span>
+                                {check.source_excerpt ? (
+                                    <span className="text-gray-800">
+                                        {check.context_before && (
+                                            <span className="text-gray-600">
+                                                …{check.context_before}
+                                            </span>
+                                        )}
+                                        <span className="rounded-sm bg-amber-100 px-0.5 text-gray-900">
+                                            {check.source_excerpt}
+                                        </span>
+                                        {check.context_after && (
+                                            <span className="text-gray-600">
+                                                {check.context_after}…
+                                            </span>
+                                        )}
+                                    </span>
+                                ) : (
+                                    <span className="text-gray-600">
+                                        Not found in the source text.
+                                    </span>
+                                )}
+                            </p>
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
     );
 }
 
