@@ -1,3 +1,5 @@
+import { brand } from "./brand.generated";
+
 function required(env: NodeJS.ProcessEnv, names: readonly string[]): string {
   for (const name of names) {
     const value = env[name]?.trim();
@@ -207,13 +209,49 @@ export function authHandoffEncryptionSecret(
   return secret;
 }
 
+/** A full 40-character git commit SHA, lower-case hex. */
+const FULL_GIT_SHA = /^[0-9a-f]{40}$/;
+
+/**
+ * Whether a source-repository URL is still a placeholder rather than a real
+ * public repository. The AGPL-3.0 section 13 source offer must point at the
+ * actual corresponding source, so a production build may not ship with the
+ * example.com-style value the brand configuration carries before a fork fills
+ * it in. A bracketed value, an example/localhost host, or an unparseable URL
+ * all count as unset.
+ */
+function isPlaceholderRepositoryUrl(url: string | null | undefined): boolean {
+  const value = url?.trim() ?? "";
+  if (!value) return true;
+  if (/[[\]<>]/.test(value)) return true;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "example.com" ||
+      host === "example.org" ||
+      host === "example.net" ||
+      host.endsWith(".example.com") ||
+      host.endsWith(".example.org") ||
+      host.endsWith(".example.net")
+    );
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Fail before the HTTP listener starts when the authentication boundary is not
  * usable. This deliberately lives outside app.ts so unit tests can import the
  * Express app without supplying production credentials.
+ *
+ * `sourceRepositoryUrl` defaults to the brand configuration's value; it is a
+ * parameter so a test can exercise the production placeholder-repository check
+ * without rebuilding the generated brand module.
  */
 export function validateRuntimeConfiguration(
   env: NodeJS.ProcessEnv = process.env,
+  sourceRepositoryUrl: string = brand.sourceRepositoryUrl,
 ): void {
   const errors: string[] = [];
   const session = supabaseSessionConfiguration(env);
@@ -272,6 +310,22 @@ export function validateRuntimeConfiguration(
         errors,
       );
     }
+
+    // AGPL-3.0 section 13: a production build must be able to point network
+    // users at the exact corresponding source. GIT_SHA is the commit the
+    // image was built from, and the source offer links to the repository at
+    // that commit, so a short, missing or malformed value is a boot failure.
+    if (!FULL_GIT_SHA.test(env.GIT_SHA?.trim().toLowerCase() ?? "")) {
+      errors.push(
+        "GIT_SHA must be the full 40-character commit the running image was built from",
+      );
+    }
+    // The offer is useless if the repository it names is still a placeholder.
+    if (isPlaceholderRepositoryUrl(sourceRepositoryUrl)) {
+      errors.push(
+        "sourceRepositoryUrl in the brand configuration must name the public source repository, not a placeholder",
+      );
+    }
   }
 
   if (errors.length > 0) {
@@ -282,9 +336,11 @@ export function validateRuntimeConfiguration(
     const hint =
       errors.length > errorsBeforeProductionChecks
         ? "\n\nNODE_ENV=production requires the public https URLs above " +
-          "(FRONTEND_URL, API_PUBLIC_URL, and WORD_ADDIN_URL when set). " +
-          "For a local run over http, set NODE_ENV=development instead; " +
-          "docker compose does this by default. See docs/deployment.md."
+          "(FRONTEND_URL, API_PUBLIC_URL, and WORD_ADDIN_URL when set), a " +
+          "full 40-character GIT_SHA, and a real source repository URL in " +
+          "the brand configuration. For a local run over http, set " +
+          "NODE_ENV=development instead; docker compose does this by " +
+          "default. See docs/deployment.md."
         : "";
     throw Object.assign(
       new Error(

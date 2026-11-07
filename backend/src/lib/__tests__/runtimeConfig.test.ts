@@ -13,6 +13,10 @@ import {
   validateRuntimeConfiguration,
 } from "../runtimeConfig";
 
+// A full 40-character commit SHA; the production source offer (AGPL section
+// 13) needs it, so a complete production environment carries it.
+const VALID_GIT_SHA = "0123456789abcdef0123456789abcdef01234567";
+
 const validProduction = {
   NODE_ENV: "production",
   SUPABASE_URL: "https://project.supabase.co",
@@ -20,7 +24,12 @@ const validProduction = {
   SUPABASE_SECRET_KEY: "service-role-key",
   FRONTEND_URL: "https://app.example.test",
   API_PUBLIC_URL: "https://app.example.test/api",
+  GIT_SHA: VALID_GIT_SHA,
 } as NodeJS.ProcessEnv;
+
+// A real public repository; the brand default is used unless a test overrides
+// it, so the placeholder-repository check does not fire for valid cases.
+const REAL_REPOSITORY = "https://github.com/example-org/mike-fork";
 
 describe("runtime authentication configuration", () => {
   it("accepts a complete production configuration", () => {
@@ -98,6 +107,66 @@ describe("runtime authentication configuration", () => {
         SUPABASE_PUBLISHABLE_KEY: undefined,
         SUPABASE_ANON_KEY: "legacy-anon-key",
       }),
+    ).not.toThrow();
+  });
+
+  // AGPL-3.0 section 13: a production build has to be able to offer the exact
+  // corresponding source. These checks run only in production.
+  it("rejects production boot without a full GIT_SHA, naming the field", () => {
+    expect(() =>
+      validateRuntimeConfiguration(
+        { ...validProduction, GIT_SHA: undefined },
+        REAL_REPOSITORY,
+      ),
+    ).toThrow(/GIT_SHA must be the full 40-character commit/);
+  });
+
+  it("rejects a short or malformed GIT_SHA in production", () => {
+    expect(() =>
+      validateRuntimeConfiguration(
+        { ...validProduction, GIT_SHA: "abc123" },
+        REAL_REPOSITORY,
+      ),
+    ).toThrow(/GIT_SHA must be the full 40-character commit/);
+    expect(() =>
+      validateRuntimeConfiguration(
+        // 40 characters but not hex.
+        { ...validProduction, GIT_SHA: "z".repeat(40) },
+        REAL_REPOSITORY,
+      ),
+    ).toThrow(/GIT_SHA must be the full 40-character commit/);
+  });
+
+  it("rejects a placeholder source repository in production, naming the field", () => {
+    expect(() =>
+      validateRuntimeConfiguration(
+        validProduction,
+        "https://github.example.com/org/repo",
+      ),
+    ).toThrow(/sourceRepositoryUrl .* must name the public source repository/);
+    expect(() =>
+      validateRuntimeConfiguration(validProduction, "[source repository]"),
+    ).toThrow(/sourceRepositoryUrl/);
+  });
+
+  it("accepts production boot with a full GIT_SHA and a real repository", () => {
+    expect(() =>
+      validateRuntimeConfiguration(validProduction, REAL_REPOSITORY),
+    ).not.toThrow();
+  });
+
+  it("does not require GIT_SHA or a real repository outside production", () => {
+    expect(() =>
+      validateRuntimeConfiguration(
+        {
+          ...validProduction,
+          NODE_ENV: "development",
+          GIT_SHA: undefined,
+          FRONTEND_URL: "http://localhost:3000",
+          API_PUBLIC_URL: "http://localhost:3000/api",
+        },
+        "https://example.com/placeholder",
+      ),
     ).not.toThrow();
   });
 });
@@ -267,10 +336,12 @@ it("identifies invalid configuration fields without sending their values", () =>
     failure = error;
   }
   const event = diagnosticEvent({ tags: diagnosticErrorTags(failure) });
+  // GIT_SHA joins the set in production: the source offer needs it, and it is
+  // a registered configuration field, so its absence is diagnosable too.
   expect(event.tags).toEqual({
     failure_code: "configuration_invalid",
     configuration_fields:
-      "API_PUBLIC_URL,FRONTEND_URL,SUPABASE_PUBLISHABLE_KEY,SUPABASE_URL",
+      "API_PUBLIC_URL,FRONTEND_URL,GIT_SHA,SUPABASE_PUBLISHABLE_KEY,SUPABASE_URL",
   });
   expect(JSON.stringify(event)).not.toContain("PRIVATE");
 });
