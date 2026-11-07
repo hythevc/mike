@@ -61,7 +61,7 @@ export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
             <div
                 data-slot="search-bar"
                 className={cn(
-                    `flex items-center text-gray-700 ${LIQUID_GLASS_SUBTLE_CLASS} transition-colors focus-within:ring-2 focus-within:ring-blue-500/40`,
+                    `flex items-center text-gray-700 ${LIQUID_GLASS_SUBTLE_CLASS} transition-colors focus-within:ring-2 focus-within:ring-[var(--focus-ring)]`,
                     classes.wrapper,
                     className,
                     wrapperClassName,
@@ -94,7 +94,7 @@ export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
                         type="button"
                         onClick={() => onValueChange("")}
                         className={cn(
-                            "flex shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/70 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
+                            "flex shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/70 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
                             classes.clear,
                         )}
                         aria-label={clearLabel}

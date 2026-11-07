@@ -64,6 +64,30 @@
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
     --radius-xl: calc(var(--radius) + 4px);
+
+    /* Semantic colour-role utilities (W11). These map to the light/dark role
+       tokens below, so `bg-surface`, `text-fg`, `text-fg-muted`,
+       `border-border-strong`, `ring-focus-ring`, `text-danger`,
+       `bg-brand-primary` and `text-brand-on-primary` carry their meaning and
+       switch theme on their own. tokenContrast.test.ts pins the contrast the
+       role tokens must keep. */
+    --color-surface: var(--surface);
+    --color-surface-elevated: var(--surface-elevated);
+    --color-fg: var(--text-primary);
+    --color-fg-subtle: var(--text-secondary);
+    --color-fg-muted: var(--text-muted);
+    --color-border-strong: var(--border-strong);
+    --color-focus-ring: var(--focus-ring);
+    --color-danger: var(--danger);
+    --color-success: var(--success);
+    --color-warning: var(--warning);
+    --color-brand-primary: var(--brand-primary-color);
+    --color-brand-on-primary: var(--brand-on-primary-color);
+
+    /* Chrome type scale. The base chrome size (`text-xs`) is 13px rather than
+       Tailwind's 12px; its line-height ratio is left at Tailwind's default.
+       Shared primitives keep no text below 11px (see noMicroText.test.ts). */
+    --text-xs: 0.8125rem;
 }
 
 :root {
@@ -105,6 +129,30 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
+
+    /* Semantic colour roles (light). Muted body text clears WCAG 2.2 AA
+       (>= 4.5:1) on every surface token; the focus ring clears 3:1; on-brand
+       text clears 4.5:1 on brand-primary. tokenContrast.test.ts enforces all
+       three. Surfaces alias the app-surface family so the roles follow the
+       chrome. */
+    --surface: var(--app-surface);
+    --surface-elevated: var(--app-floating);
+    --text-primary: #111827;
+    --text-secondary: #374151;
+    --text-muted: #5b6472;
+    --border-strong: #d0d5dd;
+    /* Solid, unlike the old 40%-opacity blue ring (~1.6:1, and gone in forced
+       colours). This clears 3:1 against the surfaces it sits on. */
+    --focus-ring: #0078e6;
+    --danger: #b91c1c;
+    --success: #047857;
+    --warning: #92400e;
+    /* Brand slots. W12's layout.tsx sets --brand-primary / --brand-on-primary
+       from the brand config; until it lands these fallbacks apply. The fallback
+       azure is darkened from the legacy #0088ff so white on-brand text clears
+       4.5:1 (the old azure pill was ~3.3:1). */
+    --brand-primary-color: var(--brand-primary, #006edc);
+    --brand-on-primary-color: var(--brand-on-primary, #ffffff);
 }
 
 .dark {
@@ -146,4 +194,16 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+
+    /* Semantic colour roles (dark). --surface/--surface-elevated and the brand
+       slots inherit the :root definitions, which resolve to the dark
+       app-surface family and the brand fallback respectively. */
+    --text-primary: #f3f4f6;
+    --text-secondary: #d1d5db;
+    --text-muted: #9ca3af;
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --focus-ring: #60a5fa;
+    --danger: #f87171;
+    --success: #34d399;
+    --warning: #fbbf24;
 }

@@ -51,7 +51,7 @@ export function TextCardUI({ title, text }: { title: string; text: string }) {
       </div>
       <div
         tabIndex={0}
-        className="max-h-96 select-text overflow-y-auto whitespace-pre-wrap px-3 py-3 font-sans text-xs leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40"
+        className="max-h-96 select-text overflow-y-auto whitespace-pre-wrap px-3 py-3 font-sans text-xs leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]"
       >
         {text}
       </div>

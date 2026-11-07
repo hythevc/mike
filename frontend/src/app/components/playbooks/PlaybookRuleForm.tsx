@@ -80,7 +80,7 @@ const USAGE_OPTIONS: { value: PlaybookClauseUsage; label: string }[] = [
 // A sample clause is one grey tile: its controls along the top and the clause
 // text below, with the focus ring on the whole tile rather than the text box.
 const CLAUSE_TILE_CLASS =
-  "min-w-0 rounded-lg bg-gray-100 transition-shadow focus-within:ring-2 focus-within:ring-gray-300/45";
+  "min-w-0 rounded-lg bg-gray-100 transition-shadow focus-within:ring-2 focus-within:ring-[var(--focus-ring)]";
 
 function positionsOf(rule: PlaybookRule, kind: PositionKind) {
   if (kind !== "standard") return rule[kind];

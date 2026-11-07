@@ -63,7 +63,7 @@ export const InAPickerRow = () => {
                                     : [...current, file],
                             );
                         }}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-700 ${LIQUID_GLASS_MODAL_ROW_HOVER_CLASS} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40`}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-700 ${LIQUID_GLASS_MODAL_ROW_HOVER_CLASS} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]`}
                     >
                         <CheckSquare state={checked ? "checked" : "unchecked"} />
                         {file}

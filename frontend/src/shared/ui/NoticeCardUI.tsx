@@ -132,7 +132,7 @@ export function NoticeCardUI({
                     "pointer-events-auto relative flex rounded-2xl px-2 py-2 text-xs",
                     LIQUID_GLASS_FLOAT_CLASS,
                     // Only visible when a toast is focused with the keyboard.
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2",
                 ),
                 className,
             )}

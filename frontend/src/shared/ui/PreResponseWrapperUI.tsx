@@ -66,7 +66,7 @@ function ActivityList({ children }: { children: ReactNode }) {
                 role="region"
                 aria-label="Assistant activity"
                 tabIndex={0}
-                className="max-h-80 overflow-y-auto overscroll-contain focus-visible:rounded-b-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                className="max-h-80 overflow-y-auto overscroll-contain focus-visible:rounded-b-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-inset"
             >
                 <div ref={contentRef} className="flex flex-col gap-4 px-3 pb-2">
                     {children}
@@ -131,7 +131,7 @@ export function PreResponseWrapperUI({
                     setIsOpen((value) => !value);
                 }}
                 aria-expanded={isOpen}
-                className={`flex w-full items-center justify-between rounded-xl px-3 font-serif text-sm text-gray-500 transition-colors hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${isOpen ? "pt-2" : "py-2"}`}
+                className={`flex w-full items-center justify-between rounded-xl px-3 font-serif text-sm text-gray-500 transition-colors hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-inset ${isOpen ? "pt-2" : "py-2"}`}
             >
                 <span className="flex min-w-0 items-baseline">
                     <span className="truncate">{label}</span>

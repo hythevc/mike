@@ -173,7 +173,7 @@ describe("OrganizationsOverview", () => {
       name: "Manage Elite Law LLP",
     });
     expect(manage).toHaveTextContent("Manage");
-    expect(manage.className).toMatch(/bg-blue-/);
+    expect(manage.className).toMatch(/bg-brand-primary/);
     // The card itself is not a second way in.
     expect(
       screen.getAllByRole("button", { name: "Manage Elite Law LLP" }),

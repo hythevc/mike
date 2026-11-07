@@ -32,7 +32,7 @@ export function SelectionCheckbox({
             onChange={onChange}
             aria-checked={indeterminate ? "mixed" : checked}
             aria-label={label}
-            className={cn(TABLE_CHECKBOX_CLASS, "mr-0 justify-self-center disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2")}
+            className={cn(TABLE_CHECKBOX_CLASS, "mr-0 justify-self-center disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2")}
         />
     );
 }

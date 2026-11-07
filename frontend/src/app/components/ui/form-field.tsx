@@ -12,7 +12,7 @@ import { LIQUID_GLASS_SUBTLE_CLASS } from "@/shared/ui/LiquidGlassUI";
 // `outline-none` removes the browser's focus indicator, so every variant has to
 // supply its own `focus-visible:` ring or the field becomes unusable by keyboard.
 const FOCUS_RING_CLASS =
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2";
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2";
 
 export const FORM_CONTROL_GLASS_CLASS =
     `w-full rounded-xl px-3 text-sm text-gray-700 ${LIQUID_GLASS_SUBTLE_CLASS} outline-none placeholder:text-gray-400 transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING_CLASS}`;

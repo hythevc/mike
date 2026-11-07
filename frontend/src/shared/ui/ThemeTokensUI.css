@@ -29,12 +29,13 @@
     --liquid-glass-selected-background: var(--app-surface-active, #eff0f3);
     --liquid-glass-modal-row-hover-background: #f3f4f6;
     --liquid-glass-modal-row-selected-background: #e5e7eb;
-    /* Matches Tailwind's `ring-blue-500/40`, the ring every primitive uses. */
-    --focus-ring-color: color-mix(
-        in oklab,
-        var(--color-blue-500, #3b82f6) 40%,
-        transparent
-    );
+    /* The one focus ring, solid and themed. --focus-ring (DesignTokensUI.css)
+       is a solid colour that clears 3:1 against adjacent surfaces in both
+       themes; the old 40%-opacity blue was ~1.6:1 and disappeared in forced
+       colours. --focus-ring-offset is the gap between the control and its
+       ring. */
+    --focus-ring-color: var(--focus-ring, #0078e6);
+    --focus-ring-offset: 2px;
 
     --content-fade-color: var(--app-surface, #fdfdfe);
     --shimmer-edge: #e5e7eb;
@@ -218,7 +219,7 @@
 @layer base {
     :focus-visible {
         outline: 2px solid var(--focus-ring-color);
-        outline-offset: 2px;
+        outline-offset: var(--focus-ring-offset, 2px);
     }
 
     /* A control with a hover fill draws its ring inset, on the fill's own
@@ -232,7 +233,23 @@
         .liquid-glass-modal-row-selected
     ):is(:focus-visible, :has(> [data-focus-fill]:focus-visible)) {
         outline: 2px solid var(--focus-ring-color);
-        outline-offset: -2px;
+        outline-offset: calc(-1 * var(--focus-ring-offset, 2px));
+    }
+
+    /* Forced colours ignore authored colours, so the solid ring above would
+       disappear. Pin the outline to the system Highlight colour and keep it
+       visible. Both the Tailwind box-shadow rings on primitives and this
+       outline survive, because `outline` is always painted in forced colours. */
+    @media (forced-colors: active) {
+        :focus-visible,
+        :is(
+            .liquid-glass-hover,
+            .liquid-glass-selected,
+            .liquid-glass-modal-row-hover,
+            .liquid-glass-modal-row-selected
+        ):is(:focus-visible, :has(> [data-focus-fill]:focus-visible)) {
+            outline: 2px solid Highlight;
+        }
     }
 }
 

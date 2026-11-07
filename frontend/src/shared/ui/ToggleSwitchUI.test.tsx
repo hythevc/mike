@@ -29,7 +29,10 @@ describe("ToggleSwitchUI", () => {
         expect(onCheckedChange).toHaveBeenCalledWith(false);
     });
 
-    it("renders the off-state track without an outline", () => {
+    it("renders the off-state track with the documented inset ring", () => {
+        // The off track must clear 3:1 (WCAG 1.4.11) against a white surface,
+        // which bg-gray-300 alone does not; the inset gray-500 ring supplies
+        // the boundary. docs/design-system.md records this requirement.
         const { container } = render(
             <ToggleSwitchUI checked={false} onCheckedChange={() => {}}>
                 Group documents
@@ -39,8 +42,8 @@ describe("ToggleSwitchUI", () => {
         const track = container.querySelector(
             '[data-slot="toggle-switch-track"]',
         );
-        expect(track).toHaveClass("bg-gray-300");
-        expect(track).not.toHaveClass(
+        expect(track).toHaveClass(
+            "bg-gray-300",
             "ring-1",
             "ring-inset",
             "ring-gray-500",

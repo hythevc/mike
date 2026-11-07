@@ -48,6 +48,24 @@
     border: 1px solid var(--table-grid-border);
 }
 
+/* Light muted-text bridge (W11).
+
+   The screens that predate semantic tokens use text-gray-400 (~2.5:1) and
+   text-gray-300 (~1.5:1) for muted body text, both below WCAG 2.2 AA. Until a
+   screen adopts text-fg-muted, these two rules raise the rendered colour to the
+   muted role token (>= 4.5:1 on every surface). TEXT only: bg-/border-gray are
+   untouched, and a more specific utility (a hover:/disabled: variant) still
+   wins, so this is the resting muted colour. It sits before the dark palette
+   map so the map's `:where(.dark)` rule of equal specificity wins in the dark
+   theme; it carries no `.dark` selector, so darkPaletteMap.test.ts ignores it.
+   New work uses text-fg-muted directly instead of a raw gray. */
+@layer utilities {
+    .text-gray-400,
+    .text-gray-300 {
+        color: var(--text-muted);
+    }
+}
+
 /* Dark palette map.
 
    Most screens predate semantic color tokens and use Tailwind's palette
@@ -260,6 +278,16 @@
 
     body {
         @apply bg-background text-foreground;
+        /* Tabular figures in the chrome so counts and numbers in tables and
+           controls line up. Legal prose (the editors below) resets to
+           proportional figures. */
+        font-variant-numeric: tabular-nums;
+    }
+
+    .markdown-editor-content,
+    .docx-editor,
+    .fortune-container {
+        font-variant-numeric: normal;
     }
 
     button {

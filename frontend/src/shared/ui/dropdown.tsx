@@ -39,7 +39,7 @@ export const DROPDOWN_ROWS_CLASS = "flex flex-col gap-1";
 // the hover fill is a ~1% luminance step, so keyboard focus also gets a ring.
 // An icon keeps an explicit `h-*`/`size-*` class and is 16px otherwise.
 const DROPDOWN_ITEM_CLASS =
-    "theme-dropdown-item relative flex shrink-0 cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-gray-600 outline-none transition-colors hover:text-gray-900 focus:text-gray-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>*]:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-']):not([class*='h-'])]:size-4";
+    "theme-dropdown-item relative flex shrink-0 cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-gray-600 outline-none transition-colors hover:text-gray-900 focus:text-gray-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>*]:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-']):not([class*='h-'])]:size-4";
 
 const DROPDOWN_DESTRUCTIVE_CLASS =
     "text-red-600 hover:text-red-600 focus:text-red-600";
@@ -209,7 +209,7 @@ export function DropdownLabel({
         <DropdownPrimitive.Label
             data-slot="dropdown-label"
             className={mergeClasses(
-                "shrink-0 px-3 py-1 text-[10px] uppercase tracking-wider text-gray-400",
+                "shrink-0 px-3 py-1 text-[11px] uppercase tracking-wider text-gray-400",
                 className,
             )}
             {...props}
@@ -338,7 +338,7 @@ export const DropdownButton = React.forwardRef<
             ref={ref}
             type={type}
             className={mergeClasses(
-                "theme-dropdown-item cursor-pointer text-xs text-gray-600 transition-colors focus:text-gray-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40",
+                "theme-dropdown-item cursor-pointer text-xs text-gray-600 transition-colors focus:text-gray-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]",
                 className,
             )}
             {...props}

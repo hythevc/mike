@@ -106,6 +106,34 @@ retyping the utilities. Liquid-glass controls use
 `LIQUID_GLASS_HOVER_CLASS`/`LIQUID_GLASS_SELECTED_CLASS`; modal rows use the
 modal-specific pair documented under elevation below.
 
+### Semantic roles
+
+Alongside the surface family, `DesignTokensUI.css` declares a set of semantic
+colour roles with light and dark values, mapped to utilities through
+`@theme inline`. Prefer these in new work over a raw gray; they switch theme on
+their own (no dark-palette-map entry) and `tokenContrast.test.ts` holds their
+contrast.
+
+| Role | Utility | Clears |
+| --- | --- | --- |
+| `--surface` / `--surface-elevated` | `bg-surface` / `bg-surface-elevated` | — (alias the app-surface family) |
+| `--text-primary` | `text-fg` | ≥ 4.5:1 on every surface |
+| `--text-secondary` | `text-fg-subtle` | ≥ 4.5:1 |
+| `--text-muted` | `text-fg-muted` | ≥ 4.5:1 (the muted role; replaces `text-gray-400`) |
+| `--border-strong` | `border-border-strong` | a visible divider |
+| `--focus-ring` | `ring-[var(--focus-ring)]` | ≥ 3:1 vs adjacent surfaces |
+| `--danger` / `--success` / `--warning` | `text-danger` / `text-success` / `text-warning` | ≥ 4.5:1 status text |
+| `--brand-primary` / `--brand-on-primary` | `bg-brand-primary` / `text-brand-on-primary` | on-brand text ≥ 4.5:1 |
+
+`--brand-primary-color` / `--brand-on-primary-color` read W12's `--brand-primary`
+and `--brand-on-primary` (set from the brand config) with a darkened-azure
+fallback, so the brand pill carries white at ≥ 4.5:1 before and after W12.
+
+The muted role is also bridged for legacy screens: a light-theme rule in
+`globals.css` renders `text-gray-400` and `text-gray-300` at `--text-muted`
+until a screen adopts `text-fg-muted`. The `grayClassRatchet.json` count of raw
+gray-\* uses may only fall.
+
 ### Component color roles
 
 Theme-sensitive colors that do not describe elevation live in
@@ -229,9 +257,16 @@ The Word add-in supplies the same two variables from
 `word-addin/src/taskpane/styles.css` (fonts loaded via `<link>` in
 `index.html`), so `shared/ui` components render identically in both targets.
 
+The chrome base is 13px: `DesignTokensUI.css` sets `--text-xs` (the default for
+most chrome) to `0.8125rem` in `@theme`, one step up from Tailwind's 12px, in
+both the web app and the add-in. Figures are tabular in the chrome
+(`font-variant-numeric: tabular-nums` on `body`), and reset to proportional in
+the prose editors. Shared primitives in `frontend/src/shared/ui` carry no text
+below 11px; `sharedUiAccessibility.test.ts` enforces that floor.
+
 De facto type scale in the app chrome, most to least common: `text-xs` (dense
-table and control text — the default for most chrome), `text-sm` (body copy,
-normal-size buttons), `text-[10px]` (badges, superscript citations),
+table and control text — the default for most chrome, 13px), `text-sm` (body
+copy, normal-size buttons), `text-[11px]` (badges, superscript citations),
 `text-2xl font-serif` (display headings and empty states), `text-xl font-serif`
 (page titles and breadcrumbs). There is no separate heading component; use
 `EmptyState` for empty-state headings and `PageHeader` for page titles so the
@@ -572,19 +607,24 @@ These are the rules the primitives already follow. Match them in new work.
 
 - **Focus is always visible.** Interactive primitives draw a ring on
   `:focus-visible`, normally `focus-visible:outline-none focus-visible:ring-2
-  focus-visible:ring-blue-500/40`, with `focus-visible:ring-offset-2` on a
-  free-standing control and `focus-visible:ring-inset` inside a row or menu.
-  If you write `outline-none` you owe the element a replacement indicator in
-  the same class string.
-- **Focus rings are blue in new work.** Use `ring-blue-500/40`, not
-  `ring-ring` or a gray. A control that sets nothing gets the same blue from
-  the `:focus-visible` fallback in `ThemeTokensUI.css` (`--focus-ring-color`),
-  which sits in the `components.base` layer so a control's own ring wins.
-  Known exceptions still draw a grey ring: the grey-filled text fields
-  (`authInputUIClassName`, `SettingsTextInput`, the MFA code inputs and
-  `PlaybookRuleForm`'s fields), `InputUI` (`ring-ring/50`), and
-  `SelectionCheckbox` and `PreResponseWrapperUI` (`ring-ring`). Do not copy
-  them.
+  focus-visible:ring-[var(--focus-ring)]`, with `focus-visible:ring-offset-2`
+  on a free-standing control and `focus-visible:ring-inset` inside a row or
+  menu. If you write `outline-none` you owe the element a replacement
+  indicator in the same class string.
+- **The focus ring is one solid, themed token.** `--focus-ring`
+  (`DesignTokensUI.css`) is a solid colour — azure in the light theme, a
+  lighter blue in the dark theme — that clears 3:1 against the surfaces it
+  sits on (WCAG 1.4.11; the old `ring-blue-500/40` was ~1.6:1). Use
+  `ring-[var(--focus-ring)]`, not `ring-ring`, a gray, or an opacity-reduced
+  blue. A control that sets nothing gets the same ring from the
+  `:focus-visible` fallback in `ThemeTokensUI.css` (`--focus-ring-color`,
+  which reads `--focus-ring`), which sits in the `components.base` layer so a
+  control's own ring wins. That fallback also declares a `forced-colors`
+  outline (`outline: 2px solid Highlight`) so the ring survives forced-colours
+  mode, where authored colours are dropped. The text fields that once drew a
+  grey ring (`authInputUIClassName`, `SettingsTextInput` and the fields that
+  reuse it, the MFA code inputs, `PlaybookRuleForm`, `InputUI`,
+  `SelectionCheckbox` and `PreResponseWrapperUI`) now all use this token.
 - **An inset ring traces the hover fill.** A control carrying a hover or
   selected fill class (`LIQUID_GLASS_HOVER_CLASS`, `LIQUID_GLASS_SELECTED_CLASS`,
   and the modal-row pair) gets an inset ring on that fill's perimeter by
@@ -611,7 +651,16 @@ These are the rules the primitives already follow. Match them in new work.
   `role="checkbox"` + `aria-checked` (`"mixed"` for indeterminate).
 - **Non-text contrast ≥ 3:1** for control boundaries (WCAG 1.4.11). The
   off-state switch track needs `bg-gray-300 ring-1 ring-inset ring-gray-500` to
-  clear it against white; `bg-gray-100` does not.
+  clear it against white; `bg-gray-100` does not. `ToggleSwitchUI` draws this
+  ring on its off state.
+- **Pointer targets are at least 24x24 CSS pixels** (WCAG 2.5.8). `CloseButton`
+  keeps its small ✕ glyph but carries a centred 24x24 `before:` pseudo-element,
+  so the clickable and focusable target meets the minimum without enlarging the
+  mark. The table checkbox (`TABLE_CHECKBOX_CLASS`) is a 14px box, smaller than
+  24x24; it qualifies through the 2.5.8 **spacing exception**, because it is the
+  only target in its cell and table rows are at least 40px tall, so a 24px
+  circle centred on it does not reach another target. A new control that cannot
+  reach 24x24 either needs the same clear spacing or an expanded hit area.
 - **Decorative elements are hidden.** Icons inside a labelled control get
   `aria-hidden`.
 - **Navigation is made of links.** A control that goes to another page is a
@@ -648,10 +697,11 @@ both themes. A change that adds a page adds a scan of it through the helper.
 
 The ratchet only goes down. When a fix lands, the helper prints the lower
 entry to copy into `axe-ratchet.json`; lower it in the same change. Do not
-raise an entry to let a new violation through: fix the violation. Today
-every entry above zero is color contrast in the light theme (`text-gray-400`
-and similar muted text below 4.5:1); those entries fall to zero when the
-color tokens are fixed.
+raise an entry to let a new violation through: fix the violation. Every page
+now holds at zero serious violations in both themes: the light-theme muted
+text and the azure pill reached AA through the semantic colour tokens and the
+light muted-text bridge in `globals.css`. A new serious violation must be
+fixed, not admitted by raising an entry.
 
 ## Notices: toast or WarningPopup
 

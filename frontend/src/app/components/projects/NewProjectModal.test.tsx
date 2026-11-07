@@ -668,7 +668,7 @@ describe("NewProjectModal sharing", () => {
         expect(skip.parentElement).toBe(accessNext.parentElement);
         expect(skip).toHaveClass("text-gray-500");
         expect(screen.getByRole("button", { name: "Back" })).toHaveClass(
-            "bg-blue-600/90",
+            "bg-brand-primary",
         );
         const trigger = await screen.findByRole("button", {
             name: /Role for the new recipient/,

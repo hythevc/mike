@@ -94,8 +94,12 @@ function canPortalToDocument() {
 
 export const TABLE_PRIMARY_CELL_WIDTH_CLASS =
     "w-[248px] sm:w-[292px] md:w-[332px] shrink-0";
+// 14px box (was 10px). The checkbox is smaller than WCAG 2.5.8's 24x24 target
+// minimum, which it meets through the spacing exception: it is the only target
+// in its cell and table rows are at least 40px (h-10) tall, so a 24px circle
+// centred on it clears the nearest target. See docs/design-system.md.
 export const TABLE_CHECKBOX_CLASS =
-    "mr-3 h-2.5 w-2.5 shrink-0 rounded border-gray-200 cursor-pointer accent-black";
+    "mr-3 h-3.5 w-3.5 shrink-0 rounded border-gray-200 cursor-pointer accent-black";
 
 // A child checkbox is centered beneath its parent folder's 16px chevron.
 // Root padding is 12px; advancing one level crosses the 10px checkbox, its
