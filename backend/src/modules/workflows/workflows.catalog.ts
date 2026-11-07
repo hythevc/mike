@@ -1,6 +1,7 @@
 // workflows catalog — implementation behind the module facade.
+import type { WorkflowCatalogAttribution } from "@mike/contracts";
 import { type Db } from "../../lib/supabase";
-import { catalogWorkflowToLegacy, ensureDefaultWorkflows, findCatalogWorkflow, listActiveCatalogWorkflows, type LegacyCatalogWorkflow } from "../../lib/workflowCatalog";
+import { catalogWorkflowToLegacy, catalogLicensing, ensureDefaultWorkflows, findCatalogWorkflow, listActiveCatalogWorkflows, type LegacyCatalogWorkflow } from "../../lib/workflowCatalog";
 import { WorkflowType, ServiceFailure } from "./workflows.types";
 import { withSystemWorkflowAccess } from "./workflows.serialization";
 
@@ -24,6 +25,40 @@ export async function listSystemWorkflows(
 ) {
   const catalog = await listActiveCatalogWorkflows(db, { type: workflowType });
   return catalog.map(catalogWorkflowToLegacy).map(withSystemWorkflowAccess);
+}
+
+// Every workflow in the active catalog — built-ins and importable add-ons
+// alike — with just the credit, licence, source and revision the open-source
+// notices page (GET /workflows/attributions) renders. Ordered by pack then
+// title so the page can group without a second pass. Licence fields are null
+// on rows synced before provenance existed; the page says so in plain words.
+export async function listCatalogAttributions(
+  db: Db,
+): Promise<WorkflowCatalogAttribution[]> {
+  const catalog = await listActiveCatalogWorkflows(db);
+  return catalog
+    .map((workflow): WorkflowCatalogAttribution => {
+      const licensing = catalogLicensing(workflow);
+      return {
+        workflow_key: workflow.workflow_key,
+        title: workflow.title,
+        type: workflow.type,
+        distribution: workflow.distribution,
+        pack_key: workflow.pack_key,
+        pack_title: workflow.pack_title,
+        version: workflow.version,
+        contributors: workflow.contributors ?? [],
+        license: licensing.license,
+        license_evidence: licensing.license_evidence,
+        attribution: licensing.attribution,
+        provenance: licensing.provenance,
+        source_commit: licensing.source_commit,
+      };
+    })
+    .sort((a, b) => {
+      const pack = (a.pack_title ?? "").localeCompare(b.pack_title ?? "");
+      return pack !== 0 ? pack : a.title.localeCompare(b.title);
+    });
 }
 
 export async function markDefaultWorkflows<T extends { id: string }>(

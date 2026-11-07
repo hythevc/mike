@@ -11,6 +11,7 @@ export {
 export {
   findSystemWorkflow,
   listSystemWorkflows,
+  listCatalogAttributions,
   ensureDefaultsInstalled,
 } from "./workflows.catalog";
 export {
