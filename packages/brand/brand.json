@@ -26,6 +26,7 @@
     "aiTransparency": { "url": "/legal/ai-transparency", "version": "0.1.0", "status": "draft" },
     "accessibility": { "url": "/legal/accessibility", "version": "0.1.0", "status": "draft" },
     "cookies": { "url": "/legal/cookies", "version": "0.1.0", "status": "draft" },
+    "clientAiUse": { "url": "/legal/client-ai-use", "version": "0.1.0", "status": "draft" },
     "security": { "url": "/security", "version": "0.1.0", "status": "draft" }
   },
   "assets": {

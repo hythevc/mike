@@ -96,6 +96,11 @@ export interface Brand {
     readonly accessibility: BrandLegalDocument;
     /** Cookie notice. */
     readonly cookies: BrandLegalDocument;
+    /**
+     * Plain-language explainer a firm can give its clients on how AI is used
+     * on their matter, with an engagement-letter clause.
+     */
+    readonly clientAiUse: BrandLegalDocument;
     /** Security overview and vulnerability disclosure policy. */
     readonly security: BrandLegalDocument;
   };
@@ -191,6 +196,11 @@ export const brand: Brand = {
     },
     cookies: {
       url: "/legal/cookies",
+      version: "0.1.0",
+      status: "draft",
+    },
+    clientAiUse: {
+      url: "/legal/client-ai-use",
       version: "0.1.0",
       status: "draft",
     },
