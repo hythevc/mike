@@ -12061,6 +12061,207 @@ grant execute on function public.usage_monthly_rollup(uuid, uuid, timestamptz)
 grant execute on function public.usage_deployment_key_tokens(uuid, uuid, timestamptz)
   to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Plans, seats and trials (PLANS_ENABLED); see
+-- backend/migrations/20261107_50_org_subscriptions.sql.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.org_subscriptions (
+  org_id uuid primary key references public.organizations(id) on delete cascade,
+  plan_key text
+    constraint org_subscriptions_plan_key_check
+    check (plan_key is null or char_length(plan_key) between 1 and 100),
+  status text not null default 'trialing'
+    constraint org_subscriptions_status_check
+    check (status in ('trialing', 'active', 'past_due', 'canceled', 'none')),
+  seat_limit integer
+    constraint org_subscriptions_seat_limit_check
+    check (seat_limit is null or seat_limit >= 1),
+  trial_ends_at timestamptz,
+  current_period_end timestamptz,
+  provider_customer_ref text
+    constraint org_subscriptions_provider_customer_ref_check
+    check (provider_customer_ref is null or char_length(provider_customer_ref) <= 255),
+  provider_subscription_ref text
+    constraint org_subscriptions_provider_subscription_ref_check
+    check (provider_subscription_ref is null or char_length(provider_subscription_ref) <= 255),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.org_subscriptions enable row level security;
+revoke all on public.org_subscriptions from public, anon, authenticated;
+grant select, insert, update on public.org_subscriptions to service_role;
+
+create or replace function public.org_subscription_default_trial_days()
+returns integer
+language sql
+immutable
+set search_path = public, pg_temp
+as $$ select 14 $$;
+
+create or replace function public.create_org_trial_subscription()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.org_subscriptions (org_id, status, trial_ends_at)
+  values (
+    new.id,
+    'trialing',
+    now() + make_interval(days => public.org_subscription_default_trial_days())
+  )
+  on conflict (org_id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists create_org_trial_subscription on public.organizations;
+create trigger create_org_trial_subscription
+  after insert on public.organizations
+  for each row
+  execute function public.create_org_trial_subscription();
+
+create or replace function public.touch_org_subscription()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists touch_org_subscription on public.org_subscriptions;
+create trigger touch_org_subscription
+  before update on public.org_subscriptions
+  for each row
+  execute function public.touch_org_subscription();
+
+create or replace function public.org_seat_state(p_org_id uuid)
+returns table (member_count integer, pending_invite_count integer)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select
+    (
+      select count(*)::integer
+      from public.org_members m
+      where m.org_id = p_org_id
+    ),
+    (
+      select count(*)::integer
+      from public.org_invitations i
+      where i.org_id = p_org_id
+        and i.status = 'pending'
+        and i.expires_at > now()
+    );
+$$;
+
+create or replace function public.org_claim_seat(
+  p_org_id uuid,
+  p_user_id uuid,
+  p_role text,
+  p_seat_limit integer
+)
+returns text
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  seats integer;
+begin
+  perform 1 from public.organizations where id = p_org_id for update;
+
+  if exists (
+    select 1 from public.org_members
+    where org_id = p_org_id and user_id = p_user_id
+  ) then
+    return 'ok';
+  end if;
+
+  if p_seat_limit is not null then
+    select count(*)::integer into seats
+    from public.org_members
+    where org_id = p_org_id;
+    if seats >= p_seat_limit then
+      return 'seat_limit_reached';
+    end if;
+  end if;
+
+  insert into public.org_members (org_id, user_id, role)
+  values (p_org_id, p_user_id, p_role)
+  on conflict (org_id, user_id) do nothing;
+  return 'ok';
+end;
+$$;
+
+create or replace function public.org_usage_month_summary(
+  p_org_id uuid,
+  p_month timestamptz default now()
+)
+returns table (
+  model text,
+  provider text,
+  key_source text,
+  input_tokens bigint,
+  output_tokens bigint,
+  cached_tokens bigint,
+  calls bigint,
+  estimated boolean
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with bounds as (
+    select
+      date_trunc('month', p_month at time zone 'UTC') at time zone 'UTC' as starts_at,
+      (date_trunc('month', p_month at time zone 'UTC') + interval '1 month') at time zone 'UTC' as ends_at
+  )
+  select
+    e.model,
+    e.provider,
+    e.key_source,
+    coalesce(sum(e.input_tokens), 0)::bigint,
+    coalesce(sum(e.output_tokens), 0)::bigint,
+    coalesce(sum(e.cached_tokens), 0)::bigint,
+    count(*)::bigint,
+    bool_or(e.tokens_estimated)
+  from public.usage_events e, bounds b
+  where e.org_id = p_org_id
+    and e.created_at >= b.starts_at
+    and e.created_at < b.ends_at
+  group by e.model, e.provider, e.key_source
+  order by e.model, e.provider, e.key_source;
+$$;
+
+revoke all on function public.org_subscription_default_trial_days()
+  from public, anon, authenticated;
+revoke all on function public.create_org_trial_subscription()
+  from public, anon, authenticated;
+revoke all on function public.touch_org_subscription()
+  from public, anon, authenticated;
+revoke all on function public.org_seat_state(uuid)
+  from public, anon, authenticated;
+revoke all on function public.org_claim_seat(uuid, uuid, text, integer)
+  from public, anon, authenticated;
+revoke all on function public.org_usage_month_summary(uuid, timestamptz)
+  from public, anon, authenticated;
+
+grant execute on function public.org_seat_state(uuid) to service_role;
+grant execute on function public.org_claim_seat(uuid, uuid, text, integer)
+  to service_role;
+grant execute on function public.org_usage_month_summary(uuid, timestamptz)
+  to service_role;
+
 insert into public.schema_migrations (filename) values
   ('20260419_tabular_chat_jsonb.sql'),
   ('20260421_01_docx_editing.sql'),
@@ -12234,5 +12435,6 @@ insert into public.schema_migrations (filename) values
   ('20261031_52_workflow_provenance.sql'),
   ('20261031_53_request_desk.sql'),
   ('20261031_55_rate_limits.sql'),
-  ('20261031_56_usage_events.sql')
+  ('20261031_56_usage_events.sql'),
+  ('20261107_50_org_subscriptions.sql')
 on conflict (filename) do nothing;

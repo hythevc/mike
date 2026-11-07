@@ -1,4 +1,5 @@
 import type { Operation } from "@/shared/lib/sentryPrivacy";
+import type { OrgPlanView, PlansResponse } from "@mike/contracts";
 import type {
     TabularReviewHistoryStatus,
     AuditActor,
@@ -1909,6 +1910,21 @@ export async function createOrg(name: string): Promise<Org> {
 
 export async function getOrg(orgId: string): Promise<Org> {
     return apiRequest<Org>("organizations.manage", `/orgs/${orgId}`);
+}
+
+/** The public plans a deployment offers (empty unless plans are enabled). */
+export async function getPlans(): Promise<PlansResponse> {
+    return apiRequest<PlansResponse>("plans.read", "/plans");
+}
+
+/** An organization's plan, seats and this month's usage (owners and admins). */
+export async function getOrgPlan(orgId: string): Promise<OrgPlanView> {
+    return apiRequest<OrgPlanView>("organizations.manage", `/orgs/${orgId}/plan`);
+}
+
+/** The caller's own (Personal) workspace plan, seats and usage. */
+export async function getPersonalPlan(): Promise<OrgPlanView> {
+    return apiRequest<OrgPlanView>("plans.read", "/plans/me");
 }
 
 export async function updateOrg(orgId: string, name: string): Promise<Org> {

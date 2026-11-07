@@ -18,6 +18,8 @@ import { sendOrgFailure } from "../../lib/orgFailure";
 import { isPersonalOrg } from "../../lib/personalOrgs";
 import { parsePaginationQuery } from "../../lib/pagination";
 import { sendServiceFailure } from "../../lib/serviceResult";
+import { getOrgRole, isOrgAdmin } from "../../lib/access";
+import { buildOrgPlanView } from "../plans/plans.service";
 import {
     listPrivateContent,
     setPrivateContentPermission,
@@ -388,6 +390,18 @@ orgsRouter.post("/:orgId/invitations", requireOrgAuth, asyncRoute(async (req, re
     });
     if (!result.ok) return sendOrgFailure(res, result);
     res.status(201).json(result.invitation);
+}));
+
+// GET /orgs/:orgId/plan — the organization's plan, seats used and the limit,
+// the trial end and this month's AI usage (owners and admins). With plans off
+// the view reports it, with seats and usage still shown.
+orgsRouter.get("/:orgId/plan", requireOrgAuth, asyncRoute(async (req, res) => {
+    const db = createServerSupabase();
+    const role = await getOrgRole(res.locals.userId as string, req.params.orgId, db);
+    if (!role) return sendOrgFailure(res, { ok: false, kind: "not_found" });
+    if (!isOrgAdmin(role))
+        return sendOrgFailure(res, { ok: false, kind: "forbidden" });
+    res.json(await buildOrgPlanView(db, req.params.orgId));
 }));
 
 // GET /orgs/:orgId/invitations — pending/recent invitations (admin only).

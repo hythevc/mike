@@ -200,6 +200,9 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     untrusted_origin: "forbidden",
     // An organization's owners have not allowed this in its workspace.
     member_data_action_disabled: "forbidden",
+    // The organization's plan has no free seat for another member; inviting or
+    // accepting is refused until a seat is freed or the plan's limit is raised.
+    seat_limit_reached: "forbidden",
     // The workspace, or the person across all their workspaces, has used
     // this month's allowance on the deployment's own AI keys; retrying
     // cannot help until a key is added or the month ends.
