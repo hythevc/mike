@@ -16,12 +16,14 @@ import { ChevronLeft } from "lucide-react";
 import {
     createTabularReview,
     deleteProject,
+    downloadMatterAiUsage,
     getProject,
     getProjectAccess,
     getProjectPeople,
     grantProjectAccess,
     listProjectChats,
     revokeProjectAccess,
+    setMatterAiRestriction,
     updateProject,
     type ProjectGrant,
 } from "@/app/lib/mikeApi";
@@ -36,6 +38,7 @@ import { TableToolbar } from "@/app/components/shared/TableToolbar";
 import { TabPillButtonUI } from "@/shared/ui/TabPillButtonUI";
 import { NewTRModal } from "@/app/components/tabular/NewTRModal";
 import { ConfirmPopup } from "@/app/components/popups/ConfirmPopup";
+import { downloadBlob } from "@/app/lib/downloadDocument";
 import {
     PermissionDeniedPopup,
     type AccessContact,
@@ -214,6 +217,9 @@ export function ProjectWorkspaceProvider({
     const [deleteProjectStatus, setDeleteProjectStatus] = useState<
         "idle" | "deleting" | "deleted"
     >("idle");
+    const [aiRestrictionConfirmOpen, setAiRestrictionConfirmOpen] =
+        useState(false);
+    const [aiRestrictionSaving, setAiRestrictionSaving] = useState(false);
     const [newTRModalOpen, setNewTRModalOpen] = useState(false);
     const [creatingReview, setCreatingReview] = useState(false);
     const [documentUploadActions, setDocumentUploadActions] = useState<{
@@ -563,6 +569,55 @@ export function ProjectWorkspaceProvider({
         }
     }
 
+    // Switch AI off for a matter at its client's request, or back on (W18).
+    // Owners and editors; a viewer gets the same refusal popup as any other
+    // write they lack the role for.
+    function requestToggleAiRestriction() {
+        if (!canDo("content.edit")) {
+            denyUnlessLoading({
+                action: "change AI use for this matter",
+                requiredRole: "editor",
+            });
+            return;
+        }
+        setAiRestrictionSaving(false);
+        setAiRestrictionConfirmOpen(true);
+    }
+
+    async function confirmToggleAiRestriction() {
+        if (aiRestrictionSaving) return;
+        const next = !(project?.ai_restricted ?? false);
+        setAiRestrictionSaving(true);
+        try {
+            const result = await setMatterAiRestriction(projectId, next);
+            setProject((prev) => (prev ? { ...prev, ...result } : prev));
+            setAiRestrictionConfirmOpen(false);
+        } catch (error) {
+            // The popup stays open so the lawyer can retry or cancel.
+            notifyError(error, {
+                action: next
+                    ? "switch AI off for this matter"
+                    : "turn AI back on for this matter",
+                dedupeKey: `matter-ai:${projectId}`,
+            });
+        } finally {
+            setAiRestrictionSaving(false);
+        }
+    }
+
+    async function downloadMatterUsage() {
+        try {
+            const { blob, filename } = await downloadMatterAiUsage(projectId);
+            downloadBlob(blob, filename || `matter-ai-usage-${projectId}.csv`);
+        } catch (error) {
+            notifyError(error, {
+                action: "download this matter's AI usage",
+                dedupeKey: `matter-usage:${projectId}`,
+                onRetry: () => void downloadMatterUsage(),
+            });
+        }
+    }
+
     const value = useMemo<ProjectWorkspaceValue>(
         () => ({
             projectId,
@@ -645,6 +700,9 @@ export function ProjectWorkspaceProvider({
                         onOpenDetails={() => setProjectDetailsOpen(true)}
                         onOpenMemory={() => setProjectMemoryOpen(true)}
                         onDeleteProject={requestProjectDelete}
+                        onToggleAiRestriction={requestToggleAiRestriction}
+                        onDownloadUsage={() => void downloadMatterUsage()}
+                        aiRestricted={project?.ai_restricted ?? false}
                         onSearchChange={setSearch}
                         onOpenAccess={() => setAccessModalOpen(true)}
                         onNewChat={() => void createChat()}
@@ -724,6 +782,30 @@ export function ProjectWorkspaceProvider({
                             setDeleteProjectStatus("idle");
                         }}
                         onConfirm={() => void confirmProjectDelete()}
+                    />
+
+                    <ConfirmPopup
+                        open={aiRestrictionConfirmOpen}
+                        title={
+                            project?.ai_restricted
+                                ? "Allow AI for this matter?"
+                                : "Switch AI off for this matter?"
+                        }
+                        message={
+                            project?.ai_restricted
+                                ? "The assistant, tabular reviews and playbook runs will be able to run on this matter's documents again."
+                                : "The assistant, tabular reviews and playbook runs will refuse to run on this matter's documents until AI is turned back on. Work already in progress is not affected."
+                        }
+                        confirmLabel={
+                            project?.ai_restricted ? "Allow AI" : "Switch AI off"
+                        }
+                        confirmStatus={aiRestrictionSaving ? "loading" : "idle"}
+                        cancelLabel="Cancel"
+                        onCancel={() => {
+                            if (aiRestrictionSaving) return;
+                            setAiRestrictionConfirmOpen(false);
+                        }}
+                        onConfirm={() => void confirmToggleAiRestriction()}
                     />
 
                     {project && (

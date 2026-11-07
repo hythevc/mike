@@ -86,6 +86,12 @@ export interface Project {
   practice: string | null;
   /** Whether this project's shared memory.md is active. */
   memory_enabled: boolean;
+  /** AI switched off for this matter at the client's request (W18). Present
+   *  on the detail payload; the lists do not carry it. */
+  ai_restricted?: boolean;
+  ai_restricted_reason?: string | null;
+  ai_restricted_by?: string | null;
+  ai_restricted_at?: string | null;
   created_at: string;
   updated_at: string;
   documents?: Document[];
