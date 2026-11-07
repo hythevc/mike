@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
     ArrowRight,
+    FileText,
     Square,
     Waypoints,
     X,
@@ -195,6 +196,12 @@ function ChatInputForChatImpl(
     const composerOpen = canSend === true && !chatLoading;
     const [value, setValue] = useState("");
     const [attachedDocs, setAttachedDocs] = useState<Document[]>([]);
+    // Documents-only answer scope (W25). Off by default; shown only when the
+    // conversation has documents to answer from (attachments or a project).
+    const [documentsOnly, setDocumentsOnly] = useState(false);
+    // Recomputed below once attachedDocs is set: the model can answer only from
+    // documents when some are in scope.
+    const documentsInScope = attachedDocs.length > 0 || !!projectId;
     const [excerpts, setExcerpts] = useState<MessageExcerpt[]>([]);
     const [openExcerpt, setOpenExcerpt] = useState<MessageExcerpt | null>(
         null,
@@ -664,6 +671,8 @@ function ChatInputForChatImpl(
             playbook: selectedPlaybook ?? undefined,
             model,
             reasoning: reasoningLevel,
+            answerScope:
+                documentsOnly && documentsInScope ? "documents" : undefined,
         });
     };
 
@@ -908,6 +917,30 @@ function ChatInputForChatImpl(
                                               }
                                     }
                                 />
+                            )}
+                            {composerOpen && documentsInScope && (
+                                <button
+                                    type="button"
+                                    aria-pressed={documentsOnly}
+                                    aria-label="Documents only"
+                                    title="Answer only from the documents in this conversation"
+                                    onClick={() =>
+                                        setDocumentsOnly((previous) => !previous)
+                                    }
+                                    className={cn(
+                                        "flex h-7.5 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-1",
+                                        documentsOnly
+                                            ? "bg-blue-600 text-white hover:bg-blue-700"
+                                            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+                                    )}
+                                >
+                                    <FileText
+                                        aria-hidden="true"
+                                        className="h-3.5 w-3.5"
+                                    />
+                                    Documents only
+                                </button>
                             )}
                         </div>
 

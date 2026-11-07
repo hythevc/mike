@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check } from "lucide-react";
+import { Check, MapPin } from "lucide-react";
 import { QuoteIcon } from "@radix-ui/react-icons";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { TextButtonUI } from "@/shared/ui/TextButtonUI";
@@ -9,6 +9,7 @@ import { TextSlabUI } from "@/shared/ui/TextSlabUI";
 import type { PanelDocument, PanelDocumentQuote } from "../shared/types";
 import {
     CitationVerificationBadge,
+    quoteOtherPageLabel,
     quoteVerificationState,
     type CitationVerificationDisplayState,
 } from "./message/citationVerification";
@@ -20,6 +21,8 @@ export type CitationQuoteSectionItem = {
     quote: string;
     quoteLabel?: string | null;
     verificationState?: CitationVerificationDisplayState;
+    /** "Quote is on p. 5, not p. 4" when the quote sits on another page. */
+    pageNote?: string | null;
 };
 
 interface CommonProps {
@@ -78,6 +81,7 @@ function documentQuoteItems(
             quote: quote.quote.replaceAll(PAGE_BREAK_SENTINEL, "..."),
             quoteLabel: locator,
             verificationState: quoteVerificationState(quote),
+            pageNote: quoteOtherPageLabel({ verification: quote.verification }),
         };
     });
 }
@@ -232,6 +236,9 @@ function QuoteItem({
 }) {
     const isUnverified = quote.verificationState === "unverified";
     const isSelected = isActive && !isUnverified;
+    // "Quote is on p. 5, not p. 4" when the match is on another page. Shown
+    // only for a found quote; a not-found quote shows its badge instead.
+    const pageNote = !isUnverified ? quote.pageNote : null;
 
     return (
         <div>
@@ -265,6 +272,12 @@ function QuoteItem({
                     </p>
                 </div>
             </TextSlabUI>
+            {pageNote && (
+                <p className="mt-2 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                    <MapPin aria-hidden="true" className="h-3 w-3 shrink-0" />
+                    <span>{pageNote}</span>
+                </p>
+            )}
             <div className="mt-2 flex items-center justify-between gap-2">
                 {isUnverified ? (
                     <CitationVerificationBadge state="unverified" />

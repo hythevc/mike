@@ -3,7 +3,9 @@
 import { TextCardUI } from "@/shared/ui/TextCardUI";
 import { useRef, useState, type ReactNode } from "react";
 import type { WebSource } from "@mike/contracts";
-import { Check, Copy } from "lucide-react";
+import { Check, CircleAlert, Copy } from "lucide-react";
+import { AnswerDisclaimerUI } from "@/shared/ui/AnswerDisclaimerUI";
+import { UNCITED_ANSWER_LABEL } from "./message/citationLabels";
 import type {
     AssistantEvent,
     Citation,
@@ -300,6 +302,19 @@ export function AssistantMessage({
     const webSources = [...webSourcesByUrl.values()];
     const showCitationBlock =
         !!citationStatus || (!isStreaming && citations.length > 0);
+    // Documents-only grounding: warn when a finished answer cites no document.
+    // (not_found answers already read "Not in these documents." as their text.)
+    const groundingEvent = (events ?? []).find(
+        (event): event is Extract<AssistantEvent, { type: "answer_grounding" }> =>
+            event.type === "answer_grounding",
+    );
+    const answerFinished =
+        !isStreaming &&
+        !awaitingInput &&
+        !hasError &&
+        (events ?? []).some(isRenderableEvent);
+    const showUncitedWarning =
+        answerFinished && groundingEvent?.status === "uncited";
     const handleCopy = async () => {
         try {
             let html = "";
@@ -1260,6 +1275,16 @@ export function AssistantMessage({
                     />
                 )}
 
+                {showUncitedWarning && (
+                    <p className="mt-2 mb-1 flex items-start gap-1.5 text-sm text-amber-700 dark:text-amber-300">
+                        <CircleAlert
+                            aria-hidden="true"
+                            className="mt-[2px] h-4 w-4 shrink-0"
+                        />
+                        <span>{UNCITED_ANSWER_LABEL}</span>
+                    </p>
+                )}
+
                 {/* Copy button on the left; what the answer ran on, when the
                     user asked to see it, at the right end of the same row. */}
                 <div className="flex flex-wrap items-center gap-x-2 font-sans justify-start">
@@ -1285,6 +1310,10 @@ export function AssistantMessage({
                         </span>
                     )}
                 </div>
+
+                {/* Legal-information-not-legal-advice line under every finished
+                    answer; never while streaming or awaiting input (W25). */}
+                {answerFinished && <AnswerDisclaimerUI />}
             </div>
         </div>
     );

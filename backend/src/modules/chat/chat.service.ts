@@ -35,6 +35,7 @@ export {
   stripTransientAssistantEvents,
   PROJECT_EXTRA_TOOLS,
   parseChatMessages,
+  parseOptionalAnswerScope,
   parseOptionalAskInputsResponse,
   parseOptionalAttachedDocuments,
   parseOptionalChatId,

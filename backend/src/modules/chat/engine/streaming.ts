@@ -93,6 +93,8 @@ import {
   type TurnReadState,
 } from "./tools/documentOps";
 import { verifyCitations } from "./verifyCitations";
+import { DOCUMENTS_ONLY_PROMPT, NOT_IN_DOCUMENTS_ANSWER } from "./prompts";
+import { classifyGrounding } from "./grounding";
 import { buildMemoryTurn } from "../../../lib/memory/prompt";
 import {
   runWithUsageContext,
@@ -100,7 +102,11 @@ import {
 } from "../../../lib/llm/usageContext";
 
 export type { AssistantEvent } from "@mike/contracts";
-import type { AssistantEvent, AssistantErrorCode } from "@mike/contracts";
+import type {
+  AnswerScope,
+  AssistantEvent,
+  AssistantErrorCode,
+} from "@mike/contracts";
 
 /**
  * Tools the model can call that execute outside this process — in the Word
@@ -285,6 +291,13 @@ export async function runLLMStream(params: {
   includeResearchTools?: boolean;
   /** How this turn may search the web; null or omitted means it may not. */
   webSearch?: WebSearchPlan | null;
+  /**
+   * When "documents", the turn answers only from the conversation's documents:
+   * the documents-only prompt is appended, and the CourtListener and web tools
+   * are withheld from this turn and its subagents regardless of
+   * `includeResearchTools`/`webSearch`.
+   */
+  answerScope?: AnswerScope | null;
   /** Expose ask_inputs only to clients that can render and answer it. */
   includeAskInputs?: boolean;
   /**
@@ -391,6 +404,7 @@ export async function runLLMStream(params: {
     extraTools,
     includeResearchTools = true,
     webSearch = null,
+    answerScope = null,
     includeAskInputs = true,
     connectorApprovals = false,
     allowDocumentMutation = true,
@@ -415,7 +429,13 @@ export async function runLLMStream(params: {
   const write = (chunk: string) =>
     unsafeWrite(sanitizeAssistantSseChunk(chunk));
   const isSubagent = subagentRun !== undefined;
-  const researchTools = includeResearchTools ? COURTLISTENER_TOOLS : [];
+  // A documents-only turn answers from the conversation's own documents alone.
+  // Research and web tools are withheld here and, below, from its subagents,
+  // regardless of what the caller passed, so the gate cannot be bypassed.
+  const documentsOnly = answerScope === "documents";
+  const researchEnabled = includeResearchTools && !documentsOnly;
+  const effectiveWebSearch = documentsOnly ? null : webSearch;
+  const researchTools = researchEnabled ? COURTLISTENER_TOOLS : [];
   // The person's own connections for the workspace this conversation is in.
   const connectorTools =
     subagentRun?.connectorTools ??
@@ -433,8 +453,8 @@ export async function runLLMStream(params: {
   const conversationTools = includeAskInputs
     ? TOOLS
     : TOOLS.filter((tool) => tool.function.name !== "ask_inputs");
-  const webTools = webToolsFor(webSearch);
-  const webSearchAccount = webSearchAccountFor(webSearch, apiKeys);
+  const webTools = webToolsFor(effectiveWebSearch);
+  const webSearchAccount = webSearchAccountFor(effectiveWebSearch, apiKeys);
   const webToolNames = new Set<string>(
     webTools.map((tool) => tool.function.name),
   );
@@ -490,10 +510,11 @@ export async function runLLMStream(params: {
   });
   const systemPrompt = [
     memory.systemPrompt,
-    ...(webSearch
+    ...(documentsOnly ? [DOCUMENTS_ONLY_PROMPT] : []),
+    ...(effectiveWebSearch
       ? [
           WEB_SEARCH_SYSTEM_PROMPT,
-          webSearch === "provider"
+          effectiveWebSearch === "provider"
             ? PROVIDER_WEB_READ_SYSTEM_PROMPT
             : MIKE_WEB_SEARCH_SYSTEM_PROMPT,
         ]
@@ -535,7 +556,7 @@ export async function runLLMStream(params: {
   const webTurnState =
     subagentRun?.webTurnState ??
     createWebTurnState(
-      webSearch
+      effectiveWebSearch
         ? ([...rawMsgs].reverse().find((m) => m.role === "user")?.content ?? "")
         : "",
     );
@@ -723,8 +744,8 @@ export async function runLLMStream(params: {
         orgId,
         apiKeys,
         nonce,
-        webSearch,
-        includeResearchTools,
+        webSearch: effectiveWebSearch,
+        includeResearchTools: researchEnabled,
         onActivity: params.onActivity,
         write: () => {},
         model: spawn.model,
@@ -771,6 +792,32 @@ export async function runLLMStream(params: {
     for (const { event } of await Promise.all(runs)) if (event) events.push(event);
   };
 
+  // Documents-only with nothing in scope has one honest answer and needs no
+  // model call: stream the fixed sentence and record it as not-found.
+  if (documentsOnly && !isSubagent && docStore.size === 0) {
+    fullText = NOT_IN_DOCUMENTS_ANSWER;
+    events.push({ type: "content", text: fullText });
+    write(
+      `data: ${JSON.stringify({ type: "content_delta", text: fullText })}\n\n`,
+    );
+    const grounding: AssistantEvent = {
+      type: "answer_grounding",
+      scope: "documents",
+      status: "not_found",
+    };
+    events.push(grounding);
+    write(`data: ${JSON.stringify(grounding)}\n\n`);
+    write(
+      `data: ${JSON.stringify({ type: "citations", status: "final", citations: [] })}\n\n`,
+    );
+    if (params.emitDone !== false) write("data: [DONE]\n\n");
+    return {
+      fullText,
+      events: events.map(sanitizeAssistantEvent),
+      citations: [],
+    };
+  }
+
   try {
     throwIfAborted(signal);
     // Single request-time choke point for every runLLMStream caller (chat,
@@ -805,7 +852,7 @@ export async function runLLMStream(params: {
     answerModel = selectedModel;
     const delegateContext = subagentRuns && delegateContextFor(subagentRuns, selectedModel);
     const providerSearches =
-      webSearch === "provider" ? providerWebSearch.reserve() : 0;
+      effectiveWebSearch === "provider" ? providerWebSearch.reserve() : 0;
     await streamChatWithTools({
       model: selectedModel,
       systemPrompt,
@@ -1244,6 +1291,19 @@ export async function runLLMStream(params: {
   write(
     `data: ${JSON.stringify({ type: "citations", status: "final", citations })}\n\n`,
   );
+  // On a documents-only turn, record how the finished answer relates to the
+  // conversation's documents (found/cited/uncited), so the UI can flag an
+  // answer that cites nothing and the verdict survives a reload.
+  if (documentsOnly && !isSubagent) {
+    const visibleText = fullText.split(CITATIONS_OPEN_TAG)[0] ?? fullText;
+    const grounding: AssistantEvent = {
+      type: "answer_grounding",
+      scope: "documents",
+      status: classifyGrounding(visibleText, citations),
+    };
+    events.push(grounding);
+    write(`data: ${JSON.stringify(grounding)}\n\n`);
+  }
   if (!isSubagent && answerModel) {
     const details: AssistantEvent = {
       type: "response_details",

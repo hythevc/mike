@@ -567,6 +567,7 @@ export function useAssistantChat({
               chat_id: sendChatId,
               model,
               reasoning,
+              answer_scope: message.answerScope,
               displayed_doc: displayedDoc
                 ? {
                     filename: displayedDoc.filename,
@@ -585,6 +586,7 @@ export function useAssistantChat({
               org_id: workspaceOrgId,
               model,
               reasoning,
+              answer_scope: message.answerScope,
               ask_inputs_response: opts?.askInputsResponse,
               signal: controller.signal,
             });

@@ -31,6 +31,7 @@
 @source "../../../frontend/src/shared/ui/TextSlabUI.tsx";
 @source "../../../frontend/src/shared/ui/TextCardUI.tsx";
 @source "../../../frontend/src/shared/ui/ToggleSwitchUI.tsx";
+@source "../../../frontend/src/shared/ui/AnswerDisclaimerUI.tsx";
 @source "../../../frontend/src/shared/ui/dropdown.tsx";
 @source "../../../frontend/src/shared/ui/CitationPillUI.tsx";
 @source "../../../frontend/src/shared/ui/ModelToggleUI.tsx";

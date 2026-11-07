@@ -10,6 +10,7 @@ import type {
   WordTextCardEvent,
 } from "../../types";
 import { PillButtonUI as PillButton } from "@mike/pill-button-ui";
+import { AnswerDisclaimerUI } from "@mike/answer-disclaimer-ui";
 import { TextCardUI } from "@mike/document-event-blocks-ui";
 import { EXCERPT_SOURCE_PROPS } from "@mike/response-selection-menu-ui";
 import { EditCard } from "./EditCard";
@@ -496,6 +497,11 @@ function AssistantMessageImpl({
           >
             {error}
           </p>
+        )}
+        {/* Legal-information-not-legal-advice line under a finished answer;
+            never while it streams (W25). */}
+        {!isStreaming && !error && message.events.length > 0 && (
+          <AnswerDisclaimerUI />
         )}
       </div>
     </div>

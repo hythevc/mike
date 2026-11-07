@@ -303,6 +303,165 @@ describe("verifyDocumentCitationAnnotation", () => {
   });
 });
 
+describe("verifyDocumentCitationAnnotation page checks (W25)", () => {
+  // PDF-style source with reliable [Page N] markers.
+  const PDF_SOURCE = [
+    "[Page 1]",
+    "The Tenant shall pay rent on the first day of each month.",
+    "",
+    "[Page 2]",
+    "The Landlord may terminate this Lease upon written notice.",
+    "",
+    "[Page 3]",
+    "Governing law is the State of Delaware.",
+  ].join("\n");
+  const pdfFetcher = fetcherFor({ "doc-1": PDF_SOURCE });
+
+  function pdfAnnotation(quotes: { page?: number | string; quote: string }[]) {
+    return {
+      type: "citation_data",
+      kind: "document" as const,
+      ref: 1,
+      doc_id: "doc-1",
+      document_id: "uuid-1",
+      filename: "lease.pdf",
+      quotes,
+    };
+  }
+
+  async function firstQuote(annotation: unknown) {
+    const ann = (await verifyDocumentCitationAnnotation(
+      annotation,
+      pdfFetcher,
+    )) as {
+      page?: number | string;
+      quotes: {
+        page?: number | string;
+        verification: {
+          verified: boolean;
+          page_status?: string;
+          found_page?: number;
+          cited_page?: number | null;
+        };
+      }[];
+    };
+    return ann;
+  }
+
+  it("a quote on its cited page is cited_page", async () => {
+    const ann = await firstQuote(
+      pdfAnnotation([
+        { page: 2, quote: "The Landlord may terminate this Lease" },
+      ]),
+    );
+    expect(ann.quotes[0].verification).toMatchObject({
+      verified: true,
+      page_status: "cited_page",
+      found_page: 2,
+      cited_page: 2,
+    });
+    expect(ann.quotes[0].page).toBe(2);
+  });
+
+  it("the same quote cited to the wrong page is other_page, moves the target, keeps the cited page", async () => {
+    const ann = await firstQuote(
+      pdfAnnotation([
+        { page: 1, quote: "The Landlord may terminate this Lease" },
+      ]),
+    );
+    expect(ann.quotes[0].verification).toMatchObject({
+      verified: true,
+      page_status: "other_page",
+      found_page: 2,
+      cited_page: 1,
+    });
+    // Target page moved to the page the quote was found on.
+    expect(ann.quotes[0].page).toBe(2);
+    expect(ann.page).toBe(2);
+  });
+
+  it("moves the document-quote target page too, so the viewer opens the right page", async () => {
+    const annotation = {
+      ...pdfAnnotation([
+        { page: 1, quote: "The Landlord may terminate this Lease" },
+      ]),
+      document: {
+        document_id: "doc-1",
+        title: "lease.pdf",
+        type: "pdf",
+        metadata: [],
+        quotes: [
+          {
+            quote: "The Landlord may terminate this Lease",
+            target: { page: 1 },
+          },
+        ],
+      },
+    };
+    const verified = (await verifyDocumentCitationAnnotation(
+      annotation,
+      pdfFetcher,
+    )) as { document: { quotes: { target: { page: number } }[] } };
+    expect(verified.document.quotes[0].target.page).toBe(2);
+  });
+
+  it("a PDF quote that names no page gets cited_page null", async () => {
+    const ann = await firstQuote(
+      pdfAnnotation([{ quote: "Governing law is the State of Delaware" }]),
+    );
+    expect(ann.quotes[0].verification.verified).toBe(true);
+    expect(ann.quotes[0].verification.cited_page).toBeNull();
+    expect(ann.quotes[0].verification.found_page).toBe(3);
+    // No forced page 1: the target is the page the quote was found on.
+    expect(ann.quotes[0].page).toBe(3);
+  });
+
+  it("an 'N-M' quote across those pages is cited_page", async () => {
+    const ann = await firstQuote(
+      pdfAnnotation([
+        {
+          page: "1-2",
+          quote:
+            "pay rent on the first day of each month[[PAGE_BREAK]]The Landlord may terminate this Lease",
+        },
+      ]),
+    );
+    expect(ann.quotes[0].verification).toMatchObject({
+      verified: true,
+      page_status: "cited_page",
+      found_page: 1,
+    });
+    // The range is kept so the cross-page viewer still spans both pages.
+    expect(ann.quotes[0].page).toBe("1-2");
+  });
+
+  it("DOCX and spreadsheet quotes are not_checked", async () => {
+    // SOURCE uses '## Page 1' (DOCX-style), which carries no [Page N] markers.
+    const ann = (await verifyDocumentCitationAnnotation(
+      docAnnotation([{ page: 1, quote: "The Tenant shall pay rent" }]),
+      fetcherFor({ "doc-1": SOURCE }),
+    )) as { quotes: { verification: { page_status?: string } }[] };
+    expect(ann.quotes[0].verification.page_status).toBe("not_checked");
+    expect(ann.quotes[0].verification).not.toHaveProperty("found_page");
+  });
+
+  it("an inline-text quote with no markers is not_checked", async () => {
+    const ann = (await verifyDocumentCitationAnnotation(
+      pdfAnnotation([{ page: 1, quote: "Confidential Information" }]),
+      fetcherFor({ "doc-1": "This Agreement protects Confidential Information." }),
+    )) as { quotes: { verification: { page_status?: string } }[] };
+    expect(ann.quotes[0].verification.page_status).toBe("not_checked");
+  });
+
+  it("a fabricated quote stays verified false with no page verdict", async () => {
+    const ann = await firstQuote(
+      pdfAnnotation([{ page: 2, quote: "The Tenant waives every right." }]),
+    );
+    expect(ann.quotes[0].verification.verified).toBe(false);
+    expect(ann.quotes[0].verification).not.toHaveProperty("page_status");
+  });
+});
+
 describe("verifyCaseCitationAnnotation", () => {
   const opinions = async () => [
     {

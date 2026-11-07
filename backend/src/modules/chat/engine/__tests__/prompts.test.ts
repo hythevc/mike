@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt } from "../prompts";
+import {
+    buildSystemPrompt,
+    DOCUMENTS_ONLY_PROMPT,
+    NOT_IN_DOCUMENTS_ANSWER,
+} from "../prompts";
 import { COURTLISTENER_SYSTEM_PROMPT } from "../tools/courtlistenerTools";
 
 describe("buildSystemPrompt", () => {
@@ -131,5 +135,31 @@ describe("buildSystemPrompt", () => {
 
     it("defaults to including research tools", () => {
         expect(buildSystemPrompt()).toBe(buildSystemPrompt(true));
+    });
+
+    it("never carries the documents-only block by itself (W25)", () => {
+        // Without the documents-only flag the system prompt is unchanged: the
+        // block is appended later, in streaming, only for a documents-only turn.
+        for (const prompt of [buildSystemPrompt(true), buildSystemPrompt(false)]) {
+            expect(prompt).not.toContain("DOCUMENTS-ONLY ANSWER SCOPE");
+        }
+    });
+});
+
+describe("documents-only prompt (W25)", () => {
+    it("fixes the exact not-in-documents sentence", () => {
+        expect(NOT_IN_DOCUMENTS_ANSWER).toBe("Not in these documents.");
+    });
+
+    it("confines the model to the conversation's documents and the fixed sentence", () => {
+        expect(DOCUMENTS_ONLY_PROMPT).toContain("DOCUMENTS-ONLY ANSWER SCOPE");
+        // The exact sentence the grounding classifier matches against.
+        expect(DOCUMENTS_ONLY_PROMPT).toContain("Not in these documents.");
+        expect(DOCUMENTS_ONLY_PROMPT).toContain(
+            "Do not draw on general legal knowledge, case law, statutes, or any web or external source",
+        );
+        expect(DOCUMENTS_ONLY_PROMPT).toContain(
+            "Cite every statement you make about the documents",
+        );
     });
 });

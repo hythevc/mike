@@ -924,6 +924,9 @@ const COMPLETES_TEXTLESS_TURN = {
   response_details: false,
   case_opinions: false,
   content: false,
+  // Metadata on an answer that always carries visible text, so it never alone
+  // makes a textless turn meaningful.
+  answer_grounding: false,
   word_edit_block: false,
   error: true,
 } satisfies Record<AssistantEvent["type"], boolean>;

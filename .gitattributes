@@ -6,3 +6,7 @@
 #   git checkout origin/main -- package-lock.json && npm install
 package-lock.json merge=binary
 bun.lock merge=binary
+
+# PDF test fixtures are binary documents. Their xref tables carry
+# spec-mandated trailing spaces, which git's text whitespace check would flag.
+*.pdf binary

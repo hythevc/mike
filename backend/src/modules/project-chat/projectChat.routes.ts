@@ -34,6 +34,7 @@ import {
     writeApprovedConnectorFrames,
     PROJECT_EXTRA_TOOLS,
     parseChatMessages,
+    parseOptionalAnswerScope,
     parseOptionalAskInputsResponse,
     parseOptionalAttachedDocuments,
     parseOptionalChatId,
@@ -87,6 +88,10 @@ projectChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (r
     if (!parsedReasoning.ok) {
         return void res.status(400).json({ detail: parsedReasoning.detail });
     }
+    const parsedAnswerScope = parseOptionalAnswerScope(body.answer_scope);
+    if (!parsedAnswerScope.ok) {
+        return void res.status(400).json({ detail: parsedAnswerScope.detail });
+    }
     const parsedDisplayedDoc = parseOptionalDisplayedDoc(body.displayed_doc);
     if (!parsedDisplayedDoc.ok) {
         return void res.status(400).json({ detail: parsedDisplayedDoc.detail });
@@ -111,6 +116,7 @@ projectChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (r
     const messages = parsedMessages.value;
     const chat_id = parsedChatId.value;
     const model = parsedModel.value;
+    const answerScope = parsedAnswerScope.value ?? null;
     const displayed_doc = parsedDisplayedDoc.value;
     const attached_documents = parsedAttachedDocuments.value;
     const askInputsResponse = parsedAskInputsResponse.value;
@@ -282,6 +288,7 @@ projectChatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (r
                 workflowStore,
                 includeResearchTools: legalResearchUs,
                 webSearch,
+                answerScope,
                 subagentRuns,
                 subagentDefaults,
                 model: selectedModel,

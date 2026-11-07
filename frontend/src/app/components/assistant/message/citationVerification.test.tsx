@@ -46,7 +46,7 @@ describe("citation verification presentation", () => {
     const citation = documentCitation(false);
     expect(citationVerificationState(citation)).toBe("unverified");
     expect(citationVerificationAriaLabel(citation)).toBe(
-      "Citation 1. Could not verify quote",
+      "Citation 1. Quote not found - check source",
     );
     expect(citationVerificationPillClassName(citation)).toContain(
       "!bg-red-100/85",
@@ -77,7 +77,7 @@ describe("citation verification presentation", () => {
     const unverifiedCase = { ...caseCitation, verified: false };
     expect(citationVerificationState(unverifiedCase)).toBe("unverified");
     expect(citationVerificationAriaLabel(unverifiedCase)).toBe(
-      "Citation 2. Could not verify quote",
+      "Citation 2. Quote not found - check source",
     );
   });
 
@@ -85,7 +85,7 @@ describe("citation verification presentation", () => {
     const user = userEvent.setup();
     render(<CitationVerificationBadge state="unverified" />);
     const trigger = screen.getByRole("button", {
-      name: "Could not verify quote",
+      name: "Quote not found - check source",
     });
     expect(trigger).toHaveClass("liquid-glass-flat", "!text-red-600");
     expect(trigger).not.toHaveClass("bg-red-600/90");
@@ -129,7 +129,7 @@ describe("citation verification presentation", () => {
 
     expect(screen.getByLabelText("Citation 7")).toHaveTextContent("7");
     expect(screen.queryByText("Citation")).not.toBeInTheDocument();
-    expect(screen.getByText("Could not verify quote")).toBeVisible();
+    expect(screen.getByText("Quote not found - check source")).toBeVisible();
     expect(screen.getByRole("button", { name: "View" })).toBeDisabled();
     expect(screen.getByText(/Model supplied quote/)).not.toHaveClass(
       "citation-quote-selected",
@@ -161,5 +161,33 @@ describe("citation verification presentation", () => {
       "“1,250,000” (Summary, cell B7)",
     );
     expect(screen.getByLabelText("Citation 4")).toHaveTextContent("4");
+  });
+
+  it("renders the other-page note on a quote found on another page (W25)", () => {
+    render(
+      <CitationQuotesSection
+        document={{
+          document_id: "pdf-1",
+          title: "lease.pdf",
+          type: "pdf",
+          metadata: [],
+          quotes: [
+            {
+              quote: "The Landlord may terminate",
+              target: { page: 5 },
+              verification: {
+                verified: true,
+                page_status: "other_page",
+                found_page: 5,
+                cited_page: 4,
+              },
+            },
+          ],
+        }}
+        activeQuoteId="pdf-1:quote:0"
+        citationRef={8}
+      />,
+    );
+    expect(screen.getByText("Quote is on p. 5, not p. 4")).toBeVisible();
   });
 });

@@ -36,6 +36,7 @@ import {
     stripTransientAssistantEvents,
     writeApprovedConnectorFrames,
     parseChatMessages,
+    parseOptionalAnswerScope,
     parseOptionalAskInputsResponse,
     parseOptionalChatId,
     parseOptionalModel,
@@ -540,6 +541,10 @@ chatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (req, res
     if (!parsedReasoning.ok) {
         return void res.status(400).json({ detail: parsedReasoning.detail });
     }
+    const parsedAnswerScope = parseOptionalAnswerScope(body.answer_scope);
+    if (!parsedAnswerScope.ok) {
+        return void res.status(400).json({ detail: parsedAnswerScope.detail });
+    }
     const parsedAskInputsResponse = parseOptionalAskInputsResponse(
         body.ask_inputs_response,
     );
@@ -552,6 +557,7 @@ chatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (req, res
     const chat_id = parsedChatId.value;
     const project_id = parsedProjectId.value.projectId;
     const model = parsedModel.value;
+    const answerScope = parsedAnswerScope.value ?? null;
     const askInputsResponse = parsedAskInputsResponse.value;
     // Reserve a stable assistant identity before streaming. This lets clients
     // associate streamed UI with the same durable message after a reload.
@@ -778,6 +784,7 @@ chatRouter.post("/", requireAuth, modelCallRateLimit, asyncRoute(async (req, res
                 workflowStore,
                 includeResearchTools: legalResearchUs,
                 webSearch,
+                answerScope,
                 subagentRuns,
                 subagentDefaults,
                 model: selectedModel,
