@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -328,7 +329,7 @@ async function sendDriveWrite(
     // A timeout, server error or unreadable success response may follow a
     // completed write. Never repeat the mutation automatically.
     throw new GoogleDriveUserError(
-      "The outcome is uncertain. Check Google Drive before trying again; Mike will not retry this action.",
+      `The outcome is uncertain. Check Google Drive before trying again; ${brand.productName} will not retry this action.`,
       { kind: "google.api_failed", cause: error },
     );
   }

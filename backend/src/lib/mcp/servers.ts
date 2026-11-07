@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ConnectorApprovalItem } from "@mike/contracts";
@@ -582,7 +583,7 @@ export async function planMcpToolCall(
             type: "result",
             ...unavailableTool(
                 openaiToolName,
-                "This action is too large to review in Mike.",
+                `This action is too large to review in ${brand.productName}.`,
             ),
         };
     }

@@ -31,7 +31,7 @@ function harness(responses: Response[]) {
     return { search, fetch, sleep };
 }
 
-describe("Mike's web search", () => {
+describe("the web search provider", () => {
     it("needs a key", async () => {
         const { search, fetch } = harness([]);
 

@@ -1,3 +1,4 @@
+import { brand } from "../../lib/brand.generated";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { streamAiSdk } from "../../lib/llm/aiSdk";
@@ -2973,7 +2974,7 @@ describe("chat grants, deletion and roster", () => {
 
         expect(res.status).toBe(400);
         expect(res.body.detail).toBe(
-            "future@example.com does not belong to a Mike user.",
+            `future@example.com does not belong to a ${brand.productName} user.`,
         );
     });
 

@@ -1,3 +1,4 @@
+import { brand } from "../../lib/brand.generated";
 // workflows types — implementation behind the module facade.
 import { type ProjectRole } from "../../lib/permissions";
 
@@ -73,7 +74,7 @@ export type OpenSourceSubmissionSummary = Pick<
 };
 
 export const DEFAULT_WORKFLOW_CONTRIBUTOR: WorkflowContributor = {
-  name: "Mike",
+  name: brand.productName,
   organisation: null,
   role: null,
   linkedin: null,

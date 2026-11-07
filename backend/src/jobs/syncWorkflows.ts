@@ -1,3 +1,4 @@
+import { brand } from "../lib/brand.generated";
 import "../instrument";
 import { AppError } from "../lib/appError";
 import { createServerSupabase } from "../lib/supabase";
@@ -12,7 +13,7 @@ async function main() {
   setOperation("workflows.sync");
   const result = await syncWorkflowCatalog(createServerSupabase());
   console.log(
-    `Synced ${result.workflows} Mike workflows and ${result.assets} assets from ${result.sourceCommit}`,
+    `Synced ${result.workflows} ${brand.productName} workflows and ${result.assets} assets from ${result.sourceCommit}`,
   );
 }
 
@@ -23,11 +24,11 @@ void main().catch(async (error) => {
   // nothing twice.
   const failure = new AppError(
     "workflows.sync_failed",
-    "Mike workflow sync failed",
+    `${brand.productName} workflow sync failed`,
     { cause: error },
   );
   reportError(failure, { tags: { component: "workflow-sync" }, level: "fatal" });
-  console.error("Mike workflow sync failed", failure);
+  console.error(`${brand.productName} workflow sync failed`, failure);
   await flushSentry();
   process.exit(1);
 });

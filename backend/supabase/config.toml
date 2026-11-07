@@ -246,7 +246,7 @@ port = 465
 user = "resend"
 pass = "env(RESEND_API_KEY)"
 admin_email = "noreply@mikeoss.com"
-sender_name = "MikeOSS (No Reply)"
+sender_name = "Glossa (No Reply)"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

@@ -306,7 +306,7 @@ vi.mock("../../modules/user/user.dataExport", () => ({
     buildUserTabularReviewsExport: (...args: unknown[]) =>
         buildUserTabularReviewsExport(...args),
     userExportFilename: (kind: string, userId: string) =>
-        `mike-${kind}-export-${userId.slice(0, 8)}.json`,
+        `export-${kind}-${userId.slice(0, 8)}.json`,
 }));
 
 import { app } from "../../app";

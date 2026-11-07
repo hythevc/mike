@@ -37,6 +37,7 @@ import {
     startUserMcpConnectorOAuth,
 } from "./oauth";
 import type { ConnectorRow, Db } from "./types";
+import { brand } from "../brand.generated";
 
 // The provider methods exercised here only read connector.server_url and the
 // mode, and never touch the database, so an empty stub satisfies the type.
@@ -695,4 +696,18 @@ describe("OAuth approval grant identity", () => {
             else expect(token.grant_id).toMatch(/^[0-9a-f-]{36}$/);
         },
     );
+});
+
+describe("DbMcpOAuthProvider.clientMetadata", () => {
+    it("registers the dynamic client under the product name from the brand config", () => {
+        const provider = new DbMcpOAuthProvider(
+            stubDb,
+            makeConnector("https://mcp.example.com/mcp"),
+            "user-1",
+            "initiate",
+            "https://app.test/callback",
+        );
+
+        expect(provider.clientMetadata.client_name).toBe(brand.productName);
+    });
 });

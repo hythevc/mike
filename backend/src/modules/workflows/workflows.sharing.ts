@@ -1,3 +1,4 @@
+import { brand } from "../../lib/brand.generated";
 // workflows sharing — implementation behind the module facade.
 import { type Db } from "../../lib/supabase";
 import { findMissingUserEmails, loadProfileUsersByEmail } from "../../lib/userLookup";
@@ -322,7 +323,7 @@ export async function shareWorkflow(
     return {
       ok: false,
       kind: "missing_user",
-      detail: `${missingEmails[0]} does not belong to a Mike user.`,
+      detail: `${missingEmails[0]} does not belong to a ${brand.productName} user.`,
     };
 
   const rows = normalizedEmails.map((email: string) => ({

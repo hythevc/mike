@@ -1,3 +1,4 @@
+import { brandFileSlug } from "../../lib/brandFiles";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Db } from "../../lib/supabase";
 import type { AuditEventInput } from "../../lib/audit";
@@ -498,10 +499,10 @@ describe("handleExportBuild", () => {
         );
         const [path, , contentType] = uploadFile.mock.calls[0];
         expect(path).toBe(
-            "exports/u1/job-1-mike-memory-export.zip",
+            `exports/u1/job-1-${brandFileSlug}-memory-export.zip`,
         );
         expect(contentType).toBe("application/zip");
-        expect(out.filename).toBe("mike-memory-export.zip");
+        expect(out.filename).toBe(`${brandFileSlug}-memory-export.zip`);
         expect(recordAudit).toHaveBeenCalledWith(
             db,
             expect.objectContaining({ action: "export.memory" }),
@@ -523,7 +524,7 @@ describe("handleExportBuild", () => {
 
         expect(memberDataActionAllowed).toHaveBeenCalledWith(db, "u1", "org-1", "export");
         expect(buildMemoryArchive).toHaveBeenCalledWith(db, "u1", "u@x.test", "org-1");
-        expect(out.filename).toBe("mike-memory-export-org-1.zip");
+        expect(out.filename).toBe(`${brandFileSlug}-memory-export-org-1.zip`);
     });
 
     it("fails an organization's export, without retrying, once its owners turn exports off", async () => {

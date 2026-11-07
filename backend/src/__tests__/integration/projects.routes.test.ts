@@ -1,3 +1,4 @@
+import { brandFileSlug } from "../../lib/brandFiles";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import {
@@ -2042,7 +2043,7 @@ describe("projects.routes", () => {
 
             expect(res.status).toBe(200);
             expect(res.headers["content-disposition"]).toMatch(
-                /attachment; filename="mike-project-manifest-p1-/,
+                new RegExp(`attachment; filename="${brandFileSlug}-project-manifest-p1-`),
             );
             expect(res.body.manifest_version).toBe(1);
             expect(res.body.project.name).toBe("Alpha");

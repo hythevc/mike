@@ -1,3 +1,4 @@
+import { brand } from "../../lib/brand.generated";
 // Tracked-change edits to a stored .docx: the edits become a new, active
 // document version with one document_edits row per change, which the user
 // later accepts or rejects. The assistant's edit_document tool and playbook
@@ -132,7 +133,7 @@ export async function applyTrackedEditsToDocument(params: {
     .select("display_name, email")
     .eq("user_id", userId)
     .maybeSingle();
-  const author = profileAttributionName(authorProfile, "Mike");
+  const author = profileAttributionName(authorProfile, brand.docxAuthorLabel);
 
   const {
     bytes: editedBytes,

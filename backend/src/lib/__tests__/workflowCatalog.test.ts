@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   catalogKeyFromWorkflowId,
@@ -21,7 +22,7 @@ const CATALOG_ROW: WorkflowCatalogRow = {
   columns_config: null,
   contributors: [
     {
-      name: "Mike",
+      name: brand.productName,
       organisation: null,
       role: null,
       linkedin: null,

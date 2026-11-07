@@ -1,3 +1,4 @@
+import { brand } from "../../lib/brand.generated";
 // Who a playbook is shared with, for the people dialog. Mirrors
 // workflows.sharing.ts: personal playbooks are shared by email, and an
 // organization's with its members, who can also be denied a public one.
@@ -208,7 +209,7 @@ export async function sharePlaybook(
     throw new PlaybookRequestError("Choose owner, editor or viewer.");
   const missing = await findMissingUserEmails(db, emails);
   if (missing.length)
-    throw new PlaybookRequestError(`${missing[0]} does not belong to a Mike user.`);
+    throw new PlaybookRequestError(`${missing[0]} does not belong to a ${brand.productName} user.`);
   const { error } = await db.from("playbook_shares").upsert(
     emails.map((email) => ({
       playbook_id: playbook.id,

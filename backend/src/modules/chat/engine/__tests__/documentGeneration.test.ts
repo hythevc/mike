@@ -17,6 +17,7 @@ vi.mock("../../../../lib/downloadTokens", () => ({
 }));
 
 import { generateDocx } from "../tools/documentOps";
+import { brand } from "../../../../lib/brand.generated";
 
 function fakeDb() {
   return {
@@ -158,5 +159,34 @@ describe("generateDocx numbering", () => {
     expect(first).not.toContain("- First item");
     expect(second).not.toContain("- Second item");
     expect(numberingXml).toContain('<w:numFmt w:val="bullet"/>');
+  });
+});
+
+describe("generateDocx metadata", () => {
+  it("records the brand as the document creator and application", async () => {
+    let bytes: ArrayBuffer | undefined;
+    uploadFileMock.mockImplementationOnce(
+      async (_key: string, uploaded: ArrayBuffer) => {
+        bytes = uploaded;
+      },
+    );
+
+    const result = await generateDocx(
+      "Branded document",
+      [{ heading: "Overview", content: "Body text." }],
+      "test-user",
+      fakeDb() as never,
+    );
+
+    expect(result).not.toHaveProperty("error");
+    expect(bytes).toBeDefined();
+    const archive = await JSZip.loadAsync(bytes!);
+    const coreXml = await archive.file("docProps/core.xml")!.async("string");
+    const appXml = await archive.file("docProps/app.xml")!.async("string");
+    expect(coreXml).toContain(`<dc:creator>${brand.productName}</dc:creator>`);
+    expect(coreXml).toContain(
+      `<cp:lastModifiedBy>${brand.productName}</cp:lastModifiedBy>`,
+    );
+    expect(appXml).toContain(`<Application>${brand.productName}</Application>`);
   });
 });

@@ -1,3 +1,4 @@
+import { brand } from "../../lib/brand.generated";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import {
@@ -595,7 +596,7 @@ describe("workflows.routes", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.detail).toBe(
-        "future@firm.test does not belong to a Mike user.",
+        `future@firm.test does not belong to a ${brand.productName} user.`,
       );
     });
 

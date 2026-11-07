@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 /**
  * Google services the operator has switched off with
  * GOOGLE_WORKSPACE_DISABLED_PROVIDERS, a comma-separated list of provider
@@ -37,5 +38,5 @@ export function isGoogleServiceAvailable(service: GoogleService): boolean {
 
 /** Repo-authored, safe to show the user as written. */
 export function googleServiceUnavailableMessage(service: GoogleService): string {
-  return `${GOOGLE_SERVICES[service]} is not offered on this Mike server.`;
+  return `${GOOGLE_SERVICES[service]} is not offered on this ${brand.productName} server.`;
 }
