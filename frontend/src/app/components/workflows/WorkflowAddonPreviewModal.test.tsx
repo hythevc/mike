@@ -63,6 +63,40 @@ function addon(assets: WorkflowAddon["assets"]): WorkflowAddon {
   };
 }
 
+const LICENSING: Partial<WorkflowAddon> = {
+  license: "Apache-2.0",
+  license_evidence: "file",
+  attribution: "Based on Opposing Counsel Review by Larissa Meredith-Flister.",
+  provenance: {
+    catalog_repository: "Open-Legal-Products/mike-workflows",
+    catalog_path: "assistant-workflows/opposing-counsel-review",
+    license_file: "assistant-workflows/opposing-counsel-review/LICENSE",
+    source_repository: "hythevc/awesome-legal-skills",
+    source_path: "skills/opposing-counsel-review",
+    source_commit: "f9f28cd",
+    source_name: "Opposing Counsel Review",
+    source_version: "2026-04-26",
+    review_by: null,
+  },
+  notice_md: "Opposing Counsel Review\nCopyright 2026 Larissa Meredith-Flister.",
+  changes_md: "## 1.2.0\n- Converted.",
+  source_commit: "ce62e6a2",
+};
+
+function assistantAddon(): WorkflowAddon {
+  return { ...addon([]), ...LICENSING };
+}
+
+function tabularAddon(): WorkflowAddon {
+  return {
+    ...addon([]),
+    ...LICENSING,
+    type: "tabular",
+    prompt_md: null,
+    columns_config: [{ index: 0, name: "Issue", prompt: "What is the issue?" }],
+  };
+}
+
 describe("WorkflowAddonPreviewModal", () => {
   it("shows the add-on's assets in its details", async () => {
     const user = userEvent.setup();
@@ -180,5 +214,73 @@ describe("WorkflowAddonPreviewModal", () => {
       screen.queryByRole("button", { name: "Assets" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("SKILL.md")).toBeVisible();
+  });
+
+  it("renders the credit, licence, source and changes for an assistant add-on", () => {
+    render(
+      <WorkflowAddonPreviewModal
+        addon={assistantAddon()}
+        importing={false}
+        onClose={vi.fn()}
+        onImport={vi.fn()}
+      />,
+    );
+
+    // The credits & licence panel.
+    expect(screen.getByText("Credits and licence")).toBeVisible();
+
+    // Licence links to the SPDX text.
+    const licence = screen.getByRole("link", { name: /Apache-2\.0 licence text/ });
+    expect(licence).toHaveAttribute(
+      "href",
+      "https://spdx.org/licenses/Apache-2.0.html",
+    );
+
+    // Adapted-from credit and original title.
+    expect(
+      screen.getByText(
+        /Based on Opposing Counsel Review by Larissa Meredith-Flister\./,
+      ),
+    ).toBeVisible();
+
+    // Source links to the catalog tree at the synced commit.
+    const source = screen.getByRole("link", {
+      name: "View source at this revision",
+    });
+    expect(source).toHaveAttribute(
+      "href",
+      "https://github.com/Open-Legal-Products/mike-workflows/tree/ce62e6a2/assistant-workflows/opposing-counsel-review",
+    );
+
+    // Changes links to CHANGES.md at the synced commit.
+    const changes = screen.getByRole("link", { name: "View changes" });
+    expect(changes).toHaveAttribute(
+      "href",
+      "https://github.com/Open-Legal-Products/mike-workflows/blob/ce62e6a2/assistant-workflows/opposing-counsel-review/CHANGES.md",
+    );
+
+    // NOTICE text is reproduced.
+    expect(
+      screen.getByText(/Copyright 2026 Larissa Meredith-Flister\./),
+    ).toBeVisible();
+  });
+
+  it("renders the mandatory credits panel for a tabular add-on", () => {
+    render(
+      <WorkflowAddonPreviewModal
+        addon={tabularAddon()}
+        importing={false}
+        onClose={vi.fn()}
+        onImport={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Credits and licence")).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Apache-2\.0 licence text/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "View source at this revision" }),
+    ).toBeVisible();
   });
 });

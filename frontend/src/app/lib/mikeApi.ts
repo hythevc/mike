@@ -3901,6 +3901,20 @@ export async function getWorkflow(workflowId: string): Promise<Workflow> {
     return apiRequest<Workflow>("workflows.run", `/workflows/${workflowId}`);
 }
 
+/**
+ * Make an editable copy of a built-in (`builtin-<key>`) the catalog still
+ * serves, keeping its licence, credit and source. Returns the new copy in the
+ * same shape as GET /workflows/:id.
+ */
+export async function duplicateBuiltInWorkflow(
+    workflowId: string,
+): Promise<Workflow> {
+    return apiRequest<Workflow>(
+        "workflows.duplicate_builtin", `/workflows/${workflowId}/duplicate`,
+        { method: "POST" },
+    );
+}
+
 export async function createWorkflow(payload: {
     metadata: {
         title: string;
@@ -4057,6 +4071,18 @@ export async function getWorkflowAddon(
     addonId: string,
 ): Promise<WorkflowAddon> {
     return apiRequest<WorkflowAddon>("workflows.import_addon", `/workflow-addons/${addonId}`);
+}
+
+/**
+ * Every workflow in the active catalog with its credit, licence, source and
+ * revision, for the open-source notices page.
+ */
+export async function listWorkflowAttributions(): Promise<
+    import("@mike/contracts").WorkflowCatalogAttribution[]
+> {
+    return apiRequest<import("@mike/contracts").WorkflowCatalogAttribution[]>(
+        "workflows.run", "/workflows/attributions",
+    );
 }
 
 export async function importWorkflowAddon(addonId: string): Promise<Workflow> {

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useReasoningDisclosure } from "@/shared/hooks/useReasoningDisclosure";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, ScrollText } from "lucide-react";
 import {
     EventDisclosureButton,
     EventLabel,
@@ -535,10 +536,13 @@ export function WorkflowAppliedBlock({
     title,
     showConnector,
     onClick,
+    creditsHref,
 }: {
     title: string;
     showConnector?: boolean;
     onClick?: () => void;
+    /** Where the "Credits" link points: the workflow's open-source notices. */
+    creditsHref?: string;
 }) {
     return (
         <EventBlock showConnector={showConnector} dotColor="green">
@@ -560,6 +564,16 @@ export function WorkflowAppliedBlock({
                         <span className="truncate">{title}</span>
                     </span>
                 )}
+                {creditsHref ? (
+                    <Link
+                        href={creditsHref}
+                        aria-label={`Credits and licence for ${title}`}
+                        className="ml-1 inline-flex shrink-0 items-center gap-1 text-xs text-gray-400 transition-colors hover:text-gray-700 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+                    >
+                        <ScrollText aria-hidden="true" className="h-3 w-3" />
+                        Credits
+                    </Link>
+                ) : null}
             </div>
         </EventBlock>
     );

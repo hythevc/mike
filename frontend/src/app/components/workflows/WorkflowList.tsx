@@ -243,17 +243,60 @@ export function WorkflowList({
     return previewEmptyStates ? [] : workflows;
   }, [previewEmptyStates, workflows]);
 
+  // The add-on catalog loads whole, so its practice, jurisdiction and
+  // language filters are built from and applied to the rows in memory, the
+  // same filters the main list offers.
+  const addonFilterOptions = useMemo<WorkflowFilterOptions>(() => {
+    const practices = new Set<string>();
+    const jurisdictions = new Set<string>();
+    const languages = new Set<string>();
+    for (const addon of addons) {
+      if (addon.practice) practices.add(addon.practice);
+      for (const jurisdiction of addon.jurisdictions ?? []) {
+        if (jurisdiction) jurisdictions.add(jurisdiction);
+      }
+      if (addon.language) languages.add(addon.language);
+    }
+    const sorted = (values: Set<string>) =>
+      [...values].sort((a, b) => a.localeCompare(b));
+    return {
+      practices: sorted(practices),
+      jurisdictions: sorted(jurisdictions),
+      languages: sorted(languages),
+    };
+  }, [addons]);
   const visibleAddons = useMemo(() => {
     if (previewEmptyStates) return [];
-    return addons.filter(
-      (addon) =>
-        !query ||
-        addon.title.toLowerCase().includes(query) ||
-        addon.description?.toLowerCase().includes(query) ||
-        addon.pack_title?.toLowerCase().includes(query) ||
-        addon.practice?.toLowerCase().includes(query),
-    );
-  }, [addons, previewEmptyStates, query]);
+    return addons.filter((addon) => {
+      if (
+        query &&
+        !(
+          addon.title.toLowerCase().includes(query) ||
+          addon.description?.toLowerCase().includes(query) ||
+          addon.pack_title?.toLowerCase().includes(query) ||
+          addon.practice?.toLowerCase().includes(query)
+        )
+      ) {
+        return false;
+      }
+      if (practiceFilter && addon.practice !== practiceFilter) return false;
+      if (languageFilter && addon.language !== languageFilter) return false;
+      if (
+        jurisdictionFilter &&
+        !(addon.jurisdictions ?? []).includes(jurisdictionFilter)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    addons,
+    previewEmptyStates,
+    query,
+    practiceFilter,
+    languageFilter,
+    jurisdictionFilter,
+  ]);
   const activePack = useMemo(() => {
     if (!packKey) return null;
     const addon = addons.find((item) => item.pack_key === packKey);
@@ -579,6 +622,13 @@ export function WorkflowList({
           onOpen={openAddon}
           onImport={importAddon}
           onImportMany={(selected) => void importAddons(selected)}
+          practiceFilter={practiceFilter}
+          onPracticeFilterChange={setPracticeFilter}
+          jurisdictionFilter={jurisdictionFilter}
+          onJurisdictionFilterChange={setJurisdictionFilter}
+          languageFilter={languageFilter}
+          onLanguageFilterChange={setLanguageFilter}
+          filterOptions={addonFilterOptions}
         />
       ) : (
         <WorkflowTable
@@ -586,6 +636,7 @@ export function WorkflowList({
           workflows={visibleWorkflows}
           loading={loading}
           error={workflowsError ? "Unable to load workflows." : ""}
+          onRetry={refreshWorkflows}
           onOpen={setSelected}
           onEdit={(workflow) => router.push(workflowDetailPath(workflow))}
           onDelete={(workflow) => requestWorkflowDeletion([workflow])}
@@ -677,6 +728,7 @@ function WorkflowTable({
   workflows,
   loading,
   error,
+  onRetry,
   onOpen,
   onEdit,
   onDelete,
@@ -707,6 +759,7 @@ function WorkflowTable({
   workflows: Workflow[];
   loading: boolean;
   error: string;
+  onRetry: () => void;
   onOpen: (workflow: Workflow) => void;
   onEdit: (workflow: Workflow) => void;
   onDelete: (workflow: Workflow) => void;
@@ -943,14 +996,26 @@ function WorkflowTable({
             </TableRow>
           ))}
         </TableBody>
+      ) : error ? (
+        <TableEmptyState>
+          <EmptyState
+            tone="error"
+            icon={<WorkflowSkeuoIcon />}
+            title="Couldn't load workflows"
+            description={error}
+            action={
+              <PillButtonUI tone="black" size="sm" onClick={onRetry}>
+                Try again
+              </PillButtonUI>
+            }
+          />
+        </TableEmptyState>
       ) : workflows.length === 0 ? (
         <TableEmptyState>
           <EmptyState
             icon={<WorkflowSkeuoIcon />}
             title="Workflows"
-            description={
-              error || "Create a reusable workflow or import one from Add-ons."
-            }
+            description="Create a reusable workflow or import one from Add-ons."
             action={
               <PillButtonUI tone="black" size="sm" onClick={onCreate}>
                 Create
@@ -1106,6 +1171,13 @@ function AddonTable({
   onOpen,
   onImport,
   onImportMany,
+  practiceFilter,
+  onPracticeFilterChange,
+  jurisdictionFilter,
+  onJurisdictionFilterChange,
+  languageFilter,
+  onLanguageFilterChange,
+  filterOptions,
 }: {
   addons: WorkflowAddon[];
   loading: boolean;
@@ -1120,8 +1192,34 @@ function AddonTable({
   onOpen: (addon: WorkflowAddon) => void;
   onImport: (addon: WorkflowAddon) => Promise<void>;
   onImportMany: (addons: WorkflowAddon[]) => void;
+  practiceFilter: string | null;
+  onPracticeFilterChange: (value: string | null) => void;
+  jurisdictionFilter: string | null;
+  onJurisdictionFilterChange: (value: string | null) => void;
+  languageFilter: string | null;
+  onLanguageFilterChange: (value: string | null) => void;
+  filterOptions: WorkflowFilterOptions;
 }) {
   const bulkImporting = bulkImportingIds.length > 0;
+  const practiceOptions = useMemo(
+    () => workflowFilterOptions(filterOptions.practices),
+    [filterOptions.practices],
+  );
+  const jurisdictionOptions = useMemo(
+    () => workflowFilterOptions(filterOptions.jurisdictions),
+    [filterOptions.jurisdictions],
+  );
+  const languageOptions = useMemo(
+    () => workflowFilterOptions(filterOptions.languages),
+    [filterOptions.languages],
+  );
+  function changeAddonFilter(
+    setter: (value: string | null) => void,
+    value: string | null,
+  ) {
+    setter(value);
+    onSelectedIdsChange([]);
+  }
   const [expandedPackKeys, setExpandedPackKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1358,9 +1456,51 @@ function AddonTable({
             Name
           </TableStickyCell>
           <TableHeaderCell className="ml-auto w-28">Type</TableHeaderCell>
-          <TableHeaderCell className="w-52">Practice</TableHeaderCell>
-          <TableHeaderCell className="w-40">Jurisdiction</TableHeaderCell>
-          <TableHeaderCell className="w-28">Language</TableHeaderCell>
+          <TableHeaderCell className="flex w-52 items-center gap-1">
+            <span>Practice</span>
+            {!loading && (
+              <TableFilters
+                label="Filter add-ons by practice"
+                value={practiceFilter}
+                allLabel="All Practices"
+                widthClassName="w-52"
+                options={practiceOptions}
+                onChange={(value) =>
+                  changeAddonFilter(onPracticeFilterChange, value)
+                }
+              />
+            )}
+          </TableHeaderCell>
+          <TableHeaderCell className="flex w-40 items-center gap-1">
+            <span>Jurisdiction</span>
+            {!loading && (
+              <TableFilters
+                label="Filter add-ons by jurisdiction"
+                value={jurisdictionFilter}
+                allLabel="All Jurisdictions"
+                widthClassName="w-48"
+                options={jurisdictionOptions}
+                onChange={(value) =>
+                  changeAddonFilter(onJurisdictionFilterChange, value)
+                }
+              />
+            )}
+          </TableHeaderCell>
+          <TableHeaderCell className="flex w-28 items-center gap-1">
+            <span>Language</span>
+            {!loading && (
+              <TableFilters
+                label="Filter add-ons by language"
+                value={languageFilter}
+                allLabel="All Languages"
+                widthClassName="w-44"
+                options={languageOptions}
+                onChange={(value) =>
+                  changeAddonFilter(onLanguageFilterChange, value)
+                }
+              />
+            )}
+          </TableHeaderCell>
           <TableHeaderCell className="w-8" />
         </TableHeaderRow>
       }

@@ -653,6 +653,9 @@ export function AssistantMessage({
                             ? () => onWorkflowClick(event.workflow_id)
                             : undefined
                     }
+                    // The open-source notices page credits every catalog
+                    // workflow: who wrote it, its licence and its source.
+                    creditsHref="/workflows/attributions"
                 />
             );
         }

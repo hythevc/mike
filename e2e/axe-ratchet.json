@@ -25,6 +25,10 @@
             "light": { "serious": 0, "rules": [] },
             "dark": { "serious": 0, "rules": [] }
         },
+        "/workflows/attributions": {
+            "light": { "serious": 1, "rules": ["color-contrast"] },
+            "dark": { "serious": 0, "rules": [] }
+        },
         "/playbooks": {
             "light": { "serious": 1, "rules": ["color-contrast"] },
             "dark": { "serious": 0, "rules": [] }
