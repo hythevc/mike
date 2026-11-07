@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import {
   useCallback,
   useEffect,
@@ -99,7 +100,7 @@ const CONNECTOR_ACTION_LABELS = {
 function connectorMessage(error: unknown, action: string): string {
   return reportFault(error, {
     action,
-    fallback: `Mike couldn't ${action}. Try again.`,
+    fallback: `${brand.productName} couldn't ${action}. Try again.`,
     operation: "settings.connectors",
   }).message;
 }

@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -85,11 +86,11 @@ describe("privacy-data async exports", () => {
             .mockResolvedValueOnce({ status: "pending" })
             .mockResolvedValueOnce({
                 status: "done",
-                filename: "mike-account-export-u1.json",
+                filename: "account-export-u1.json",
             });
         mockedDownload.mockResolvedValue({
             blob: new Blob(["{}"], { type: "application/json" }),
-            filename: "mike-account-export-u1.json",
+            filename: "account-export-u1.json",
         });
         // jsdom has no createObjectURL.
         globalThis.URL.createObjectURL = vi.fn(() => "blob:mock");
@@ -135,7 +136,7 @@ describe("privacy-data async exports", () => {
         const toast = await screen.findByRole("alert");
         expect(toast).toHaveTextContent("Couldn't export your chats");
         expect(toast).toHaveTextContent(
-            "Mike couldn't build the export. Try again, and contact support if it keeps happening.",
+            `${brand.productName} couldn't build the export. Try again, and contact support if it keeps happening.`,
         );
         expect(
             screen.getByRole("button", { name: "Retry" }),
@@ -152,11 +153,11 @@ describe("privacy-data async exports", () => {
         mockedStart.mockResolvedValue({ export_id: "job-memory" });
         mockedStatus.mockResolvedValue({
             status: "done",
-            filename: "mike-memory-export.zip",
+            filename: "memory-export.zip",
         });
         mockedDownload.mockResolvedValue({
             blob: new Blob(["zip"], { type: "application/zip" }),
-            filename: "mike-memory-export.zip",
+            filename: "memory-export.zip",
         });
         globalThis.URL.createObjectURL = vi.fn(() => "blob:memory");
         globalThis.URL.revokeObjectURL = vi.fn();

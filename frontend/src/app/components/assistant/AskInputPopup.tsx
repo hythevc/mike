@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useCallback, useEffect, useState } from "react";
 import { Check, X } from "lucide-react";
 import { CloseButton } from "@/shared/ui/CloseButton";
@@ -367,7 +368,7 @@ export function AskInputPopup({
         const onlyApprovals = response.responses.every(
             (item) => item.kind === "approval",
         );
-        return `${onlyApprovals ? "Decisions on Mike's requested actions" : "Responses to Mike's questions"}:\n${lines.join("\n\n")}`;
+        return `${onlyApprovals ? `Decisions on ${brand.assistantName}'s requested actions` : `Responses to ${brand.assistantName}'s questions`}:\n${lines.join("\n\n")}`;
     };
 
     // Called straight from the handler that resolves the last outstanding
@@ -492,7 +493,7 @@ export function AskInputPopup({
                                             <DocumentPrompt />
                                         ) : activeItem.kind === "approval" ? (
                                             <p className="text-sm text-gray-800">
-                                                Mike wants to run this action.
+                                                {brand.assistantName} wants to run this action.
                                                 Approve it to run it now.
                                             </p>
                                         ) : (

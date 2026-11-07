@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +17,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/lib/authApi", () => ({ getAuthSession, updateAuthPassword }));
 
 vi.mock("@/app/components/site-logo", () => ({
-    SiteLogo: () => <div>Mike</div>,
+    SiteLogo: () => <div>logo</div>,
 }));
 
 async function submitPassword(password: string) {
@@ -67,7 +68,7 @@ describe("ResetPasswordPage", () => {
 
         expect(
             await screen.findByText(
-                "Mike couldn't reach the server. Check your connection and try again.",
+                `${brand.productName} couldn't reach the server. Check your connection and try again.`,
             ),
         ).toBeInTheDocument();
     });

@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +13,7 @@ vi.mock("@/app/lib/authApi", () => ({
 }));
 
 vi.mock("@/app/components/site-logo", () => ({
-    SiteLogo: () => <div>Mike</div>,
+    SiteLogo: () => <div>logo</div>,
 }));
 
 describe("ForgotPasswordPage", () => {
@@ -77,7 +78,7 @@ describe("ForgotPasswordPage", () => {
         );
 
         expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Mike couldn't reach the server. Check your connection and try again.",
+            `${brand.productName} couldn't reach the server. Check your connection and try again.`,
         );
         expect(
             screen.queryByRole("heading", { name: "Check your email" }),

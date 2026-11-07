@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useCallback, useEffect, useState } from "react";
 import { LIQUID_GLASS_FLAT_CLASS } from "@/shared/ui/LiquidGlassUI";
 import { MemorySaveStatus } from "@/app/components/memory/MemoryEditorState";
@@ -98,7 +99,7 @@ export function CustomInstructionsSection() {
         ) : null}
       </div>
       <SettingsDescription>
-        Tell Mike how you would like it to respond in chats.
+        Tell {brand.assistantName} how you would like it to respond in chats.
       </SettingsDescription>
 
       {loading ? (

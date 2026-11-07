@@ -47,7 +47,7 @@ import {
     getModelProvider,
     providerLabel,
 } from "@/app/lib/modelAvailability";
-import { MikeIcon } from "@/shared/ui/MikeIconUI";
+import { BrandMark } from "@/shared/ui/BrandMarkUI";
 import type {
     Chat,
     Citation,
@@ -100,7 +100,7 @@ function AssistantGreeting({ username }: { username: string }) {
                             "transform 900ms cubic-bezier(0.25, 0.46, 0.45, 0.94)",
                     }}
                 >
-                    <MikeIcon size={ICON_SIZE} />
+                    <BrandMark size={ICON_SIZE} />
                 </div>
                 <h1
                     ref={textRef}

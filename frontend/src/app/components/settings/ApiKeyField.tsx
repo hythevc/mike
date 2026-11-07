@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import {
@@ -170,7 +171,7 @@ export function ApiKeyField({
         // The caller reports failure as `false`, with no error to classify.
         notifyError(
           new UserVisibleError(
-            `Mike couldn't save your ${label}. The key was not changed.`,
+            `${brand.productName} couldn't save your ${label}. The key was not changed.`,
             { retryable: true },
           ),
           {
@@ -209,7 +210,7 @@ export function ApiKeyField({
       } else {
         notifyError(
           new UserVisibleError(
-            `Mike couldn't remove your ${label}. The key is still saved.`,
+            `${brand.productName} couldn't remove your ${label}. The key is still saved.`,
             { retryable: true },
           ),
           {

@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +22,7 @@ vi.mock("@/app/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/app/components/site-logo", () => ({
-    SiteLogo: () => <div>Mike</div>,
+    SiteLogo: () => <div>logo</div>,
 }));
 
 describe("SsoLoginPage", () => {
@@ -101,7 +102,7 @@ describe("SsoLoginPage", () => {
         await user.click(screen.getByRole("button", { name: "Continue" }));
 
         expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Mike couldn't reach the server. Check your connection and try again.",
+            `${brand.productName} couldn't reach the server. Check your connection and try again.`,
         );
         await user.click(screen.getByRole("button", { name: "Retry" }));
         expect(startSso).toHaveBeenCalledTimes(2);

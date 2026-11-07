@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantMessage } from "./AssistantMessage";
@@ -292,7 +293,7 @@ describe("AssistantMessage timeline", () => {
                 .closest("div.relative")
                 ?.querySelector(':scope > [data-slot="event-connector"]');
 
-        it("shows Mike starting the subagents, one pill each, with Mike's line running past them", () => {
+        it("shows the assistant starting the subagents, one pill each, with the assistant's line running past them", () => {
             render(
                 <AssistantMessage
                     events={[
@@ -328,7 +329,7 @@ describe("AssistantMessage timeline", () => {
             expect(screen.queryByRole("region", { name: "Check the guarantee" })).toBeNull();
         });
 
-        it("shows a selected subagent's status, the task from Mike, its steps and its brief", () => {
+        it("shows a selected subagent's status, the task from the assistant, its steps and its brief", () => {
             render(<AssistantMessage events={[delegation(), { type: "content", text: "Done." }]} />);
             openTimeline();
             fireEvent.click(pill("Review the lease"));
@@ -339,11 +340,11 @@ describe("AssistantMessage timeline", () => {
             // The model, reasoning and tokens stay hidden until the user asks for them.
             expect(screen.queryByText(/budget allocated/)).toBeNull();
             expect(screen.queryByText(/List every rent review clause/)).toBeNull();
-            fireEvent.click(screen.getByRole("button", { name: "Task from Mike" }));
+            fireEvent.click(screen.getByRole("button", { name: `Task from ${brand.assistantName}` }));
             expect(screen.getByText(/List every rent review clause/)).toBeVisible();
             expect(screen.getByText("lease.pdf")).toBeVisible();
 
-            fireEvent.click(screen.getByRole("button", { name: "Returned a brief to Mike" }));
+            fireEvent.click(screen.getByRole("button", { name: `Returned a brief to ${brand.assistantName}` }));
             expect(screen.getByRole("region", { name: "Brief" }))
                 .toHaveTextContent("Clause 4.2 sets an annual review.");
         });
@@ -393,7 +394,7 @@ describe("AssistantMessage timeline", () => {
             [{ status: "incomplete" as const }, "Stopped at its limit · partial brief · 1 step"],
             [{ status: "cancelled" as const }, "Stopped · 1 step"],
             [{ status: "failed" as const }, "Couldn't finish"],
-            [{ status: "needs_input" as const, question: "Which lease?" }, "Asked Mike a question · 1 step"],
+            [{ status: "needs_input" as const, question: "Which lease?" }, `Asked ${brand.assistantName} a question · 1 step`],
             [{ status: "needs_input" as const, approval_ids: ["approve-1"] }, "Waiting for your approval · 1 step"],
             [{ continued_from: "d0" }, "Resumed · Completed in 1 step"],
         ])("reports how the subagent ended, with its pill and in its details", (overrides, status) => {
@@ -407,13 +408,13 @@ describe("AssistantMessage timeline", () => {
         it.each([
             [[delegation({ continued_from: "d0" })], "Resumed a subagent"],
             [[delegation({ continued_from: "d0" }), second], "Started 1 and resumed 1 subagents"],
-        ])("says when Mike resumed a subagent", (delegations, label) => {
+        ])("says when the assistant resumed a subagent", (delegations, label) => {
             render(<AssistantMessage events={[...delegations, { type: "content", text: "Done." }]} />);
             openTimeline(`Completed in 1 step · ${delegations.length} subagent${delegations.length === 1 ? "" : "s"}`);
             expect(screen.getByText(label)).toBeVisible();
         });
 
-        it("shows the question a paused subagent asked Mike", () => {
+        it("shows the question a paused subagent asked the assistant", () => {
             render(
                 <AssistantMessage
                     events={[
@@ -424,11 +425,11 @@ describe("AssistantMessage timeline", () => {
             );
             openTimeline();
             fireEvent.click(pill("Review the lease"));
-            expect(screen.getByText("Asked Mike")).toBeVisible();
+            expect(screen.getByText(`Asked ${brand.assistantName}`)).toBeVisible();
             expect(screen.getByText("Which lease, the 2019 or the 2021 one?")).toBeVisible();
         });
 
-        it("shows a running subagent's activity and holds Mike's line until every subagent finishes", () => {
+        it("shows a running subagent's activity and holds the assistant's line until every subagent finishes", () => {
             render(
                 <AssistantMessage
                     isStreaming
@@ -449,8 +450,10 @@ describe("AssistantMessage timeline", () => {
             const icon = screen
                 .getByRole("button", { name: new RegExp(`^${title}`) })
                 .querySelector<HTMLElement>('[data-slot="subagent-icon"]');
-            const mark = icon?.firstElementChild as HTMLElement | null | undefined;
-            return { tint: icon?.dataset.tint, spinning: mark?.style.animationPlayState === "running" };
+            const status = icon?.querySelector<HTMLElement>(
+                '[data-slot="assistant-status"]',
+            );
+            return { tint: icon?.dataset.tint, spinning: status?.dataset.state === "working" };
         };
 
         it("gives each subagent its own coloured mark, turning only while it works", () => {
@@ -471,11 +474,13 @@ describe("AssistantMessage timeline", () => {
                 <AssistantMessage events={[delegation({ status: "failed" }), { type: "content", text: "Done." }]} />,
             );
             openTimeline();
-            const fill = container.querySelector('[data-slot="subagent-icon"] linearGradient[id$="-m-glassFill"] stop');
-            expect((fill as SVGStopElement).style.stopColor.replace(/\s/g, "")).toBe("rgb(248,113,113)");
+            const status = container.querySelector(
+                '[data-slot="subagent-icon"] [data-slot="assistant-status"]',
+            );
+            expect(status?.getAttribute("data-state")).toBe("error");
         });
 
-        it("keeps a subagent's colour when Mike resumes it later in the answer", () => {
+        it("keeps a subagent's colour when the assistant resumes it later in the answer", () => {
             render(
                 <AssistantMessage
                     events={[

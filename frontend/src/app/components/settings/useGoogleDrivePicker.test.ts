@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,7 +44,7 @@ describe("useGoogleDrivePicker", () => {
       { id: "3", name: "c.pdf", mimeType: "application/pdf" },
     ]);
     expect(await addFiles()).toBe(
-      "Added 3 files. Mike can now search and read them.",
+      `Added 3 files. ${brand.assistantName} can now search and read them.`,
     );
     expect(mocks.open).toHaveBeenCalledWith(session);
   });

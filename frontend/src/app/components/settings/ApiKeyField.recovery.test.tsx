@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,7 +66,7 @@ describe("ApiKeyField", () => {
         const toast = await screen.findByRole("alert");
         expect(toast).toHaveTextContent("Couldn't save your Anthropic API key");
         expect(toast).toHaveTextContent(
-            "Mike couldn't save your Anthropic API key. The key was not changed.",
+            `${brand.productName} couldn't save your Anthropic API key. The key was not changed.`,
         );
         expect(alertSpy).not.toHaveBeenCalled();
 
@@ -88,7 +89,7 @@ describe("ApiKeyField", () => {
         await user.click(screen.getByRole("button", { name: "Save" }));
 
         expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Mike couldn't reach the server. Check your connection and try again.",
+            `${brand.productName} couldn't reach the server. Check your connection and try again.`,
         );
     });
 
@@ -143,7 +144,7 @@ describe("ApiKeyField", () => {
         await user.click(screen.getByRole("button", { name: "Remove" }));
 
         expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Mike couldn't remove your Anthropic API key. The key is still saved.",
+            `${brand.productName} couldn't remove your Anthropic API key. The key is still saved.`,
         );
     });
 });

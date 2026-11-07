@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { OnboardingShell } from "@/app/components/auth/OnboardingShell";
@@ -106,7 +107,7 @@ function stepDescription(
     if (hasUsableProvider(keys, "env")) {
         return "This deployment already provides models, so you can finish now. A key you add here replaces the deployment's for your Personal workspace.";
     }
-    return "Add an API key for at least one provider to start using Mike in your Personal workspace. You can add or change keys later in Settings.";
+    return `Add an API key for at least one provider to start using ${brand.productName} in your Personal workspace. You can add or change keys later in Settings.`;
 }
 
 function ModelStep({ userId }: { userId: string }) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import {
   useEffect,
   useRef,
@@ -204,7 +205,7 @@ export default function SecurityPage() {
     const described = describeError(error, {
       action,
       codeMessages: MFA_ERROR_MESSAGES,
-      fallback: `Mike couldn't ${action}. Try again.`,
+      fallback: `${brand.productName} couldn't ${action}. Try again.`,
     });
     setStatus(described.message);
     setStatusError(described);
@@ -280,13 +281,13 @@ export default function SecurityPage() {
 
       let data;
       try {
-        data = await enrollMfa("Mike");
+        data = await enrollMfa(brand.productName);
       } catch (error) {
         if (!isDuplicateFriendlyNameError(error)) throw error;
         traceMfa("[security/mfa] retrying enrollment with unique name", {
           error: error instanceof Error ? error.message : String(error),
         });
-        data = await enrollMfa(`Mike ${Date.now()}`);
+        data = await enrollMfa(`${brand.productName} ${Date.now()}`);
       }
       traceMfa("[security/mfa] enrollment created", {
         factorId: data.id,

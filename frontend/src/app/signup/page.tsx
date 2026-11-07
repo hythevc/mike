@@ -9,6 +9,7 @@ import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { pillButtonUIClassName } from "@/shared/ui/PillButtonUI.styles";
 import Link from "next/link";
 import { SiteLogo } from "@/app/components/site-logo";
+import { brand } from "@/shared/brand.generated";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { cn } from "@/app/lib/utils";
 import { WarningPopup } from "@/app/components/popups/WarningPopup";
@@ -247,7 +248,7 @@ function SignupContent() {
                             <div className="text-center text-xs text-gray-500">
                                 By signing up, you agree to our{" "}
                                 <Link
-                                    href="https://mikeoss.com/terms"
+                                    href={brand.legalDocuments.terms.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-blue-600 hover:underline"
@@ -256,7 +257,7 @@ function SignupContent() {
                                 </Link>{" "}
                                 and{" "}
                                 <Link
-                                    href="https://mikeoss.com/privacy"
+                                    href={brand.legalDocuments.privacy.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-blue-600 hover:underline"

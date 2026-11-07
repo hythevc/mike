@@ -5,6 +5,7 @@
  * NOT sent (a 4xx, a cancellation, a fault some other layer already filed).
  * Exercised from the frontend runner through the add-in's `@mike/*` aliases.
  */
+import { brand } from "@/shared/brand.generated";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type FakeScope = {
@@ -203,12 +204,12 @@ describe("what a notice reports", () => {
 describe("userMessage", () => {
     it("reports a fault only when the screen names the flow", () => {
         const bug = new Error("boom");
-        expect(userMessage(bug, { fallback: "Mike couldn't open this chat." })).toBe(
-            "Mike couldn't open this chat.",
+        expect(userMessage(bug, { fallback: `${brand.productName} couldn't open this chat.` })).toBe(
+            `${brand.productName} couldn't open this chat.`,
         );
         expect(Sentry.captureException).not.toHaveBeenCalled();
 
-        reportFault(bug, { fallback: "Mike couldn't open this chat.", operation: "word_chat.turn" });
+        reportFault(bug, { fallback: `${brand.productName} couldn't open this chat.`, operation: "word_chat.turn" });
         expect(Sentry.captureException).toHaveBeenCalledWith(bug);
         expect(tagsOf(state.scopes[0])).toEqual({ component: "notify", operation: "word_chat.turn" });
         // Shown a second time (the card and its persisted copy): one event.

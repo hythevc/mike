@@ -5,12 +5,12 @@
     "frontend/src"
   ],
   "counts": {
-    "supportAddress": 13,
-    "domain": 9,
+    "supportAddress": 0,
+    "domain": 0,
     "ossName": 0,
     "sentryOrg": 0,
-    "fileName": 8,
-    "name": 157
+    "fileName": 0,
+    "name": 0
   },
-  "total": 187
+  "total": 0
 }

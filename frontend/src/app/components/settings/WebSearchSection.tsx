@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useEffect, useRef, useState } from "react";
 import { ApiKeyField } from "@/app/components/settings/ApiKeyField";
 import { GlassCardUI } from "@/shared/ui/GlassCardUI";
@@ -33,7 +34,7 @@ const SEARCH_SERVICES: Record<
 > = {
   brave: {
     label: "Brave Search",
-    description: "Mike searches with Brave Search. Works with any model.",
+    description: `${brand.assistantName} searches with Brave Search. Works with any model.`,
     keyLabel: "Brave Search API Key",
   },
   tavily: {
@@ -212,7 +213,7 @@ export function WebSearchSection() {
               <div className="min-w-0 space-y-1">
                 <SettingsLabel>Enable web search</SettingsLabel>
                 <SettingsDescription>
-                  Let Mike search the web and read pages when an answer needs
+                  Let {brand.assistantName} search the web and read pages when an answer needs
                   current or public information.
                 </SettingsDescription>
               </div>

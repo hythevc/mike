@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useState } from "react";
 import Link from "next/link";
 import { InputUI } from "@/shared/ui/InputUI";
@@ -53,7 +54,7 @@ export default function ForgotPasswordPage() {
             const described = describeError(caught, {
                 action: "send the reset link",
                 fallback:
-                    "Mike couldn't send the reset link. Try again in a moment.",
+                    `${brand.productName} couldn't send the reset link. Try again in a moment.`,
             });
             if (DELIVERY_FAILURE_KINDS.has(described.kind)) {
                 setError(described);

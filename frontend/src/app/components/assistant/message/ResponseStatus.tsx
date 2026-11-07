@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MikeIcon } from "@/shared/ui/MikeIconUI";
+import { AssistantStatus } from "@/app/components/ui/assistant-status";
 
 /**
  * `waiting`: the response has paused to ask the user for input or approval.
@@ -48,15 +48,17 @@ export function ResponseStatus({ status }: { status: StatusState }) {
         };
     }, [isActive, isWaiting]);
 
+    const state = isError
+        ? "error"
+        : showDone && doneVisible
+          ? "done"
+          : isActive
+            ? "working"
+            : "idle";
+
     return (
         <div className="w-full h-9 flex items-center mb-2">
-            <MikeIcon
-                spin={isActive}
-                done={showDone && doneVisible}
-                error={isError}
-                mike={!isError && !(showDone && doneVisible)}
-                size={22}
-            />
+            <AssistantStatus state={state} size={22} />
         </div>
     );
 }

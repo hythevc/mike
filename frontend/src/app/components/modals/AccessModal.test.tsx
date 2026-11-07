@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -337,7 +338,7 @@ describe("AccessModal — per-recipient roles", () => {
         await user.click(screen.getByRole("button", { name: "Add" }));
         expect(
             await screen.findByText(
-                "newcounsel@outside.example does not belong to a Mike user.",
+                `newcounsel@outside.example does not belong to a ${brand.productName} user.`,
             ),
         ).toBeInTheDocument();
         expect(onGrant).not.toHaveBeenCalled();

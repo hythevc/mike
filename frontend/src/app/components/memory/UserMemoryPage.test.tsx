@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,7 +109,7 @@ describe("UserMemoryPage", () => {
 
     expect(
       await screen.findByText(
-        "Let Mike curate useful details after your saved conversations and use them in future answers.",
+        `Let ${brand.assistantName} curate useful details after your saved conversations and use them in future answers.`,
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/separate memory for each workspace/)).toBeNull();

@@ -1,73 +1,52 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { brand } from "@/shared/brand.generated";
 import SupportPage from "./page";
 
-const { authenticatedFetch, router, auth } = vi.hoisted(() => ({
-    authenticatedFetch: vi.fn(),
+const { router, auth } = vi.hoisted(() => ({
     router: { push: vi.fn() },
     auth: {
-        user: { id: "user-1", email: "alex@example.com" },
+        user: { id: "user-1", email: "alex@example.com" } as {
+            id: string;
+            email: string;
+        } | null,
         isAuthenticated: true,
         authLoading: false,
     },
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
-
 vi.mock("@/app/contexts/AuthContext", () => ({ useAuth: () => auth }));
-
-vi.mock("@/app/lib/authEvents", () => ({ authenticatedFetch }));
-
-async function submitFeedback() {
-    const user = userEvent.setup();
-    render(<SupportPage />);
-    await user.type(screen.getByLabelText(/Subject/), "Cannot upload");
-    await user.type(screen.getByLabelText(/Message/), "It fails every time.");
-    await user.click(screen.getByRole("button", { name: "Submit" }));
-    return user;
-}
 
 describe("SupportPage", () => {
     beforeEach(() => {
-        authenticatedFetch.mockReset();
         router.push.mockReset();
-        vi.spyOn(console, "error").mockImplementation(() => {});
+        auth.user = { id: "user-1", email: "alex@example.com" };
+        auth.isAuthenticated = true;
+        auth.authLoading = false;
     });
 
-    it("says the message did not send, and Submit sends it again", async () => {
-        authenticatedFetch
-            .mockResolvedValueOnce(
-                new Response(JSON.stringify({ detail: "no" }), { status: 503 }),
-            )
-            .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    it("points to the brand support mailbox and documentation", () => {
+        render(<SupportPage />);
 
-        const user = await submitFeedback();
-
-        const alert = await screen.findByRole("alert");
-        expect(alert).toHaveTextContent(
-            "Mike is temporarily unavailable. Try again in a moment.",
-        );
         expect(
-            screen.getByRole("link", { name: "Email support directly" }),
-        ).toHaveAttribute("href", expect.stringContaining("will@mikeoss.com"));
-
-        // The form keeps what was typed, so Submit is the retry.
-        await user.click(screen.getByRole("button", { name: "Submit" }));
-
-        expect(authenticatedFetch).toHaveBeenCalledTimes(2);
-        expect(
-            await screen.findByText("Thank you for helping us improve."),
+            screen.getByRole("heading", { name: "Support" }),
         ).toBeInTheDocument();
+
+        const email = screen.getByRole("link", { name: /Email support/ });
+        expect(email).toHaveAttribute(
+            "href",
+            expect.stringContaining(`mailto:${brand.supportEmail}`),
+        );
+
+        const docs = screen.getByRole("link", { name: /Documentation/ });
+        expect(docs).toHaveAttribute("href", brand.docsUrl);
     });
 
-    it("blames the connection when the request never lands", async () => {
-        authenticatedFetch.mockRejectedValue(new TypeError("Failed to fetch"));
-
-        await submitFeedback();
-
-        expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Mike couldn't reach the server. Check your connection and try again.",
-        );
+    it("sends a signed-out visitor home", () => {
+        auth.user = null;
+        auth.isAuthenticated = false;
+        render(<SupportPage />);
+        expect(router.push).toHaveBeenCalledWith("/");
     });
 });

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { MikeIcon } from "@/shared/ui/MikeIconUI";
+import { brand } from "@/shared/brand.generated";
+import { BrandMark } from "@/shared/ui/BrandMarkUI";
 
 interface SiteLogoProps {
     size?: "sm" | "md" | "lg" | "xl";
@@ -18,7 +19,7 @@ export function SiteLogo({
 }: SiteLogoProps) {
     const landingHref =
         process.env.NODE_ENV === "production"
-            ? "https://mikeoss.com"
+            ? brand.marketingUrl
             : "http://localhost:3000";
     const sizeClasses = {
         sm: "text-xl",
@@ -36,16 +37,17 @@ export function SiteLogo({
 
     const logo = (
         <h1
-            className={`flex items-center gap-1.5 ${sizeClasses[size]} font-light font-serif ${
+            className={`flex items-center gap-1.5 ${sizeClasses[size]} font-light ${
                 animate ? "sidebar-fade-in" : ""
             } ${className}`}
+            style={{ fontFamily: "var(--brand-display-face)" }}
         >
             <span
                 className={`inline-flex shrink-0 items-center leading-none ${iconClassName}`}
             >
-                <MikeIcon size={iconSizes[size]} />
+                <BrandMark size={iconSizes[size]} />
             </span>
-            <span>Mike</span>
+            <span>{brand.productName}</span>
         </h1>
     );
 

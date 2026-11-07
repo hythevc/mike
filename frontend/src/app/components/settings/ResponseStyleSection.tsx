@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useEffect, useRef, useState } from "react";
 import { GlassCardUI } from "@/shared/ui/GlassCardUI";
 import { SettingsHeading } from "@/app/components/settings/SettingsHeading";
@@ -30,13 +31,13 @@ function languageOptions(
   const options = {
     auto: {
       label: "Automatic",
-      description: "Mike replies in the language you write in.",
+      description: `${brand.assistantName} replies in the language you write in.`,
     },
   } as Record<ResponseLanguage, OptionCopy>;
   for (const [code, name] of Object.entries(names)) {
     options[code as ResponseLanguage] = {
       label: name,
-      description: `Mike replies in ${name}.`,
+      description: `${brand.assistantName} replies in ${name}.`,
     };
   }
   return options;
@@ -72,7 +73,7 @@ const SETTINGS: {
     options: {
       balanced: {
         label: "Balanced",
-        description: "Mike picks the layout that suits each answer.",
+        description: `${brand.assistantName} picks the layout that suits each answer.`,
       },
       less: {
         label: "Less",
@@ -93,7 +94,7 @@ const SETTINGS: {
       },
       balanced: {
         label: "Balanced",
-        description: "Mike's usual professional tone.",
+        description: `${brand.assistantName}'s usual professional tone.`,
       },
       plain: {
         label: "Plain and Simple",
@@ -201,7 +202,7 @@ export function ResponseStyleSection() {
     <section className="space-y-3" aria-labelledby="response-style-heading">
       <SettingsHeading id="response-style-heading">Response style</SettingsHeading>
       <SettingsDescription>
-        Choose how Mike shapes its answers in chats.
+        Choose how {brand.assistantName} shapes its answers in chats.
       </SettingsDescription>
       <GlassCardUI>
         {loadError ? (
