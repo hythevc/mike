@@ -105,7 +105,7 @@ type MessageWithFiles = {
     files?: { document_id?: string | null }[] | null;
 };
 
-function attachedDocumentIds(messages: MessageWithFiles[]): Set<string> {
+export function attachedDocumentIds(messages: MessageWithFiles[]): Set<string> {
     const ids = new Set<string>();
     for (const message of messages) {
         for (const file of message.files ?? []) {

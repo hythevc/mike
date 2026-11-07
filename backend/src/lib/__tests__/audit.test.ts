@@ -190,3 +190,47 @@ describe("audit write failure reporting", () => {
         expect(context.level).toBe("warning");
     });
 });
+
+describe("chatTurnAuditEvents records documents read (W18)", () => {
+    it("records the ids of documents read via read_document and fetch_documents", () => {
+        const rows = chatTurnAuditEvents(base, [
+            { type: "doc_read", filename: "a.pdf", document_id: "d1" },
+            { type: "doc_read", filename: "b.pdf", document_id: "d2" },
+        ]);
+        expect(rows[0].action).toBe("chat.message");
+        expect(rows[0].detail).toEqual({ read_document_ids: ["d1", "d2"] });
+    });
+
+    it("dedupes repeated reads and ignores a read with no id", () => {
+        const rows = chatTurnAuditEvents(base, [
+            { type: "doc_read", filename: "a.pdf", document_id: "d1" },
+            { type: "doc_read", filename: "a.pdf", document_id: "d1" },
+            { type: "doc_read", filename: "untitled" },
+        ]);
+        expect(rows[0].detail).toEqual({ read_document_ids: ["d1"] });
+    });
+
+    it("captures a subagent's reads nested under a delegation", () => {
+        const rows = chatTurnAuditEvents(base, [
+            {
+                type: "delegation",
+                events: [
+                    { type: "doc_read", filename: "sub.pdf", document_id: "d9" },
+                ],
+            },
+        ]);
+        expect(rows[0].detail).toEqual({ read_document_ids: ["d9"] });
+    });
+
+    it("merges read ids with flags, and the detail stays null with neither", () => {
+        const withFlags = chatTurnAuditEvents(
+            { ...base, flags: { web_search: true } },
+            [{ type: "doc_read", filename: "a.pdf", document_id: "d1" }],
+        );
+        expect(withFlags[0].detail).toEqual({
+            web_search: true,
+            read_document_ids: ["d1"],
+        });
+        expect(chatTurnAuditEvents(base, [])[0].detail).toBeNull();
+    });
+});

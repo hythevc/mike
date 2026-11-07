@@ -162,8 +162,17 @@ Existing deployments must apply
 `backend/migrations/20261002_05_mcp_oauth_grants.sql`. Fresh installations
 already include these settings in `backend/schema.sql`.
 
-Turn on **Ask for permission for write actions** in a connector's Manage
-dialog to review each write first. The assistant's turn then pauses with an
+Existing deployments must also apply
+`backend/migrations/20261107_50_matter_ai_controls.sql`, which makes **Ask for
+permission for write actions** default on for connectors added after it. It
+changes only the column default, so connectors that already exist keep their
+current setting.
+
+**Ask for permission for write actions** is on by default for every connector
+added from now on, so each write waits for your approval until you turn it off
+in the connector's Manage dialog. Connectors added before this default keep
+whatever they were already set to. While it is on, the assistant's turn pauses
+with an
 approval in the same popup it uses for questions, showing the exact action and
 its arguments. **Approve** runs that action and the turn continues with its
 result; **Reject** tells the assistant it did not run. The server runs the

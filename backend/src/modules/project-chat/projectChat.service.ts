@@ -48,6 +48,11 @@ import {
 } from "../../lib/documentWorkspace";
 import { can, type ProjectRole } from "../../lib/permissions";
 import {
+    isMatterAiRestricted,
+    MATTER_AI_RESTRICTED_CODE,
+    MATTER_AI_RESTRICTED_DETAIL,
+} from "../../lib/matterAi";
+import {
     resolveEffectiveReasoningLevel,
 } from "../../lib/modelSelection";
 import { replaysReasoning } from "../../lib/llm/registry";
@@ -198,6 +203,19 @@ export async function prepareProjectChatStream(
     );
     if (!projectAccess.ok)
         return { ok: false, status: 404, detail: "Project not found" };
+    // The client has switched AI off for this matter: refuse before any
+    // provider call, so no document of the matter reaches a model.
+    try {
+        if (await isMatterAiRestricted(db, projectId))
+            return {
+                ok: false,
+                status: 403,
+                code: MATTER_AI_RESTRICTED_CODE,
+                detail: MATTER_AI_RESTRICTED_DETAIL,
+            };
+    } catch (error) {
+        return { ok: false, internal: true, error };
+    }
     // Memory bookkeeping never decides whether the user gets an answer: a
     // database error in the audience check is reported as a normal internal
     // failure instead of escaping as a rejected promise.

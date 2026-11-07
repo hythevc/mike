@@ -32,10 +32,17 @@ import {
 } from "../../lib/access";
 import { teamOrgIdOf } from "../../lib/personalOrgs";
 import {
+    attachedDocumentIds,
     DOCUMENT_WORKSPACE_MISMATCH_CODE,
     DOCUMENT_WORKSPACE_MISMATCH_DETAIL,
     findNewAttachmentsOutsideWorkspace,
 } from "../../lib/documentWorkspace";
+import {
+    isMatterAiRestricted,
+    restrictedMatterAmongDocuments,
+    MATTER_AI_RESTRICTED_CODE,
+    MATTER_AI_RESTRICTED_DETAIL,
+} from "../../lib/matterAi";
 import { hasDirectContentGrants } from "../../lib/contentAccess";
 import { can } from "../../lib/permissions";
 import { resolveEffectiveReasoningLevel } from "../../lib/modelSelection";
@@ -301,6 +308,27 @@ export async function prepareChatStream(
                 status: 400,
                 code: DOCUMENT_WORKSPACE_MISMATCH_CODE,
                 detail: DOCUMENT_WORKSPACE_MISMATCH_DETAIL,
+            };
+    } catch (error) {
+        return { ok: false, internal: true, error };
+    }
+
+    // The client may have switched AI off for a matter. Refuse before any
+    // provider call when this turn runs in a restricted matter, or attaches
+    // a document that belongs to one, so none of its documents reach a model.
+    try {
+        const restricted =
+            (await isMatterAiRestricted(db, resolvedProjectId)) ||
+            (await restrictedMatterAmongDocuments(
+                db,
+                attachedDocumentIds(messages),
+            )) !== null;
+        if (restricted)
+            return {
+                ok: false,
+                status: 403,
+                code: MATTER_AI_RESTRICTED_CODE,
+                detail: MATTER_AI_RESTRICTED_DETAIL,
             };
     } catch (error) {
         return { ok: false, internal: true, error };

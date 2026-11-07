@@ -61,6 +61,8 @@ import {
   exportPlaybookDecisionRecord,
 } from "./playbooks.service";
 
+import { MatterAiRestrictedError } from "../../lib/matterAi";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const playbooksRouter = Router();
@@ -76,6 +78,11 @@ function sendError(res: Response, error: unknown): void {
       importAttemptId: error.attemptId,
       stage: error.stage,
     });
+  }
+  if (error instanceof MatterAiRestrictedError) {
+    return void res
+      .status(403)
+      .json({ detail: error.message, code: error.code });
   }
   if (error instanceof PlaybookRequestError) {
     return void res.status(error.status).json({ detail: error.message });
