@@ -8,11 +8,14 @@
 
 import { SkillConversionError } from "./sourceReader";
 
-/** SPDX identifiers the converter accepts, verbatim as a licensor declares. */
+// SPDX identifiers the converter accepts, verbatim as a licensor declares them
+// (conversionSpec §3). The list is exactly these four: 'AGPL-3.0' means -only
+// and is never upgraded, so the '-only' and '-or-later' spellings are not
+// accepted — a source that declares one of those is adjusted in its manifest to
+// the canonical id the footer and metadata then state, rather than being
+// silently relabelled "v3.0 only".
 export const CONVERTER_LICENSES = [
   "AGPL-3.0",
-  "AGPL-3.0-only",
-  "AGPL-3.0-or-later",
   "Apache-2.0",
   "MIT",
   "CC-BY-4.0",
@@ -23,8 +26,6 @@ export type LicenseFamily = "AGPL" | "Apache" | "MIT" | "CC-BY";
 
 const FAMILY_BY_LICENSE: Record<ConverterLicense, LicenseFamily> = {
   "AGPL-3.0": "AGPL",
-  "AGPL-3.0-only": "AGPL",
-  "AGPL-3.0-or-later": "AGPL",
   "Apache-2.0": "Apache",
   MIT: "MIT",
   "CC-BY-4.0": "CC-BY",

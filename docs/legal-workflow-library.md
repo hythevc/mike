@@ -61,7 +61,11 @@ For each workflow the converter:
 
 1. Ships only `SKILL.md` and the references the manifest maps. Script, tooling
    and build folders and files are never copied; the output contains no
-   executable content.
+   executable content. A manifest that maps a script, source file, executable,
+   build file, or any file carrying a shebang or an executable bit as an asset
+   is refused, so this holds even when a reference is mapped by hand — code
+   written as data is dropped or replaced by hand-written Markdown, never
+   auto-converted.
 2. Builds the frontmatter in a fixed order, with quoted metadata, a semantic
    version, one practice from a closed list, jurisdiction codes with their
    labels, and a 60–180 character description that ends `Draft for lawyer
@@ -71,8 +75,13 @@ For each workflow the converter:
    cross-skill sections, and rewrites references.
 4. Turns a mapped reference into either a Word asset referenced as
    `assets/<file>.docx` under a `## Reference documents` list, or an inline
-   `## Appendix`. The editable Markdown of every converted asset is kept under
-   the workflow's `source/` directory. After the rewrite, any residual
+   `## Appendix`. Every mapped reference — inline or converted to Word — runs
+   through the same pipeline as the body: its own recorded edits, the
+   script-fence strip, and the lint, residue and jurisdiction scans, so a Word
+   asset cannot carry install, fetch, credential or MCP content that the inline
+   path refuses. The editable Markdown of every converted asset is kept under
+   the workflow's `source/` directory. On a filename collision the next parent
+   directory is kept so no asset is overwritten. After the rewrite, any residual
    reference path fails the build.
 5. Appends the output requirements and the attribution footer.
 
@@ -111,8 +120,9 @@ added, so a rule can only be cleared by a recorded edit in the workflow's
 - A dated modification notice appears in the attribution footer and in each
   Word asset's provenance paragraph.
 - Each workflow ships a `CHANGES.md` and a `PROVENANCE.yaml` recording the
-  source, the file hashes, the licence evidence, the dropped files, the
-  rewritten script spans and the applied edits.
+  source, the file hashes, the licence evidence, the dropped files, the dropped
+  source-frontmatter keys, the rewritten script spans, the applied edits and any
+  reviewer waiver of the jurisdiction scan.
 
 ## Validation
 

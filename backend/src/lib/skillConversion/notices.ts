@@ -171,6 +171,7 @@ export type ProvenanceInput = {
   reviewBy: string | null;
   sourceFileHashes: Record<string, string>;
   droppedFiles: Array<{ path: string; sha256: string; reason: string }>;
+  droppedFrontmatterKeys: string[];
   rewrittenScriptSpans: Array<{ reason: string; before: string; after: string }>;
   editsApplied: Array<{ file: string; op: string; reason: string; category: string }>;
   waivers: string[];
@@ -209,6 +210,7 @@ export function provenanceYaml(input: ProvenanceInput): string {
     "review-by": input.reviewBy,
     "source-file-sha256": input.sourceFileHashes,
     "dropped-files": input.droppedFiles,
+    "dropped-frontmatter-keys": input.droppedFrontmatterKeys,
     "rewritten-script-spans": input.rewrittenScriptSpans,
     "edits-applied": input.editsApplied,
     waivers: input.waivers,

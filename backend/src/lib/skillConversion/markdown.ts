@@ -295,6 +295,14 @@ export async function renderMarkdownToDocx(
   add("word/document.xml", documentXml);
   add("word/_rels/document.xml.rels", DOCUMENT_RELS_XML);
   add("word/styles.xml", STYLES_XML);
+  // JSZip stamps the folder entries it creates on the way to a nested file
+  // (`_rels/`, `docProps/`, `word/`, `word/_rels/`) with the wall-clock time,
+  // which would make the archive bytes depend on when the converter ran. Pin
+  // every entry's date to the fixed timestamp so identical inputs give
+  // byte-identical output (conversionSpec §0).
+  for (const name of Object.keys(zip.files)) {
+    zip.files[name].date = options.date;
+  }
   return zip.generateAsync({
     type: "nodebuffer",
     compression: "STORE",

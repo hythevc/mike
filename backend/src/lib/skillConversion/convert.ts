@@ -34,9 +34,16 @@ import {
   provenanceYaml,
   SOURCE_LIST,
 } from "./notices";
-import { displaySlug, normalizeMarkdown, renderMarkdownToDocx } from "./markdown";
 import {
+  displaySlug,
+  findDangerousCharacter,
+  normalizeMarkdown,
+  renderMarkdownToDocx,
+} from "./markdown";
+import {
+  assertShippableSourceFile,
   resolveSourceFile,
+  safeYamlLoad,
   SkillConversionError,
   type SkillSource,
   sourceText,
@@ -137,6 +144,20 @@ const SCRIPT_REMOVED_SENTENCE =
   "An automated helper step from the original skill was removed. Do this " +
   "check by reading the documents directly, show your working, and say " +
   "plainly if it could not be done.";
+
+// The tabular column formats Mike accepts: the upstream set plus Mike's own
+// 'number' and 'currency' (conversionSpec §12).
+const TABULAR_COLUMN_FORMATS = new Set([
+  "text",
+  "bulleted_list",
+  "date",
+  "monetary_amount",
+  "percentage",
+  "yes_no",
+  "tag",
+  "number",
+  "currency",
+]);
 
 export type AssetMapping = {
   from: string;
@@ -247,6 +268,24 @@ function splitFrontmatter(text: string, skillKey: string): { frontmatter: string
   return { frontmatter: match[1], body: match[2] };
 }
 
+// The only source-frontmatter keys the converter carries forward; every other
+// top-level key is dropped and recorded in PROVENANCE.yaml (conversionSpec §3).
+const CARRIED_FRONTMATTER_KEYS = new Set(["name", "description", "license", "metadata"]);
+
+/**
+ * The source-frontmatter top-level keys the converter drops (conversionSpec §3:
+ * argument-hint, allowed-tools, tags, version, author, and the rest). Recorded
+ * in PROVENANCE.yaml so a reader can see what the source declared that the
+ * catalog entry does not carry.
+ */
+function droppedFrontmatterKeys(frontmatter: string, skillKey: string): string[] {
+  const parsed = safeYamlLoad(frontmatter, skillKey, "SKILL.md");
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  return Object.keys(parsed as Record<string, unknown>)
+    .filter((key) => !CARRIED_FRONTMATTER_KEYS.has(key))
+    .sort((a, b) => a.localeCompare(b, "en"));
+}
+
 function requireManifestString(
   value: unknown,
   skillKey: string,
@@ -263,12 +302,13 @@ export function assetFilename(
   assetPrefix: string,
   fromPath: string,
   ext: string,
+  options: { keepLeadingDirectory?: boolean } = {},
 ): string {
   const parts = fromPath.replace(/\\/g, "/").split("/").filter(Boolean);
   const leadingGeneric = new Set(["references", "reference", "resources", "assets", "shared"]);
   let withoutExt = parts.join("/").replace(/\.[^.]+$/, "");
   const segments = withoutExt.split("/");
-  if (segments.length > 1 && leadingGeneric.has(segments[0].toLowerCase())) {
+  if (!options.keepLeadingDirectory && segments.length > 1 && leadingGeneric.has(segments[0].toLowerCase())) {
     const remainder = segments.slice(1).join("/");
     const base = remainder.split("/").pop() ?? remainder;
     if (base.toLowerCase() !== "readme" && base.toLowerCase() !== "index") {
@@ -287,6 +327,39 @@ export function assetFilename(
     : `${prefix}-${derived}`;
   const full = `${name}.${ext}`;
   return full.length > 80 ? `${name.slice(0, 80 - ext.length - 1)}.${ext}` : full;
+}
+
+/**
+ * The §11 asset filename, made unique within a workflow. On a collision the
+ * next parent directory is kept (the leading generic directory is no longer
+ * stripped); if the stem still collides the build is refused rather than one
+ * asset silently overwriting another in `assets/` and `source/`. The stem (the
+ * name without its extension) is the key, because it also names the editable
+ * `source/<stem>.md` copy.
+ */
+function uniqueAssetFilename(
+  assetPrefix: string,
+  fromPath: string,
+  ext: string,
+  usedStems: Map<string, string>,
+  skillKey: string,
+): string {
+  for (const keepLeadingDirectory of [false, true]) {
+    const filename = assetFilename(assetPrefix, fromPath, ext, { keepLeadingDirectory });
+    const stem = filename.replace(/\.[^.]+$/, "");
+    const existing = usedStems.get(stem);
+    if (existing === undefined) {
+      usedStems.set(stem, fromPath);
+      return filename;
+    }
+    if (existing === fromPath) return filename;
+  }
+  throw new SkillConversionError(
+    skillKey,
+    fromPath,
+    "maps to an asset filename another mapped reference already uses; rename " +
+      "the reference or its parent directory to avoid the collision",
+  );
 }
 
 function applyEdits(
@@ -322,7 +395,9 @@ function applyEdits(
           `edit 'insertAfter' expected ${count} match(es) of its anchor but found ${occurrences}`,
         );
       }
-      current = current.replace(anchor, `${anchor}${edit.text ?? ""}`);
+      // Insert after every occurrence, not only the first, so a count>1 edit
+      // reaches every anchor (as 'replace' does with split/join).
+      current = current.split(anchor).join(`${anchor}${edit.text ?? ""}`);
     } else {
       // appendSection
       current = `${current.trimEnd()}\n\n${edit.text ?? ""}\n`;
@@ -640,6 +715,14 @@ export async function convertWorkflow(
     references: [],
   };
 
+  // Never-ship gate (conversionSpec 1): a manifest cannot smuggle a script,
+  // source file, executable or build file into the catalog by mapping it as an
+  // asset. Checked here, before anything is written, for both collections.
+  for (const asset of manifest.assets ?? []) {
+    const fromPath = asset.from.replace(/^\.\//, "");
+    assertShippableSourceFile(skillKey, resolveSourceFile(source, skillKey, fromPath));
+  }
+
   recordDroppedFiles(source, manifest, report);
 
   const files = new Map<string, Buffer>();
@@ -647,7 +730,8 @@ export async function convertWorkflow(
 
   // ---- Body -------------------------------------------------------------
   const skillMd = sourceText(source, skillKey, "SKILL.md");
-  const { body: rawBody } = splitFrontmatter(skillMd, skillKey);
+  const { frontmatter: sourceFrontmatter, body: rawBody } = splitFrontmatter(skillMd, skillKey);
+  const droppedKeys = droppedFrontmatterKeys(sourceFrontmatter, skillKey);
 
   let assembled: string;
   if (manifest.collection === "assistant") {
@@ -741,7 +825,11 @@ export async function convertWorkflow(
         droppedFiles: report.droppedFiles,
         rewrittenScriptSpans: report.rewrittenScriptSpans,
         editsApplied: report.editsApplied,
-        waivers: [],
+        droppedFrontmatterKeys: droppedKeys,
+        // A reviewer's ALL-scan waiver (conversionSpec §7/§15) must leave an
+        // audit trail: it is the only thing that lets citations survive in an
+        // ALL-labelled workflow, so it is recorded here, not just honoured.
+        waivers: manifest.allWaiver ? [manifest.allWaiver] : [],
         reviewers: [],
       }),
       "utf8",
@@ -812,37 +900,80 @@ type AssistantBuild = {
 async function buildAssistantSkill(build: AssistantBuild): Promise<string> {
   const { manifest, context, source, report } = build;
   const skillKey = manifest.key;
-  // (a) normalise; (d) apply edits; dangerous-char check after edits.
+
+  // Partition the declared edits by the file they target — SKILL.md (the body)
+  // or a mapped reference. An edit that targets neither is a manifest error:
+  // without this check its anchor would never be looked for and the §14 count
+  // guarantee would silently not apply to it.
+  const assetFromPaths = new Set(
+    (manifest.assets ?? []).map((asset) => asset.from.replace(/^\.\//, "")),
+  );
+  const editFile = (edit: EditEntry): string => (edit.file ?? "SKILL.md").replace(/^\.\//, "");
+  for (const edit of build.edits.edits) {
+    const target = editFile(edit);
+    if (target !== "SKILL.md" && !assetFromPaths.has(target)) {
+      throw new SkillConversionError(
+        skillKey,
+        edit.file ?? "SKILL.md",
+        "edit targets a file that is neither SKILL.md nor a mapped reference",
+      );
+    }
+  }
+
+  // (a) normalise; (d) apply the body's edits; dangerous-char check after edits.
   let body = normalizeMarkdown(build.rawBody);
   // (b) remove the upstream first H1 so our display-name H1 leads.
   body = body.replace(/^#\s+.*\n+/, "");
-  body = applyEdits(body, build.edits.edits, skillKey, report);
+  body = applyEdits(
+    body,
+    build.edits.edits.filter((edit) => editFile(edit) === "SKILL.md"),
+    skillKey,
+    report,
+  );
   assertNoDangerousCharacters(body, skillKey);
   // (e) strip script fences; (i) delete promotion sections.
   body = stripScriptFences(body, report);
   body = deletePromotionSections(body);
 
-  // (g) rewrite references to assets or appendices.
+  // (g) rewrite references to assets or appendices. Each reference runs through
+  // the same pipeline as the body — its own declared edits, the dangerous-char
+  // check, then the script-fence strip — before it is inlined or rendered to
+  // Word, so a converted reference cannot carry script, install, fetch,
+  // credential or MCP content that the inline path already refuses.
   const shippedAssetPaths: string[] = [];
   const referenceDocLines: string[] = [];
   const appendices: string[] = [];
+  // The scrubbed text of every converted (Word) reference joins the body in the
+  // scans below; inline references are already carried in `appendices`.
+  const convertedReferenceText: string[] = [];
+  const usedAssetStems = new Map<string, string>();
   for (const asset of manifest.assets ?? []) {
     const fromPath = asset.from.replace(/^\.\//, "");
     const file = resolveSourceFile(source, skillKey, fromPath);
-    const refText = decodeAssetMarkdown(file.bytes, skillKey, fromPath);
+    assertShippableSourceFile(skillKey, file);
+    let refText = normalizeMarkdown(decodeAssetMarkdown(file.bytes, skillKey, fromPath));
+    refText = applyEdits(
+      refText,
+      build.edits.edits.filter((edit) => editFile(edit) === fromPath),
+      skillKey,
+      report,
+    );
+    assertNoDangerousCharacters(refText, skillKey, fromPath);
+    refText = stripScriptFences(refText, report);
     if (asset.as === "inline") {
       const title = asset.title ?? titleFromPath(fromPath);
       // Drop the reference's own leading H1: the '## Appendix' heading titles it.
-      const inlineContent = normalizeMarkdown(refText).replace(/^#\s+.*\n+/, "").trim();
+      const inlineContent = refText.replace(/^#\s+.*\n+/, "").trim();
       appendices.push(`## Appendix: ${title}\n\n${inlineContent}`);
       body = rewriteReference(body, fromPath, `the appendix ${title} below`);
       report.references.push({ from: fromPath, to: null, as: "inline" });
     } else {
       const ext = asset.as;
       const prefix = requireManifestString(manifest.assetPrefix, skillKey, "assetPrefix");
-      const filename = assetFilename(prefix, fromPath, ext);
+      const filename = uniqueAssetFilename(prefix, fromPath, ext, usedAssetStems, skillKey);
       const assetRef = `assets/${filename}`;
       shippedAssetPaths.push(assetRef);
+      convertedReferenceText.push(refText);
       const provenance = docxProvenanceParagraph({
         assetPath: `skills/${manifest.sourceSkill}/${fromPath}`,
         originalTitle: manifest.originalTitle,
@@ -861,7 +992,7 @@ async function buildAssistantSkill(build: AssistantBuild): Promise<string> {
       // The edited Markdown of every converted asset stays in source/.
       build.files.set(
         `${build.workflowDir}/source/${filename.replace(/\.[^.]+$/, ".md")}`,
-        Buffer.from(`${normalizeMarkdown(refText).trimEnd()}\n`, "utf8"),
+        Buffer.from(`${refText.trimEnd()}\n`, "utf8"),
       );
       body = rewriteReference(
         body,
@@ -873,8 +1004,8 @@ async function buildAssistantSkill(build: AssistantBuild): Promise<string> {
     }
   }
 
-  // The source-derived text that the lint and residue scan see: the body,
-  // the reference-documents list and any appendices — never the fixed texts.
+  // The source-derived text that is assembled into SKILL.md: the body, the
+  // reference-documents list and any inline appendices — never the fixed texts.
   const sourceDerived = [
     body.trim(),
     referenceDocLines.length ? `## Reference documents\n${referenceDocLines.join("\n")}` : "",
@@ -882,11 +1013,15 @@ async function buildAssistantSkill(build: AssistantBuild): Promise<string> {
   ]
     .filter(Boolean)
     .join("\n\n");
+  // The scan corpus adds the scrubbed text of every converted reference, which
+  // ships as a Word asset rather than inline (conversionSpec §7 'body or
+  // assets', §8g and §9 'inlined or converted references').
+  const scanText = [sourceDerived, ...convertedReferenceText].filter(Boolean).join("\n\n");
   // Lint first: it owns agent-instruction files such as CLAUDE.md, which the
   // residue scan would otherwise flag as an un-rewritten .md reference.
-  assertCleanLint(skillKey, sourceDerived);
-  assertNoReferenceResidue(skillKey, sourceDerived, shippedAssetPaths);
-  assertAllJurisdictionClean(skillKey, manifest.jurisdictionCodes, sourceDerived, manifest.allWaiver);
+  assertCleanLint(skillKey, scanText);
+  assertNoReferenceResidue(skillKey, scanText, shippedAssetPaths);
+  assertAllJurisdictionClean(skillKey, manifest.jurisdictionCodes, scanText, manifest.allWaiver);
 
   // Assemble: H1, copilot block, source-derived text, output requirements, footer.
   const footer = attributionFooter({
@@ -935,9 +1070,51 @@ function buildTabularSkill(build: TabularBuild): string {
   if (!columns.length || columns.length > 14) {
     throw new SkillConversionError(skillKey, null, "a tabular workflow needs 1-14 columns");
   }
+  const seenNames = new Set<string>();
   columns.forEach((column, index) => {
     if (column.index !== index) {
       throw new SkillConversionError(skillKey, null, "tabular column indexes must run 0..n-1 without gaps");
+    }
+    if (!column.name.trim()) {
+      throw new SkillConversionError(skillKey, null, `tabular column ${index} has no name`);
+    }
+    if (seenNames.has(column.name)) {
+      throw new SkillConversionError(skillKey, null, `tabular column name ${JSON.stringify(column.name)} is repeated`);
+    }
+    seenNames.add(column.name);
+    // Format must come from the accepted set (conversionSpec §12).
+    if (column.format !== undefined && !TABULAR_COLUMN_FORMATS.has(column.format)) {
+      throw new SkillConversionError(
+        skillKey,
+        null,
+        `tabular column ${JSON.stringify(column.name)} has format ${JSON.stringify(column.format)}, ` +
+          "which is not an accepted column format",
+      );
+    }
+    // Tags are allowed only with the 'tag' format, and must be non-empty and
+    // unique (conversionSpec §12).
+    if (column.tags !== undefined) {
+      if (column.format !== "tag") {
+        throw new SkillConversionError(
+          skillKey,
+          null,
+          `tabular column ${JSON.stringify(column.name)} lists tags but its format is not 'tag'`,
+        );
+      }
+      if (!column.tags.length || column.tags.some((tag) => !tag.trim())) {
+        throw new SkillConversionError(
+          skillKey,
+          null,
+          `tabular column ${JSON.stringify(column.name)} has an empty tag or no tags`,
+        );
+      }
+      if (new Set(column.tags).size !== column.tags.length) {
+        throw new SkillConversionError(
+          skillKey,
+          null,
+          `tabular column ${JSON.stringify(column.name)} repeats a tag`,
+        );
+      }
     }
   });
   if (columns[columns.length - 1].name !== "Points for lawyer review") {
@@ -1016,14 +1193,14 @@ function assertAllJurisdictionClean(
   }
 }
 
-function assertNoDangerousCharacters(body: string, skillKey: string): void {
-  // Imported lazily to avoid a cycle; findDangerousCharacter is pure.
-  const match = /[​-‏‪-‮⁠-⁤⁦-⁯﻿]/u.exec(body);
-  if (match) {
+function assertNoDangerousCharacters(text: string, skillKey: string, file = "SKILL.md"): void {
+  const found = findDangerousCharacter(text);
+  if (found) {
     throw new SkillConversionError(
       skillKey,
-      "SKILL.md",
-      "contains a zero-width, bidi or format control character; a recorded edit must remove it",
+      file,
+      `contains ${found.codePoint}, a zero-width, bidi, format-control or Unicode ` +
+        "tag character that can hide instructions from a reader; a recorded edit must remove it",
     );
   }
 }

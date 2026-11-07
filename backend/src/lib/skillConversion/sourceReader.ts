@@ -13,6 +13,142 @@ import { parse as parseYaml } from "yaml";
 
 const MAX_SOURCE_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_YAML_BYTES = 64 * 1024;
+const EXECUTABLE_BITS = 0o111;
+
+// The never-ship list (conversionSpec 1). The converter is the mechanical gate
+// that makes "scripts are never copied" true: a manifest that maps one of
+// these as an asset is refused here, before any output is written, rather than
+// silently shipped as a Word asset and a verbatim `source/` copy. The catalog
+// parser enforces an overlapping list again at sync time.
+const NEVER_SHIP_DIRECTORIES = new Set([
+  "scripts",
+  "bin",
+  "tools",
+  "hooks",
+  "agents",
+  "commands",
+  "tests",
+  "evals",
+  "demo",
+  "node_modules",
+  ".github",
+  ".claude-plugin",
+]);
+const NEVER_SHIP_EXTENSIONS = new Set([
+  "py",
+  "js",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "sh",
+  "bash",
+  "zsh",
+  "ps1",
+  "bat",
+  "cmd",
+  "rb",
+  "pl",
+  "php",
+  "go",
+  "rs",
+  "java",
+  "jar",
+  "exe",
+  "dll",
+  "so",
+  "dylib",
+  "wasm",
+  "ipynb",
+  "html",
+  "htm",
+  "svg",
+  "xml",
+  "docm",
+  "xlsm",
+  "pptm",
+]);
+// Build and package files, compared in lower case.
+const NEVER_SHIP_FILENAMES = new Set([
+  "package.json",
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "pyproject.toml",
+  "pipfile",
+  "pipfile.lock",
+  "poetry.lock",
+  "cargo.toml",
+  "cargo.lock",
+  "go.mod",
+  "go.sum",
+  "gemfile",
+  "gemfile.lock",
+  "makefile",
+  "dockerfile",
+]);
+const REQUIREMENTS_FILENAME = /^requirements[^/]*\.txt$/;
+
+function extensionOf(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot <= 0 ? "" : filename.slice(dot + 1).toLowerCase();
+}
+
+/**
+ * Refuse a source file that must never ship with a workflow (conversionSpec 1):
+ * a script, source, executable or macro-enabled type by extension; anything
+ * under a script, tooling or build directory; a build or package file; a file
+ * that begins with a shebang; or a file with an executable bit. Code written as
+ * data is not auto-converted — the manifest must drop it or supply a
+ * hand-written Markdown replacement. A refusal names the skill and the file.
+ */
+export function assertShippableSourceFile(
+  skillKey: string,
+  file: SourceFile,
+): void {
+  const segments = file.path.split("/");
+  const filename = segments[segments.length - 1].toLowerCase();
+  const directory = segments
+    .slice(0, -1)
+    .find((segment) => NEVER_SHIP_DIRECTORIES.has(segment.toLowerCase()));
+  if (directory) {
+    throw new SkillConversionError(
+      skillKey,
+      file.path,
+      `is under a ${directory}/ directory; scripts and tooling never ship with ` +
+        "a workflow (drop it or supply a hand-written Markdown replacement)",
+    );
+  }
+  if (NEVER_SHIP_EXTENSIONS.has(extensionOf(filename))) {
+    throw new SkillConversionError(
+      skillKey,
+      file.path,
+      "is a script, source, executable or macro-enabled file type that never " +
+        "ships with a workflow (drop it or supply a hand-written Markdown replacement)",
+    );
+  }
+  if (NEVER_SHIP_FILENAMES.has(filename) || REQUIREMENTS_FILENAME.test(filename)) {
+    throw new SkillConversionError(
+      skillKey,
+      file.path,
+      "is a build or package file that never ships with a workflow",
+    );
+  }
+  if (file.bytes.length >= 2 && file.bytes[0] === 0x23 && file.bytes[1] === 0x21) {
+    throw new SkillConversionError(
+      skillKey,
+      file.path,
+      "begins with a shebang (#!); executable content never ships with a workflow",
+    );
+  }
+  if ((file.mode & EXECUTABLE_BITS) !== 0) {
+    throw new SkillConversionError(
+      skillKey,
+      file.path,
+      "has an executable bit set; executable content never ships with a workflow",
+    );
+  }
+}
 
 /** A refusal that names the skill and the file it came from. */
 export class SkillConversionError extends Error {
@@ -34,6 +170,8 @@ export type SourceFile = {
   /** Path relative to the skill folder, with '/' separators. */
   path: string;
   bytes: Buffer;
+  /** The file's raw `lstat` mode, so the executable bit can be checked. */
+  mode: number;
 };
 
 export type SkillSource = {
@@ -106,7 +244,7 @@ export async function readSkillSource(
           `is ${stat.size} bytes, over the 5 MB per-file limit`,
         );
       }
-      files.set(relPath, { path: relPath, bytes: await readFile(full) });
+      files.set(relPath, { path: relPath, bytes: await readFile(full), mode: stat.mode });
     }
   }
 
