@@ -46,9 +46,10 @@
 name: Publish images
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
+  # Disabled in this fork: the preview does not publish release images (it runs
+  # from source, not from a published registry), so automatic publishing on
+  # push and on `v*` tags is turned off. The workflow can still be started by
+  # hand if and when the fork decides to publish its own images. See UPSTREAM.md.
   workflow_dispatch:
 
 permissions:

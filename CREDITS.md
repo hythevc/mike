@@ -94,3 +94,12 @@ system and service dependencies.
 Each third-party project retains its own license and copyright notices. Refer
 to the license and notice files distributed with the versions in use. Please
 keep this page current when adding or replacing a significant dependency.
+
+## Upstream project
+
+This software is a fork of **Mike** by Open-Legal-Products
+([source](https://github.com/Open-Legal-Products/mike)), licensed under the GNU
+Affero General Public License v3.0 only. The open-source credits above are
+inherited from that project and kept intact. See [NOTICE.md](NOTICE.md) for the
+modification and trademark notices and [UPSTREAM.md](UPSTREAM.md) for how this
+fork tracks upstream.
