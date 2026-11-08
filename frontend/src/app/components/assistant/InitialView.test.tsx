@@ -14,6 +14,17 @@ vi.mock("@/app/contexts/UserProfileContext", () => ({
 vi.mock("./ChatInput", () => ({
     ChatInput: () => <div data-testid="chat-input" />,
 }));
+// The first-run checklist mounts inside the start screen. Its hook reads the
+// router and the API, which this unit test does not stand up; the checklist
+// has its own tests (FirstRunChecklist.test.tsx) and is stubbed here the same
+// way they stub it, so its copy still renders into the brand assertions below.
+vi.mock("@/app/contexts/WorkspaceContext", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@/app/contexts/WorkspaceContext")>()),
+    useWorkspaceParam: () => undefined,
+}));
+vi.mock("@/app/hooks/useSampleMatter", () => ({
+    useSampleMatter: () => ({ pending: false, openSampleMatter: () => {} }),
+}));
 
 import { InitialView } from "./InitialView";
 
