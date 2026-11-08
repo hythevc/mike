@@ -78,8 +78,9 @@ a deployment that does not bill never buffers whatever is sent to this public
 path. With billing on, every delivery is verified against
 `STRIPE_WEBHOOK_SECRET` (`Stripe-Signature: t=…,v1=…`, HMAC-SHA256 over
 `t.body`, five-minute replay window, constant-time comparison). A delivery that
-does not verify is answered 400 and nothing is read from it. A verified event
-is then **claimed** in `billing_events` by its id before it is applied:
+does not verify is answered 400; its body is buffered (1 MB cap) but never
+parsed or acted on. A verified event is then **claimed** in `billing_events` by
+its id before it is applied:
 
 - a redelivery of an event that was already applied answers 200 without being
   applied again;
@@ -98,7 +99,7 @@ helpers in `backend/src/lib/entitlements.ts`):
 | Event | Effect |
 | --- | --- |
 | `checkout.session.completed` (subscription mode) | The workspace named in the checkout's metadata becomes `active` on the plan it bought, with the provider's customer and subscription ids recorded and the trial window cleared. A checkout whose payment is still pending records the ids and the plan key and leaves the status alone, so the workspace lands on the plan it bought when the provider later reports the subscription active (that report names no plan). |
-| `invoice.payment_failed` | The workspace becomes `past_due`. It is acted on, never only logged: with plans on, a past-due workspace cannot use the deployment's hosted models until the provider reports the subscription paid again. The plan and the ids stay. A failed invoice of a subscription the workspace has since replaced (it canceled and bought again) changes nothing. |
+| `invoice.payment_failed` | The workspace becomes `past_due`. It is acted on, never only logged: with plans on, a past-due workspace cannot use the deployment's hosted models until the provider reports the subscription paid again. The plan and the ids stay. A failed invoice of a subscription the workspace no longer holds changes nothing: one it has since replaced (it canceled and bought again), or the one that ended when it was canceled, so a canceled workspace stays canceled until a new checkout completes. |
 | `customer.subscription.deleted` | The workspace becomes `canceled` on the unpaid default: no plan, no subscription id, no period. It never lands on another paid plan here; only a new completed checkout does that. The customer id is kept so the portal (invoices) still opens. A deletion of a subscription the workspace has since replaced changes nothing. |
 | `customer.subscription.updated` | The status and dates follow the provider's report for the workspace's **current** subscription (`active`, `trialing`, `past_due`; `unpaid` and `paused` read as past due; `canceled` and `incomplete_expired` cancel as above). The plan follows a plan switch made in the provider's portal only when the subscription's new price is the `provider_price_ref` of a **public** plan in the catalog; any other price is logged and leaves the plan alone, so nothing outside the catalog can grant an entitlement. A report about a subscription this deployment never recorded, or has already canceled and cleared, changes nothing, so a late report cannot put a canceled workspace back on a plan. |
 | anything else | Recorded as received and ignored. |
@@ -117,7 +118,7 @@ affected, and export and account or organization deletion are never blocked
    `BILLING_ALLOW_LIVE` unset.
 3. Register the webhook endpoint `https://<api>/billing/webhook` at the
    provider for the four event types above.
-4. Apply `20261108_50_billing_events.sql` (Compose's `db-init` runs it). It is
+4. Apply `20261108_51_billing_events.sql` (Compose's `db-init` runs it). It is
    additive and safe to re-run.
 5. If the provider's portal configuration lets customers switch plans, list
    every price the portal offers as a public plan's `provider_price_ref` in
@@ -152,8 +153,8 @@ from `PLANS_CATALOG_JSON` alone. Fixtures use obviously placeholder values.
   signature, duplicate and state-change cases over HTTP.
 - `backend/src/modules/billing/__tests__/billing.webhooks.test.ts`: what each
   event does, including a pending payment that keeps its plan, a stale
-  failure on a replaced subscription and a portal plan switch; the claim,
-  release and takeover.
+  failure on a replaced or ended subscription and a portal plan switch; the
+  claim, release and takeover.
 - `backend/src/modules/billing/__tests__/billing.stripe.test.ts`: form
   encoding, signatures, event normalization across API-version shapes, and
   the REST calls against a stubbed `fetch`.
@@ -161,4 +162,5 @@ from `PLANS_CATALOG_JSON` alone. Fixtures use obviously placeholder values.
   the other boot rules.
 - `frontend/src/app/components/organizations/OrganizationBillingActions.test.tsx`
   and `OrganizationPlanSettings.test.tsx`: no checkout or portal control while
-  billing is off; owners alone see them when it is on.
+  billing is off; owners alone see them when it is on; focus follows the plan
+  list as it loads.

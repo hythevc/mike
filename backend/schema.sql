@@ -12296,7 +12296,7 @@ grant execute on function public.org_usage_month_summary(uuid, timestamptz)
 
 -- ---------------------------------------------------------------------------
 -- Billing webhook ledger (BILLING_ENABLED); see
--- backend/migrations/20261108_50_billing_events.sql. One row per accepted
+-- backend/migrations/20261108_51_billing_events.sql. One row per accepted
 -- provider event, so a redelivery is answered without being processed again.
 -- Only the event id and type are kept, never the payload.
 -- ---------------------------------------------------------------------------
@@ -12496,5 +12496,5 @@ insert into public.schema_migrations (filename) values
   ('20261031_57_legal_acceptances.sql'),
   ('20261107_50_org_subscriptions.sql'),
   ('20261107_51_matter_ai_controls.sql'),
-  ('20261108_50_billing_events.sql')
+  ('20261108_51_billing_events.sql')
 on conflict (filename) do nothing;

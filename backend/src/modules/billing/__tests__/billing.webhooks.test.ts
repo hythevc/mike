@@ -198,6 +198,32 @@ describe("applyBillingEvent", () => {
         expect(db.writes).toEqual([]);
     });
 
+    it("leaves a canceled workspace canceled when a late invoice of the subscription it ended fails", async () => {
+        // The subscription is deleted, then its last invoice fails. The row
+        // keeps the customer id for the portal, so the invoice matches
+        // through it; nothing about the workspace is live to hold.
+        await applyBillingEvent(db, { ...base, type: "subscription_deleted", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1" }, ENV);
+        const writesBefore = db.writes.length;
+        expect(
+            await applyBillingEvent(db, { ...base, id: "evt_late", type: "payment_failed", customerRef: "cus_1", subscriptionRef: "sub_1" }, ENV),
+        ).toBe("stale");
+        expect(db.tables.org_subscriptions[0]).toMatchObject({
+            status: "canceled",
+            plan_key: null,
+            provider_subscription_ref: null,
+            provider_customer_ref: "cus_1",
+        });
+        expect(db.writes).toHaveLength(writesBefore);
+
+        // An invoice that names no subscription at all is no different.
+        expect(
+            await applyBillingEvent(db, { ...base, id: "evt_later", type: "payment_failed", customerRef: "cus_1", subscriptionRef: null }, ENV),
+        ).toBe("stale");
+        expect(db.tables.org_subscriptions[0].status).toBe("canceled");
+        expect(db.writes).toHaveLength(writesBefore);
+        expect((await resolveOrgEntitlement(db, ORG, ENV)).blocksHostedModels).toBe(true);
+    });
+
     it("cancels the workspace onto the unpaid default when its subscription is deleted", async () => {
         const outcome = await applyBillingEvent(
             db,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { OrgPlanView } from "@mike/contracts";
 import { MikeApiError } from "@/app/lib/mikeApi";
 import {
@@ -322,6 +322,73 @@ describe("OrganizationBillingActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose a plan" }));
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByText("No plans are on offer right now.")).toBeInTheDocument();
+  });
+
+  it("moves focus along with the list: to the placeholder rows, then to the plans on offer", async () => {
+    let resolvePlans: (value: typeof PLANS_RESPONSE) => void = () => {};
+    mocks.getPlans.mockReturnValue(
+      new Promise<typeof PLANS_RESPONSE>((resolve) => {
+        resolvePlans = resolve;
+      }),
+    );
+    render(<OrganizationBillingActions orgId="org-1" view={view()} isOwner />);
+    const choose = screen.getByRole("button", { name: "Choose a plan" });
+    choose.focus();
+    fireEvent.click(choose);
+    // The pressed control is gone; focus rests on the rows standing in for the list.
+    expect(screen.getByRole("status", { name: "Loading plans" })).toHaveFocus();
+
+    await act(async () => {
+      resolvePlans(PLANS_RESPONSE);
+    });
+    const group = screen.getByRole("group", { name: "Plans on offer" });
+    expect(group).toHaveFocus();
+    // Tab from the group reaches the first plan's checkout.
+    expect(within(group).getAllByRole("button")[0]).toHaveAccessibleName(
+      "Continue to checkout: Included AI",
+    );
+  });
+
+  it("moves focus to Try again when the plans cannot be loaded, and to the message when none are on offer", async () => {
+    mocks.getPlans.mockRejectedValueOnce(new Error("boom"));
+    mocks.getPlans.mockResolvedValueOnce({ plans_enabled: true, billing_enabled: true, plans: [] });
+    render(<OrganizationBillingActions orgId="org-1" view={view()} isOwner />);
+    const choose = screen.getByRole("button", { name: "Choose a plan" });
+    choose.focus();
+    fireEvent.click(choose);
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    await waitFor(() => expect(retry).toHaveFocus());
+
+    fireEvent.click(retry);
+    expect(screen.getByRole("status", { name: "Loading plans" })).toHaveFocus();
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent("No plans are on offer right now."),
+    );
+  });
+
+  it("leaves focus where the owner moved it while the plans were loading", async () => {
+    let resolvePlans: (value: typeof PLANS_RESPONSE) => void = () => {};
+    mocks.getPlans.mockReturnValue(
+      new Promise<typeof PLANS_RESPONSE>((resolve) => {
+        resolvePlans = resolve;
+      }),
+    );
+    render(
+      <OrganizationBillingActions
+        orgId="org-1"
+        view={view({ status: "canceled", has_billing_account: true })}
+        isOwner
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Choose a plan" }));
+    const manage = screen.getByRole("button", { name: "Manage billing" });
+    manage.focus();
+
+    await act(async () => {
+      resolvePlans(PLANS_RESPONSE);
+    });
+    expect(screen.getByRole("group", { name: "Plans on offer" })).toBeInTheDocument();
+    expect(manage).toHaveFocus();
   });
 
   it("shows the outcome line after the provider sends the browser back", () => {

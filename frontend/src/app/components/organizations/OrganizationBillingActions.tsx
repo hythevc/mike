@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import type { OrgPlanView, PublicPlan } from "@mike/contracts";
 import { MfaVerificationPopup } from "@/app/components/popups/MfaVerificationPopup";
 import { SettingsRow } from "@/app/components/settings/SettingsRow";
@@ -31,6 +31,11 @@ import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 // Both requests are sensitive writes. The server asks a session whose
 // account has a second factor enrolled to pass it first; the step-up prompt
 // here sends the same request again once it has.
+//
+// Listing the plans replaces the control that was pressed, so focus is moved
+// on with each step rather than left to fall to the page: to the placeholder
+// rows while the plans load, then to the plans on offer, or to the message or
+// Try again that takes their place.
 
 type Props = {
   orgId: string;
@@ -84,14 +89,33 @@ const readSearch = () => window.location.search;
 // hydration, so the notice appears without a hydration mismatch.
 const readServerSearch = () => "";
 
+/** The ring a container shows when focus is sent to it from the keyboard. */
+const FOCUS_RING_CLASS =
+  "rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40";
+
+/**
+ * Whether focus may be moved without taking it from where the owner put it:
+ * it has been lost to the page (the control that had it was removed), or it
+ * is still on `previous`, the element that last had it on purpose.
+ */
+function focusIsFree(previous: Element | null): boolean {
+  const active = document.activeElement;
+  return (
+    !active || active === document.body || (previous !== null && active === previous)
+  );
+}
+
 /** Placeholder rows the height of a plan row (name, price, description, button). */
-function PlanRowsSkeleton() {
+function PlanRowsSkeleton({ ref }: { ref: Ref<HTMLDivElement> }) {
   return (
     <div
+      ref={ref}
       role="status"
       aria-label="Loading plans"
       aria-busy="true"
-      className="border-t border-gray-100"
+      // Focus rests here while the plans load, so it is not lost to the page.
+      tabIndex={-1}
+      className={`border-t border-border ${FOCUS_RING_CLASS}`}
     >
       {[0, 1].map((index) => (
         <SettingsRow key={index}>
@@ -114,6 +138,30 @@ export function OrganizationBillingActions({ orgId, view, isOwner }: Props) {
   const [pendingMfa, setPendingMfa] = useState<PendingAction | null>(null);
   const search = useSyncExternalStore(subscribeToNothing, readSearch, readServerSearch);
   const notice = checkoutNotice(search);
+  const loadingRef = useRef<HTMLDivElement>(null);
+  const failedRef = useRef<HTMLDivElement>(null);
+  const emptyRef = useRef<HTMLDivElement>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
+  // What this component last sent focus to, so a later step moves it on only
+  // while the owner has left it there.
+  const focused = useRef<Element | null>(null);
+
+  // Each step of listing the plans replaces the control that had focus:
+  // Choose a plan gives way to the placeholder rows, and those to the plans
+  // on offer, or to the message or Try again that takes their place.
+  useEffect(() => {
+    if (plans.state === "idle" || !focusIsFree(focused.current)) return;
+    const target =
+      plans.state === "loading"
+        ? loadingRef.current
+        : plans.state === "failed"
+          ? failedRef.current?.querySelector<HTMLElement>("button")
+          : plans.plans.length > 0
+            ? groupRef.current
+            : emptyRef.current;
+    target?.focus();
+    focused.current = target ?? null;
+  }, [plans]);
 
   if (!view.billing_enabled) return null;
 
@@ -214,7 +262,7 @@ export function OrganizationBillingActions({ orgId, view, isOwner }: Props) {
             </div>
           ) : null}
           {plans.state === "failed" ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div ref={failedRef} className="flex flex-wrap items-center gap-2">
               <SettingsDescription>Could not load the plans.</SettingsDescription>
               <PillButtonUI tone="white" size="sm" onClick={() => void loadPlans()}>
                 Try again
@@ -222,15 +270,25 @@ export function OrganizationBillingActions({ orgId, view, isOwner }: Props) {
             </div>
           ) : null}
           {emptyList ? (
-            <SettingsDescription>No plans are on offer right now.</SettingsDescription>
+            // Read out where the list would have appeared.
+            <div ref={emptyRef} tabIndex={-1} className={FOCUS_RING_CLASS}>
+              <SettingsDescription>No plans are on offer right now.</SettingsDescription>
+            </div>
           ) : null}
         </SettingsRow>
       ) : null}
-      {plans.state === "loading" ? <PlanRowsSkeleton /> : null}
+      {plans.state === "loading" ? <PlanRowsSkeleton ref={loadingRef} /> : null}
       {plans.state === "ready" && plans.plans.length > 0 ? (
         // The first row inside the group drops its own hairline, so the
-        // group carries the one that separates it from the row above.
-        <div role="group" aria-label="Plans on offer" className="border-t border-gray-100">
+        // group carries the one that separates it from the row above. Focus
+        // lands on the group once the plans are listed; Tab reaches the first.
+        <div
+          ref={groupRef}
+          role="group"
+          aria-label="Plans on offer"
+          tabIndex={-1}
+          className={`border-t border-border ${FOCUS_RING_CLASS}`}
+        >
           {plans.plans.map((plan) => (
             <SettingsRow key={plan.key}>
               <div className="min-w-0 space-y-1">

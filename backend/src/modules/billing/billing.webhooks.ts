@@ -13,8 +13,9 @@
 // Two rules the handlers never bend: a canceled workspace lands on the
 // unpaid default, never on a paid plan — only a new completed checkout puts
 // it on one — and a failed payment is acted on, never only logged. An event
-// about a subscription the workspace has since replaced (it canceled and
-// bought again) is stale and changes nothing, whatever it reports.
+// about a subscription the workspace no longer holds — one it has since
+// replaced (it canceled and bought again), or the one that ended when it was
+// canceled — is stale and changes nothing, whatever it reports.
 //
 // Deliveries arrive at least once and in no fixed order. Every accepted
 // event id is claimed in billing_events before it is applied, so a
@@ -61,7 +62,7 @@ export type BillingOutcome =
     | "ignored"
     /** The event names no workspace on this deployment. */
     | "unmatched"
-    /** The event is about a subscription the workspace has since replaced. */
+    /** The event is about a subscription the workspace no longer holds. */
     | "stale";
 
 export type WebhookReceipt = {
@@ -264,6 +265,12 @@ export async function applyBillingEvent(
         case "payment_failed": {
             const subscription = await findSubscriptionByProviderRef(db, event);
             if (!subscription) return "unmatched";
+            // A canceled workspace holds no subscription to fall behind on.
+            // The last invoice of the one it ended can still fail after the
+            // cancellation, and it matches the row through the customer id
+            // (kept for the portal); the workspace stays canceled, which
+            // only a new completed checkout changes.
+            if (subscription.status === "canceled") return "stale";
             // Matched through the customer because the subscription id is
             // not on the row: a failed invoice of a subscription the
             // workspace has since replaced must not hold the live one, just
