@@ -31,7 +31,7 @@ export function ToggleSwitchUI({
             className={twMerge(
                 clsx(
                     "flex w-fit items-center gap-2.5 text-sm text-gray-600 outline-none disabled:cursor-default disabled:opacity-40",
-                    "focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2",
+                    "focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2",
                     className,
                 ),
             )}
@@ -43,7 +43,12 @@ export function ToggleSwitchUI({
                 className={twMerge(
                     clsx(
                         "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200",
-                        checked ? "bg-blue-600" : "bg-gray-300",
+                        // The off track needs an inset ring to clear 3:1
+                        // (WCAG 1.4.11) against a white surface; bg-gray-300
+                        // alone does not. See docs/design-system.md.
+                        checked
+                            ? "bg-blue-600"
+                            : "bg-gray-300 ring-1 ring-inset ring-gray-500",
                     ),
                 )}
             >

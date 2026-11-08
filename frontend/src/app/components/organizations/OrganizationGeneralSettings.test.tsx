@@ -472,8 +472,8 @@ describe("the organization's logo", () => {
     render(<OrganizationGeneralSettings />);
     const upload = screen.getByRole("button", { name: "Upload logo" });
     expect(upload).toBeEnabled();
-    // The row's one action to take: blue, like the cards' Add and Manage.
-    expect(upload.className).toMatch(/bg-blue-/);
+    // The row's one action to take: the brand primary, like the cards' Add and Manage.
+    expect(upload.className).toMatch(/bg-brand-primary/);
     // Nothing to remove until one is set.
     expect(
       screen.queryByRole("button", { name: "Remove logo" }),
@@ -539,7 +539,7 @@ describe("the organization's logo", () => {
     );
     const edit = screen.getByRole("button", { name: "Edit logo" });
     expect(edit).toHaveTextContent("Edit");
-    expect(edit).toHaveClass("bg-blue-600/90");
+    expect(edit).toHaveClass("bg-brand-primary");
     expect(screen.queryByRole("button", { name: "Remove logo" })).not.toBeInTheDocument();
     fireEvent.click(edit);
     expect(screen.getByRole("dialog", { name: "Logo" })).toHaveTextContent(LOGO);

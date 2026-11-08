@@ -38,7 +38,7 @@ export function ExcerptModalUI({
                             the scroll is reachable by keyboard. */}
                         <TextSlabUI
                             tabIndex={0}
-                            className="max-h-60 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                            className="max-h-60 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                         >
                             <p className="whitespace-pre-wrap break-words font-serif text-sm leading-6 text-gray-600">
                                 {excerpt.text}

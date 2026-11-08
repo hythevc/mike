@@ -209,7 +209,7 @@ export function ChatHistoryDropdownUI({
                                 <button
                                     type="button"
                                     onClick={onRetry}
-                                    className="rounded-md text-xs font-medium text-gray-700 underline-offset-2 transition-colors hover:text-gray-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                                    className="rounded-md text-xs font-medium text-gray-700 underline-offset-2 transition-colors hover:text-gray-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                                 >
                                     Retry
                                 </button>

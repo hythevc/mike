@@ -18,12 +18,10 @@ describe("TabPillButtonUI", () => {
             "aria-pressed",
             "true",
         );
-        expect(button).toHaveClass(
-            "border-white/80",
-            "bg-white",
-            "text-gray-900",
-        );
-        expect(button).not.toHaveClass("liquid-glass-selected");
+        // A semantic selected fill, distinct from the subtle material in both
+        // themes; bg-white collapsed onto the material in the dark theme.
+        expect(button).toHaveClass("bg-app-surface-active", "text-gray-900");
+        expect(button).not.toHaveClass("bg-white", "border-white/80");
     });
 
     it("uses the flat material inside a flat panel, marking the active tab by its text", () => {

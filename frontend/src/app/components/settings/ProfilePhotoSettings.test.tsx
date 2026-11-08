@@ -65,13 +65,13 @@ describe("ProfilePhotoSettings", () => {
     state.photo = PHOTO;
     render(<ProfilePhotoSettings />);
     const edit = screen.getByRole("button", { name: "Edit" });
-    expect(edit).toHaveClass("bg-blue-600/90");
+    expect(edit).toHaveClass("bg-brand-primary");
     expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
     fireEvent.click(edit);
     await waitFor(() => expect(screen.getByLabelText("Zoom")).toBeEnabled());
     const save = screen.getByRole("button", { name: "Save" });
     expect(save).toBeDisabled();
-    expect(save).toHaveClass("bg-blue-600/90");
+    expect(save).toHaveClass("bg-brand-primary");
     expect(screen.getByRole("button", { name: "Remove" })).toHaveClass("bg-red-600/90");
     fireEvent.change(screen.getByLabelText("Zoom"), { target: { value: "2" } });
     expect(save).toBeEnabled();

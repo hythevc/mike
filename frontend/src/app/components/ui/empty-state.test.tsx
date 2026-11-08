@@ -35,12 +35,13 @@ describe("EmptyState", () => {
         render(
             <EmptyState title="Projects" description="Boom" tone="error" />,
         );
-        expect(screen.getByText("Boom")).toHaveClass("text-red-500");
+        expect(screen.getByText("Boom")).toHaveClass("text-danger");
     });
 
     it("uses the muted tone for the description by default", () => {
         render(<EmptyState title="Projects" description="Add one" />);
-        expect(screen.getByText("Add one")).toHaveClass("text-gray-400");
+        // The semantic muted token (>= 4.5:1), not the sub-AA text-gray-400.
+        expect(screen.getByText("Add one")).toHaveClass("text-fg-muted");
     });
 
     it("renders the icon and the action slots", () => {

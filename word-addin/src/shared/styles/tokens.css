@@ -17,6 +17,8 @@
 
     body {
         @apply bg-background text-foreground;
+        /* Tabular figures in the task-pane chrome, matching the web app. */
+        font-variant-numeric: tabular-nums;
     }
 
     button {

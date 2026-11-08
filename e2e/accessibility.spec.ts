@@ -93,43 +93,52 @@ for (const { path, ready } of SIGNED_IN_PAGES) {
 }
 
 /* The glass material classes sit in the components cascade layer, so the
-   active tab pill's `bg-white` utility wins over the translucent fill of
-   `liquid-glass-subtle` it is drawn on. Unlayered, the material won and the
-   active tab differed from the others only by its text color. Class-name
-   unit tests cannot see this; the computed style can. */
-test("the active tab pill on /workflows paints its active fill, not the glass material", async ({
-    page,
-}) => {
-    await page.goto("/workflows");
-    await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
-    await setTheme(page, "light");
+   active tab pill's own fill wins over the translucent fill of
+   `liquid-glass-subtle` it is drawn on. The active fill is the semantic
+   `bg-app-surface-active`, which differs from the material in BOTH themes; the
+   earlier `bg-white` collapsed onto the material in the dark theme, so the
+   active tab differed from the others only by its text color there. Class-name
+   unit tests cannot see this; the computed style can, so the check runs in
+   both themes. */
+for (const theme of THEMES) {
+    test(`the active tab pill on /workflows paints its active fill, not the glass material (${theme})`, async ({
+        page,
+    }) => {
+        await page.goto("/workflows");
+        await expect(
+            page.getByRole("heading", { name: "Workflows" }),
+        ).toBeVisible();
+        await setTheme(page, theme);
 
-    const pill = page
-        .locator('[data-slot="tab-pill-button"][aria-pressed="true"]')
-        .first();
-    await expect(pill).toBeVisible();
+        const pill = page
+            .locator('[data-slot="tab-pill-button"][aria-pressed="true"]')
+            .first();
+        await expect(pill).toBeVisible();
 
-    /* Resolve both candidate fills on probe elements, so the check does not
-       hard-code either color. */
-    const fills = await page.evaluate(() => {
-        const fillOf = (className: string) => {
-            const probe = document.createElement("div");
-            probe.className = className;
-            document.body.append(probe);
-            const fill = getComputedStyle(probe).backgroundColor;
-            probe.remove();
-            return fill;
-        };
-        return {
-            active: fillOf("bg-white"),
-            material: fillOf("liquid-glass-subtle"),
-        };
+        /* Resolve both candidate fills on probe elements, so the check does
+           not hard-code either color. */
+        const fills = await page.evaluate(() => {
+            const fillOf = (className: string) => {
+                const probe = document.createElement("div");
+                probe.className = className;
+                document.body.append(probe);
+                const fill = getComputedStyle(probe).backgroundColor;
+                probe.remove();
+                return fill;
+            };
+            return {
+                active: fillOf("bg-app-surface-active"),
+                material: fillOf("liquid-glass-subtle"),
+            };
+        });
+        expect(fills.active).not.toBe(fills.material);
+
+        await expect
+            .poll(() =>
+                pill.evaluate(
+                    (element) => getComputedStyle(element).backgroundColor,
+                ),
+            )
+            .toBe(fills.active);
     });
-    expect(fills.active).not.toBe(fills.material);
-
-    await expect
-        .poll(() =>
-            pill.evaluate((element) => getComputedStyle(element).backgroundColor),
-        )
-        .toBe(fills.active);
-});
+}

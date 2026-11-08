@@ -222,7 +222,7 @@ describe("NewTRModal", () => {
         expect(skip.parentElement).toBe(accessNext.parentElement);
         expect(skip).toHaveClass("text-gray-500");
         expect(screen.getByRole("button", { name: "Back" })).toHaveClass(
-            "bg-blue-600/90",
+            "bg-brand-primary",
         );
         fireEvent.click(skip);
         expect(screen.getByText("Document directory")).toBeInTheDocument();

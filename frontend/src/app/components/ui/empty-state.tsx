@@ -49,7 +49,7 @@ export function EmptyState({
                     data-slot="empty-state-description"
                     className={cn(
                         "mt-1 max-w-xs text-xs",
-                        tone === "error" ? "text-red-500" : "text-gray-400",
+                        tone === "error" ? "text-danger" : "text-fg-muted",
                     )}
                 >
                     {description}
