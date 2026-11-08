@@ -7,6 +7,11 @@ import type {
   SourceDocumentType,
   SourceSubdocument,
   TabularQuoteStatus,
+  TabularQuoteOutcome,
+  TabularQuoteCheck,
+  TabularQuoteChecksResponse,
+  TabularCellQuoteChecks,
+  TabularQuoteSummary,
   WorkflowCatalogStatus,
   WorkflowLicense,
   WorkflowLicenseEvidence,
@@ -21,6 +26,15 @@ export type {
   WorkflowLicenseEvidence,
   WorkflowProvenance,
 } from "@mike/contracts";
+
+export type {
+  TabularQuoteStatus,
+  TabularQuoteOutcome,
+  TabularQuoteCheck,
+  TabularQuoteChecksResponse,
+  TabularCellQuoteChecks,
+  TabularQuoteSummary,
+};
 import type {
   AskInputItem as SharedAskInputItem,
   AskInputResponseItem as SharedAskInputResponseItem,
@@ -796,6 +810,17 @@ export interface TabularCell {
   status: "pending" | "generating" | "done" | "error";
   /** The quote-check status of a finished answer (docs/tabular-quote-checks.md). */
   quote_status?: TabularQuoteStatus | null;
+  /**
+   * One entry per quote of a finished, checked cell, in citation order. Set by
+   * the detail endpoint and `cell_update` frames; absent on optimistic cells.
+   */
+  quote_outcomes?: TabularQuoteOutcome[];
+  /** Sources of the row that yielded no text, among those the caller may read. */
+  no_text_document_ids?: string[];
+  /** Detail endpoint only: a source has changed since the cell was answered. */
+  stale?: boolean;
+  /** The changed sources the caller may read. */
+  stale_document_ids?: string[];
   created_at: string;
 }
 
@@ -982,6 +1007,8 @@ export interface TabularReviewDetailOut {
   cells: TabularCell[];
   rows: TabularReviewRow[];
   documents: Document[];
+  /** Review-wide quote-check counts over the cells returned. */
+  quote_summary?: TabularQuoteSummary;
   /**
    * A generation the server is running *in this process*: present only while
    * the backend still holds the run's frames, which is what makes it

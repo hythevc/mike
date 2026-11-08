@@ -4,6 +4,7 @@ import type {
     ColumnConfig,
     Document,
     TabularCell,
+    TabularQuoteCheck,
     TabularReviewRow,
 } from "../shared/types";
 import { TRSidePanel } from "./TRSidePanel";
@@ -79,6 +80,87 @@ describe("TRSidePanel", () => {
         expect(screen.queryByText("Column")).not.toBeInTheDocument();
         expect(screen.queryByText("Results")).not.toBeInTheDocument();
         expect(screen.queryByTitle("Regenerate")).not.toBeInTheDocument();
+    });
+
+    it("shows each quote beside its source passage and says the page is not checked", () => {
+        const document = {
+            id: "doc-1",
+            filename: "Agreement.pdf",
+            file_type: "pdf",
+        } as Document;
+        const row = {
+            id: "row-1",
+            label: "Agreement.pdf",
+            row_type: "document",
+            document_id: "doc-1",
+            source_document_ids: ["doc-1"],
+        } as TabularReviewRow;
+        const column = { index: 0, name: "Term", prompt: "" } as ColumnConfig;
+        const cell = {
+            id: "cell-1",
+            row_id: row.id,
+            column_index: 0,
+            status: "done",
+            quote_status: "partly_found",
+            content: { summary: "Five years", flag: "green", reasoning: "" },
+        } as TabularCell;
+        const quoteChecks: TabularQuoteCheck[] = [
+            {
+                field: "summary",
+                quote: "exactly five years",
+                document_id: "doc-1",
+                page: 2,
+                status: "found",
+                source_excerpt: "the term is exactly five years",
+                context_before: "In which case ",
+                context_after: " from the date.",
+            },
+            {
+                field: "summary",
+                quote: "renews annually",
+                document_id: "doc-1",
+                page: 3,
+                status: "not_found",
+            },
+        ];
+
+        render(
+            <TRSidePanel
+                cell={cell}
+                row={row}
+                rows={[row]}
+                documents={[document]}
+                column={column}
+                columns={[column]}
+                quoteChecks={quoteChecks}
+                onClose={vi.fn()}
+                onNavigate={vi.fn()}
+            />,
+        );
+
+        // Each quote shows beside the source passage the API returned.
+        expect(screen.getByText("“exactly five years”")).toBeInTheDocument();
+        expect(
+            screen.getByText("the term is exactly five years"),
+        ).toBeInTheDocument();
+        // A quote that was not found names it instead of a passage.
+        expect(screen.getByText("“renews annually”")).toBeInTheDocument();
+        expect(
+            screen.getByText("Not found in the source text."),
+        ).toBeInTheDocument();
+        // Per-quote status markers.
+        expect(screen.getByText("Quote found")).toBeInTheDocument();
+        expect(
+            screen.getByText("Quote not found - check source"),
+        ).toBeInTheDocument();
+        // The page the quote cites is not checked.
+        expect(
+            screen.getByText(
+                /the page or cell a quote cites is not checked/i,
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getByText("Page 2")).toBeInTheDocument();
+        expect(screen.getByText("Page 3")).toBeInTheDocument();
     });
 
     it("opens the source document encoded in a grouped-row citation", () => {

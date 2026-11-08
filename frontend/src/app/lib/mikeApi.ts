@@ -95,6 +95,7 @@ import type {
     WorkflowContributor,
     TabularReview,
     TabularReviewDetailOut,
+    TabularQuoteChecksResponse,
 } from "@/app/components/shared/types";
 
 export { UploadBatchError };
@@ -3428,6 +3429,28 @@ export async function getTabularReview(
     reviewId: string,
 ): Promise<TabularReviewDetailOut> {
     return apiRequest<TabularReviewDetailOut>("tabular.run", `/tabular-review/${reviewId}`);
+}
+
+/**
+ * The quote checks of a review's checked cells in full: each quote with the
+ * source passage it matched and the text around it, for the documents the
+ * caller may read. Narrow to one cell with `rowId` and `columnIndex`.
+ */
+export async function getTabularReviewQuoteChecks(
+    reviewId: string,
+    opts: { rowId?: string; columnIndex?: number; signal?: AbortSignal } = {},
+): Promise<TabularQuoteChecksResponse> {
+    const params = new URLSearchParams();
+    if (opts.rowId !== undefined) params.set("row_id", opts.rowId);
+    if (opts.columnIndex !== undefined) {
+        params.set("column_index", String(opts.columnIndex));
+    }
+    const query = params.toString();
+    return apiRequest<TabularQuoteChecksResponse>(
+        "tabular.run",
+        `/tabular-review/${reviewId}/quote-checks${query ? `?${query}` : ""}`,
+        opts.signal ? { signal: opts.signal } : undefined,
+    );
 }
 
 export async function updateTabularReview(

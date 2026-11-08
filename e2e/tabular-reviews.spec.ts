@@ -10,6 +10,7 @@
  */
 import { test, expect } from "./fixtures";
 import { PDF_FIXTURE } from "./helpers";
+import { expectAccessible } from "./axe";
 
 // Run these tests sequentially in a single worker: they share the one test
 // user's review list, so concurrent create/detail runs would race each other.
@@ -274,4 +275,21 @@ test("adds a document to a tabular review and the row appears in the table", asy
     // PATCH → setDocuments() → TRTable renders the new row with doc.filename.
     await confirmBtn.click();
     await expect(row).toBeVisible({ timeout: 15_000 });
+});
+
+/* ─── Test 5: the review detail page passes the shared axe gate ──────────── */
+
+test("the review detail page passes the shared accessibility gate", async ({
+    page,
+}) => {
+    test.setTimeout(60_000);
+    // REGRESSION: fails if the tabular review detail page (grid, toolbar,
+    // quote-summary bar and markers) introduces a critical axe violation, or a
+    // serious one beyond the tabular-reviews ratchet. The detail page shares
+    // the feature's muted-text tokens, so it reuses the "/tabular-reviews"
+    // ratchet entry rather than opening a new one (W11 lowers those to zero).
+    await createReview(page, "E2E Axe Review");
+
+    await expectAccessible(page, { name: "/tabular-reviews", theme: "light" });
+    await expectAccessible(page, { name: "/tabular-reviews", theme: "dark" });
 });

@@ -28,6 +28,7 @@ import {
     getTabularReview,
     getProject,
     getTabularReviewPeople,
+    getTabularReviewQuoteChecks,
     listProjects,
     grantTabularReviewAccess,
     regenerateTabularCell,
@@ -45,6 +46,7 @@ import type {
     Document,
     Project,
     TabularCell,
+    TabularQuoteCheck,
     TabularReview,
     TabularReviewRow,
     Workflow,
@@ -83,6 +85,11 @@ import { restoreOptimisticallyDeletedRows } from "@/app/lib/optimisticRows";
 import { TRSidePanel } from "./TRSidePanel";
 import { TRTable } from "./TRTable";
 import type { TRTableHandle } from "./TRTable";
+import { TabularQuoteSummaryBar } from "./TabularQuoteSummaryBar";
+import {
+    cellNeedsChecking,
+    summarizeCellQuotes,
+} from "./tabularQuoteLabels";
 import { TRChatPanel } from "./TRChatPanel";
 import { TabularReviewDetailsModal } from "./TabularReviewDetailsModal";
 import { exportTabularReviewToExcel } from "./exportToExcel";
@@ -188,6 +195,13 @@ export function TRView({ reviewId, projectId }: Props) {
     const [expandedDocumentId, setExpandedDocumentId] = useState<
         string | undefined
     >(undefined);
+    // The checked quotes of the open cell, each with its source passage, read
+    // per cell from the quote-checks endpoint. Null while they are loading.
+    const [expandedCellQuoteChecks, setExpandedCellQuoteChecks] = useState<
+        TabularQuoteCheck[] | null
+    >(null);
+    // Narrow the grid to the cells a reviewer still has to look at.
+    const [showCellsToCheck, setShowCellsToCheck] = useState(false);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [actionsOpen, setActionsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -772,10 +786,13 @@ export function TRView({ reviewId, projectId }: Props) {
                 if (data.type === "cell_update") {
                     // A finished cell's frame carries its quote-check status;
                     // any other frame means the cell has no finished answer.
-                    const quoteStatus =
-                        data.status === "done"
-                            ? ((data.quote_status as TabularCell["quote_status"]) ?? null)
-                            : null;
+                    const isDone = data.status === "done";
+                    const quoteStatus = isDone
+                        ? ((data.quote_status as TabularCell["quote_status"]) ?? null)
+                        : null;
+                    const quoteOutcomes = isDone
+                        ? ((data.quote_outcomes as TabularCell["quote_outcomes"]) ?? [])
+                        : [];
                     setCells((prev) =>
                         prev.map((c) =>
                             c.row_id === data.row_id &&
@@ -785,6 +802,16 @@ export function TRView({ reviewId, projectId }: Props) {
                                       content: data.content as TabularCell["content"],
                                       status: data.status as TabularCell["status"],
                                       quote_status: quoteStatus,
+                                      quote_outcomes: quoteOutcomes,
+                                      // A freshly written answer was drawn from
+                                      // the current source text, so it is not
+                                      // stale until the detail endpoint says so.
+                                      stale: false,
+                                      stale_document_ids: [],
+                                      no_text_document_ids:
+                                          (data.no_text_document_ids as
+                                              | string[]
+                                              | undefined) ?? [],
                                   }
                                 : c,
                         ),
@@ -1700,6 +1727,101 @@ export function TRView({ reviewId, projectId }: Props) {
         ? rows.filter((row) => row.label.toLowerCase().includes(q))
         : rows;
 
+    // Review-wide quote counts and the number of cells still to check, from the
+    // cells in hand so the header, the filter and the markers always agree.
+    const quoteSummary = useMemo(() => summarizeCellQuotes(cells), [cells]);
+    const cellsToCheckCount = useMemo(
+        () => cells.filter((cell) => cellNeedsChecking(cell)).length,
+        [cells],
+    );
+    const hasQuoteEvidence =
+        !loading && columns.length > 0 && rows.length > 0;
+    // Stop filtering once nothing is left to check, so the grid does not get
+    // stuck on an empty view after the last cell is resolved or regenerated.
+    useEffect(() => {
+        if (showCellsToCheck && cellsToCheckCount === 0) {
+            setShowCellsToCheck(false);
+        }
+    }, [showCellsToCheck, cellsToCheckCount]);
+
+    // Load the open cell's checked quotes, each with the source passage it
+    // matched, for the panel. A checked cell has a quote_status; an unchecked
+    // one has nothing to show, and a failed read leaves the answer standing.
+    const expandedRowId = expandedCell?.row_id;
+    const expandedColumnIndex = expandedCell?.column_index;
+    const expandedStatus = expandedCell?.status;
+    const expandedQuoteStatus = expandedCell?.quote_status;
+    useEffect(() => {
+        if (
+            expandedRowId === undefined ||
+            expandedColumnIndex === undefined ||
+            expandedStatus !== "done" ||
+            !expandedQuoteStatus
+        ) {
+            setExpandedCellQuoteChecks(
+                expandedRowId === undefined ? null : [],
+            );
+            return;
+        }
+        const controller = new AbortController();
+        setExpandedCellQuoteChecks(null);
+        getTabularReviewQuoteChecks(reviewId, {
+            rowId: expandedRowId,
+            columnIndex: expandedColumnIndex,
+            signal: controller.signal,
+        })
+            .then((response) => {
+                if (controller.signal.aborted) return;
+                const match = response.cells.find(
+                    (entry) =>
+                        entry.row_id === expandedRowId &&
+                        entry.column_index === expandedColumnIndex,
+                );
+                setExpandedCellQuoteChecks(match?.quote_checks ?? []);
+            })
+            .catch(() => {
+                if (controller.signal.aborted) return;
+                setExpandedCellQuoteChecks([]);
+            });
+        return () => controller.abort();
+    }, [
+        reviewId,
+        expandedRowId,
+        expandedColumnIndex,
+        expandedStatus,
+        expandedQuoteStatus,
+    ]);
+
+    // Export reads the quote checks in full so the Evidence sheet keeps each
+    // quote beside its source passage. A failed read leaves no half file.
+    async function handleExportToExcel() {
+        let response;
+        try {
+            response = await getTabularReviewQuoteChecks(reviewId);
+        } catch (error) {
+            notifyError(
+                new UserVisibleError(
+                    "The review could not be exported: its quote evidence could not be loaded.",
+                    { kind: "unknown", retryable: true, cause: error },
+                ),
+                {
+                    action: "export the review",
+                    onRetry: () => {
+                        void handleExportToExcel();
+                    },
+                },
+            );
+            return;
+        }
+        await exportTabularReviewToExcel({
+            reviewTitle: review?.title || "Tabular Review",
+            columns,
+            rows,
+            cells,
+            quoteChecks: response.cells,
+        });
+    }
+
     return (
         <div className="flex h-full overflow-hidden">
             <div className="flex flex-1 flex-col overflow-hidden">
@@ -1822,15 +1944,9 @@ export function TRView({ reviewId, projectId }: Props) {
                                             {
                                                 label: "Export",
                                                 icon: Download,
-                                                onSelect: () =>
-                                                    exportTabularReviewToExcel({
-                                                        reviewTitle:
-                                                            review?.title ||
-                                                            "Tabular Review",
-                                                        columns,
-                                                        rows,
-                                                        cells,
-                                                    }),
+                                                onSelect: () => {
+                                                    void handleExportToExcel();
+                                                },
                                                 disabled:
                                                     columns.length === 0 ||
                                                     rows.length === 0,
@@ -2022,6 +2138,14 @@ export function TRView({ reviewId, projectId }: Props) {
                                 </div>
                             }
                         />
+                        {hasQuoteEvidence && (
+                            <TabularQuoteSummaryBar
+                                summary={quoteSummary}
+                                cellsToCheckCount={cellsToCheckCount}
+                                showCellsToCheck={showCellsToCheck}
+                                onShowCellsToCheckChange={setShowCellsToCheck}
+                            />
+                        )}
                         <div
                             className="relative flex flex-1 overflow-hidden"
                             onDragOver={(e) => {
@@ -2065,6 +2189,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                 selectedRowIds={selectedRowIds}
                                 uploadingFilenames={uploadingDroppedFilenames}
                                 dragOverFiles={dragOverReviewFiles}
+                                showCellsToCheck={showCellsToCheck}
                                 onSelectionChange={setSelectedRowIds}
                                 rightClickDropdown={(row, close) => renderReviewRowActions(rowActionSelectionIds(row.id, selectedRowIds), close)}
                                 onDocumentOpen={handleDocumentOpen}
@@ -2148,6 +2273,7 @@ export function TRView({ reviewId, projectId }: Props) {
                             documents={documents}
                             column={expandedCol}
                             columns={columns}
+                            quoteChecks={expandedCellQuoteChecks}
                             onClose={() => {
                                 setExpandedCell(null);
                                 setExpandedCellCitation(undefined);

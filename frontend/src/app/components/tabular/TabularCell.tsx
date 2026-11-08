@@ -14,7 +14,9 @@ import {
     NO_READABLE_TEXT_DESCRIPTION,
     NO_READABLE_TEXT_LABEL,
     isUnansweredForLackOfText,
+    quoteMarkerForCell,
 } from "./tabularQuoteLabels";
+import { TabularQuoteMarker } from "./TabularQuoteMarker";
 
 interface Props {
     cell: TCell;
@@ -252,6 +254,7 @@ export function TabularCell({
 
     const firstLine = processed.split("\n").find((l) => l.trim()) ?? processed;
     const collapsedDisplay = firstLine.replace(/^[-*•]\s+/, "");
+    const quoteMarker = quoteMarkerForCell(cell);
 
     function handleCitationClickInOverlay(
         page: number | undefined,
@@ -281,7 +284,7 @@ export function TabularCell({
         <div ref={containerRef} className="relative">
             {/* Normal cell row — always visible, preserves table layout */}
             <div
-                className="group relative h-8 px-2 flex items-center text-xs text-gray-800 leading-relaxed cursor-pointer hover:bg-gray-50 transition-colors"
+                className="group relative min-h-8 px-2 py-1 flex flex-col justify-center gap-0.5 text-xs text-gray-800 leading-relaxed cursor-pointer hover:bg-gray-50 transition-colors"
                 onClick={() => setInlineExpanded((v) => !v)}
             >
                 {cell.content.flag && (
@@ -301,6 +304,15 @@ export function TabularCell({
                         inline
                     />
                 </div>
+                {/* A cell reaching this branch has an answer, so a no_text
+                    marker beside it would contradict itself; the unanswered
+                    no-text case is handled above. */}
+                {quoteMarker && quoteMarker !== "no_text" && (
+                    <TabularQuoteMarker
+                        kind={quoteMarker}
+                        className="text-[10px]"
+                    />
+                )}
             </div>
 
             {/* Inline expanded overlay — absolutely positioned so it overlays without disrupting table layout */}

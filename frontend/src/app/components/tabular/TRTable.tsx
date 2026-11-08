@@ -15,6 +15,7 @@ import type {
     TabularReviewRow,
 } from "../shared/types";
 import { TabularCell as TabularCellComponent } from "./TabularCell";
+import { cellNeedsChecking } from "./tabularQuoteLabels";
 import { TREditColumnMenu } from "./TREditColumnMenu";
 import {
     TABLE_CHECKBOX_CLASS,
@@ -62,6 +63,8 @@ interface Props {
     uploadingFilenames?: string[];
     dragOverFiles?: boolean;
     highlightedCell?: { colIdx: number; rowIdx: number } | null;
+    /** When set, show only the cells whose quote still needs a reviewer's eye. */
+    showCellsToCheck?: boolean;
     onSelectionChange: (ids: string[]) => void;
     rightClickDropdown?: (row: TabularReviewRow, close: () => void) => ReactNode;
     onDocumentOpen: (row: TabularReviewRow, document: Document) => void;
@@ -95,6 +98,7 @@ export const TRTable = forwardRef<TRTableHandle, Props>(function TRTable(
         uploadingFilenames = [],
         dragOverFiles = false,
         highlightedCell,
+        showCellsToCheck = false,
         onSelectionChange,
         rightClickDropdown,
         onDocumentOpen,
@@ -164,6 +168,17 @@ export const TRTable = forwardRef<TRTableHandle, Props>(function TRTable(
                 cell.row_id === row.id && cell.column_index === colIdx,
         );
     }
+
+    function rowHasCellToCheck(row: TabularReviewRow) {
+        return columns.some((col) => cellNeedsChecking(getCell(row, col.index)));
+    }
+
+    // "Show cells to check" narrows the grid to the rows holding a cell a
+    // reviewer still has to look at; within those rows only the to-check cells
+    // are shown, so the view is just the work left.
+    const visibleRows = showCellsToCheck
+        ? rows.filter(rowHasCellToCheck)
+        : rows;
 
     const allSelected =
         rows.length > 0 && rows.every((row) => selectedRowIds.includes(row.id));
@@ -383,7 +398,15 @@ export const TRTable = forwardRef<TRTableHandle, Props>(function TRTable(
                         <div className="flex-1 border-b border-gray-200 min-h-8 min-w-8" />
                     </div>
                     ))}
-                    {rows.map((row, rowIdx) => {
+                    {showCellsToCheck && visibleRows.length === 0 && (
+                        <div
+                            className="flex items-center px-3 py-4 text-xs text-gray-600"
+                            style={{ minWidth: totalContentWidth }}
+                        >
+                            No cells need checking.
+                        </div>
+                    )}
+                    {visibleRows.map((row, rowIdx) => {
                     const isSelected = selectedRowIds.includes(row.id);
                     const sourceDocuments = row.source_document_ids
                         .map((documentId) => documentsById.get(documentId))
@@ -417,7 +440,14 @@ export const TRTable = forwardRef<TRTableHandle, Props>(function TRTable(
                                 className={`${TR_STICKY_CELL_CLASS} sticky left-0 z-[60] ${DOC_COL_W} border-b border-r border-gray-200 py-2 pl-3 pr-2 text-xs text-gray-800 flex items-center transition-colors ${stickyRowBg} ${isSelected ? "" : LIQUID_GLASS_GROUP_HOVER_CLASS}`}
                             />
                             {columns.map((col) => {
-                                const cell = getCell(row, col.index);
+                                const rawCell = getCell(row, col.index);
+                                // When filtering to cells that need checking,
+                                // the other cells in a shown row stay blank.
+                                const cell =
+                                    showCellsToCheck &&
+                                    !cellNeedsChecking(rawCell)
+                                        ? undefined
+                                        : rawCell;
                                 const colPos = sortedColumns.findIndex(
                                     (c) => c.index === col.index,
                                 );

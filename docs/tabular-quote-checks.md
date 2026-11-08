@@ -176,3 +176,48 @@ The matcher lives in `backend/src/lib/citations/sourceMatcher.ts` and
 `boundaries.ts`. Chat citation verification keeps its own matcher in
 `quoteMatch.ts`. The cell checks live in
 `backend/src/modules/tabular/tabular.verify.ts`.
+
+## Reviewer interface
+
+The tabular review grid shows the quote checks so a reviewer can see at a
+glance what was matched and what to look at. Labels live in
+`frontend/src/app/components/tabular/tabularQuoteLabels.ts`.
+
+- **Cell markers.** Each finished cell shows a marker pairing a Lucide icon
+  with plain text: "Quote found", "Partly found", "Quote not found - check
+  source", "No quote", "No readable text", or "Stale". The icon and text carry
+  the status together, so colour is never the only signal, and each marker
+  carries an accessible description. A cell whose source has changed shows
+  "Stale" over its earlier status; a row with no readable text shows "No
+  readable text" in place of an answer. `TabularQuoteMarker` renders the
+  marker; `quoteMarkerForCell` chooses it.
+- **Header count.** A bar above the grid shows a count such as "37 of 40
+  quotes found", with the rows that have no readable text counted separately
+  ("2 rows without readable text"). The count is summed from the cells in hand
+  by `summarizeCellQuotes`, so it agrees with the markers and the filter.
+- **Show cells to check.** A filter in the same bar narrows the grid to the
+  cells a reviewer still has to look at: quotes not found, partly found, or
+  whose source has changed. Within a shown row, only those cells appear.
+- **Cell panel.** The detail panel loads the open cell's checked quotes from
+  `GET /tabular-review/:reviewId/quote-checks` and shows each quote beside the
+  source passage it matched, with a per-quote status marker. It states that
+  only the quoted text is matched and the page or cell a quote cites is not
+  checked.
+- **Disclaimer.** The grid bar and the Excel export both carry the line
+  "Legal information, not legal advice. Verify before relying."
+
+## Excel export
+
+`exportToExcel.ts` writes three sheets:
+
+- **Review** — the grid of readable answers, one row per folder/document.
+- **Evidence** — one row per checked quote, with the quote, the page or cell it
+  cites, its status, the cell's flag and reasoning, and the source passage it
+  matched. It reads the quotes in full from the quote-checks endpoint, so the
+  evidence survives export; only the passages the caller may read are included.
+- **Rows without readable text** — the rows a source left unanswered for want
+  of extractable text, listed apart from the quote counts.
+
+Each sheet carries the disclaimer line. `buildTabularReviewWorkbook` builds the
+workbook and is covered by unit tests; `exportTabularReviewToExcel` adds the
+browser download.

@@ -1,7 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TRTable } from "./TRTable";
-import type { Document, TabularReviewRow } from "../shared/types";
+import type {
+    ColumnConfig,
+    Document,
+    TabularCell,
+    TabularReviewRow,
+} from "../shared/types";
 
 const row = {
     id: "row-1",
@@ -116,5 +121,107 @@ describe("TRTable", () => {
             documentRow,
             documents[0],
         );
+    });
+});
+
+/* ── Quote-status markers and the "Show cells to check" filter ───────────── */
+
+const quoteColumns = [
+    { index: 0, name: "Term", prompt: "" },
+    { index: 1, name: "Liability", prompt: "" },
+] as ColumnConfig[];
+
+const quoteRows = [
+    {
+        id: "row-a",
+        label: "Alpha.pdf",
+        row_type: "document",
+        document_id: "doc-a",
+        source_document_ids: ["doc-a"],
+    },
+    {
+        id: "row-b",
+        label: "Beta.pdf",
+        row_type: "document",
+        document_id: "doc-b",
+        source_document_ids: ["doc-b"],
+    },
+] as TabularReviewRow[];
+
+const answered = (
+    rowId: string,
+    columnIndex: number,
+    summary: string,
+    quote_status: TabularCell["quote_status"],
+): TabularCell =>
+    ({
+        id: `${rowId}-${columnIndex}`,
+        review_id: "r1",
+        row_id: rowId,
+        document_id: null,
+        column_index: columnIndex,
+        content: { summary },
+        status: "done",
+        quote_status,
+    }) as TabularCell;
+
+const quoteCells = [
+    answered("row-a", 0, "Alpha term answer", "found"),
+    answered("row-a", 1, "Alpha liability answer", "not_found"),
+    answered("row-b", 0, "Beta term answer", "found"),
+    answered("row-b", 1, "Beta liability answer", "found"),
+];
+
+function renderQuoteTable(showCellsToCheck: boolean) {
+    return render(
+        <TRTable
+            loading={false}
+            documentGrouping="document"
+            columns={quoteColumns}
+            rows={quoteRows}
+            documents={documents}
+            cells={quoteCells}
+            savingColumn={false}
+            savingColumnsConfig={false}
+            selectedRowIds={[]}
+            showCellsToCheck={showCellsToCheck}
+            onSelectionChange={vi.fn()}
+            onDocumentOpen={vi.fn()}
+            onExpand={vi.fn()}
+            onCitationClick={vi.fn()}
+            onUpdateColumn={vi.fn()}
+            onDeleteColumn={vi.fn()}
+            onAddColumn={vi.fn()}
+            onAddDocuments={vi.fn()}
+        />,
+    );
+}
+
+describe("TRTable quote markers and filter", () => {
+    it("shows a quote-status marker with visible text on each answered cell", () => {
+        renderQuoteTable(false);
+        // Three cells found, one not found: markers render as plain text.
+        expect(screen.getAllByText("Quote found")).toHaveLength(3);
+        const notFound = screen.getByText("Quote not found - check source");
+        expect(notFound).toBeInTheDocument();
+        // The marker's accessible description, never colour alone.
+        expect(
+            notFound.closest("[data-quote-marker='not_found']"),
+        ).toHaveAttribute("title");
+    });
+
+    it("'Show cells to check' shows only the cells that need checking", () => {
+        renderQuoteTable(true);
+        // The one not-found cell stays.
+        expect(screen.getByText("Alpha liability answer")).toBeInTheDocument();
+        // The found cell in the same row is blanked out.
+        expect(
+            screen.queryByText("Alpha term answer"),
+        ).not.toBeInTheDocument();
+        // The all-found row disappears entirely.
+        expect(screen.queryByText("Beta term answer")).not.toBeInTheDocument();
+        expect(
+            screen.queryByText("Beta liability answer"),
+        ).not.toBeInTheDocument();
     });
 });
