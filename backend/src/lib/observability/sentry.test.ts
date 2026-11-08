@@ -951,7 +951,7 @@ describe("Node process warnings", () => {
     expect(consoleEvent(printed)).toBeNull();
     expect(consoleEvent("(node:1) ExperimentalWarning: SQLite is an experimental feature")).toBeNull();
     expect(consoleEvent("[dbq] tick failed")).not.toBeNull();
-    expect(consoleEvent("Mike workflow sync failed")).not.toBeNull();
+    expect(consoleEvent("workflow sync failed")).not.toBeNull();
   });
 
   it("stays silent when the operator set NODE_NO_WARNINGS=1", () => {

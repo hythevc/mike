@@ -1,3 +1,4 @@
+import { brand } from "../../brand.generated";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     buildGoogleDriveTools,
@@ -173,7 +174,7 @@ describe("Google Drive OAuth lifecycle", () => {
         expect(status.connected).toBe(true);
         expect(status.accountEmail).toBeUndefined();
     });
-    it("rejects another Mike user's authorization URL before token exchange", async () => {
+    it("rejects another user's authorization URL before token exchange", async () => {
         const store = driveDb();
         const state = await begin(store, "attacker");
         const fetchMock = vi.fn();
@@ -567,7 +568,7 @@ describe("Google Drive OAuth lifecycle", () => {
         expect(await buildGoogleDriveTools(personalConnectorOwner("u1"), store.db)).toEqual([]);
         await expect(begin(store)).rejects.toMatchObject({
             code: "connector_unavailable",
-            message: "Google Drive is not offered on this Mike server.",
+            message: `Google Drive is not offered on this ${brand.productName} server.`,
         });
         await expect(
             createGoogleDrivePickerSession(personalConnectorOwner("u1"), store.db),
@@ -578,7 +579,7 @@ describe("Google Drive OAuth lifecycle", () => {
         ] as const) {
             const refused = await executeGoogleDriveToolCall(personalConnectorOwner("u1"), name, args, store.db);
             expect(refused.event.status).toBe("error");
-            expect(refused.content).toContain("not offered on this Mike server");
+            expect(refused.content).toContain(`not offered on this ${brand.productName} server`);
         }
         expect(
             (await planGoogleDriveCall(personalConnectorOwner("u1"), "google_drive_create_folder", { name: "x" }, store.db)).type,

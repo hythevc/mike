@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 /**
  * The one way out of the task-pane webview.
  *
@@ -44,5 +45,5 @@ export function openExternalUrl(url: string): boolean {
 export const WEB_APP_URL: string = (
   // Read the substituted value directly: a `typeof process` guard is false
   // in the browser and would silently select the default.
-  process.env.REACT_APP_WEB_APP_URL || "https://app.mikeoss.com"
+  process.env.REACT_APP_WEB_APP_URL || brand.appUrl
 ).replace(/\/+$/, "");

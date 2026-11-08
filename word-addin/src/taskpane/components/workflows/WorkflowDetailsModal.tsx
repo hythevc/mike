@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React, { useEffect, useRef, useState } from "react";
 import { WorkflowSlashCommandUI } from "@mike/workflow-slash-command-ui";
 import type { Workflow } from "../../types";
@@ -148,7 +149,7 @@ export function WorkflowDetailsModal({
     } catch (reason) {
       setError(
         reportFault(reason, {
-          fallback: "Mike couldn't save this workflow. Try again.",
+          fallback: `${brand.productName} couldn't save this workflow. Try again.`,
           operation: "workflows.run",
         }).message,
       );
@@ -169,7 +170,7 @@ export function WorkflowDetailsModal({
     } catch (reason) {
       setDeleteError(
         reportFault(reason, {
-          fallback: "Mike couldn't delete this workflow. Try again.",
+          fallback: `${brand.productName} couldn't delete this workflow. Try again.`,
           operation: "workflows.run",
         }).message,
       );

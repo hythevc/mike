@@ -1,3 +1,4 @@
+import { brandFileSlug } from "../../lib/brandFiles";
 import { createHash } from "node:crypto";
 import {
     checkProjectAccess,
@@ -29,7 +30,7 @@ export function userExportFilename(
     orgId: string | null = null,
 ) {
     const workspace = orgId ? `-org-${orgId.slice(0, 8)}` : "";
-    return `mike-${kind}-export-${userId.slice(0, 8)}${workspace}-${nowStamp()}.json`;
+    return `${brandFileSlug}-${kind}-export-${userId.slice(0, 8)}${workspace}-${nowStamp()}.json`;
 }
 
 async function selectAll(
@@ -561,7 +562,7 @@ export async function buildUserTabularReviewsExport(
 }
 
 export function projectManifestFilename(projectId: string) {
-    return `mike-project-manifest-${projectId.slice(0, 8)}-${nowStamp()}.json`;
+    return `${brandFileSlug}-project-manifest-${projectId.slice(0, 8)}-${nowStamp()}.json`;
 }
 
 /**

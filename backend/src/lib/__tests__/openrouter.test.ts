@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { completeWithProvider, streamWithProvider } from "../llm/providers";
 
@@ -853,7 +854,7 @@ describe("OpenCode Go LLM adapter", () => {
                 apiKeys: { "opencode-go": "oc-user-key" },
             }),
         ).rejects.toThrow(
-            "OpenCode Go model gpt-5.6-luna requires a protocol Mike does not support yet",
+            `OpenCode Go model gpt-5.6-luna requires a protocol ${brand.productName} does not support yet`,
         );
         expect(fetchMock).not.toHaveBeenCalled();
     });

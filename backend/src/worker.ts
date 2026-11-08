@@ -1,3 +1,4 @@
+import { brand } from "./lib/brand.generated";
 // Standalone worker entrypoint — run background workers as their own
 // process, container, or machine:
 //
@@ -30,7 +31,7 @@ import { flushSentry, reportError } from "./lib/observability/sentry";
 async function main(): Promise<void> {
   await enforceDocumentLifecycleMigration();
   startAllWorkers();
-  console.log("Mike worker process running");
+  console.log(`${brand.productName} worker process running`);
 }
 
 void main();

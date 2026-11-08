@@ -7,10 +7,10 @@
   "counts": {
     "supportAddress": 0,
     "domain": 0,
-    "ossName": 1,
+    "ossName": 0,
     "sentryOrg": 0,
-    "fileName": 8,
-    "name": 80
+    "fileName": 0,
+    "name": 0
   },
-  "total": 89
+  "total": 0
 }

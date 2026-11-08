@@ -15,6 +15,7 @@
  *   pane cannot make, and which invites exactly the retry that duplicates.
  */
 import { describe, expect, it } from "vitest";
+import { brand } from "@/shared/brand.generated";
 import {
     ALREADY_APPLIED_MESSAGE,
     UNVERIFIED_APPLY_MESSAGE,
@@ -87,8 +88,10 @@ describe("classifyApplyFailure", () => {
             mutationApplied: false,
         });
         expect(outcome).toHaveProperty("message");
-        expect(UNVERIFIED_APPLY_MESSAGE).toContain(
-            "couldn't confirm whether this change was applied — check the document before retrying.",
+        // The add-in reads the same brand config as the web app, so the
+        // exact message is asserted without hardcoding the product name.
+        expect(UNVERIFIED_APPLY_MESSAGE).toBe(
+            `${brand.productName} couldn't confirm whether this change was applied — check the document before retrying.`,
         );
         expect(UNVERIFIED_APPLY_MESSAGE).not.toContain("couldn't apply");
     });

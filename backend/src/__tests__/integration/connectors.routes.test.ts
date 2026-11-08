@@ -1,3 +1,4 @@
+import { brand } from "../../lib/brand.generated";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import type { Response } from "express";
@@ -299,7 +300,7 @@ describe("POST /user/integrations/google-drive/oauth/start", () => {
         expect(res.status).toBe(404);
         expect(res.body).toEqual({
             code: "connector_unavailable",
-            detail: "Google Drive is not offered on this Mike server.",
+            detail: `Google Drive is not offered on this ${brand.productName} server.`,
         });
     });
 
@@ -345,7 +346,7 @@ describe("GET /user/integrations/google-drive", () => {
 });
 
 describe("Google Drive callback and disconnect", () => {
-    it("completes only for the authenticated Mike user", async () => {
+    it("completes only for the authenticated user", async () => {
         completeGoogleDriveOAuth.mockResolvedValue({ userId: "u1" });
         const res = await request(app).get(
             "/user/integrations/google-drive/oauth/finish?state=s&code=c",

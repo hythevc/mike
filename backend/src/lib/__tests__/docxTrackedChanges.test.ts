@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 import {
@@ -108,7 +109,7 @@ describe("applyTrackedEdits", () => {
         const xml = await readDocumentXml(result.bytes);
         expect(xml).toContain("<w:del");
         expect(xml).toContain("<w:ins");
-        expect(xml).toContain(`w:author="Mike"`);
+        expect(xml).toContain(`w:author="${brand.docxAuthorLabel}"`);
         expect(xml).toContain("<w:delText");
 
         // Accepted view of the output shows the replacement applied.

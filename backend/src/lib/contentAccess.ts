@@ -1,3 +1,4 @@
+import { brand } from "./brand.generated";
 // Direct, role-aware grants for assistant chats and tabular reviews.
 //
 // Both resources use the same access ladder as projects. Their creator has
@@ -154,7 +155,7 @@ export async function upsertContentGrant(
             return {
                 ok: false,
                 kind: "validation",
-                detail: `${email} does not belong to a Mike user.`,
+                detail: `${email} does not belong to a ${brand.productName} user.`,
             };
         if (params.orgId) {
             const { data: membership, error: membershipError } = await db

@@ -1,3 +1,4 @@
+import { brand } from "../lib/brand.generated";
 import { describe, it, expect, afterEach } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
@@ -76,7 +77,7 @@ describe("document-lifecycle boot gate", () => {
             SUPABASE_PUBLISHABLE_KEY: "not-a-real-key",
         });
         expect(output).toMatch(/document-lifecycle migration is not applied/);
-        expect(output).not.toMatch(/Mike backend running on port/);
+        expect(output).not.toMatch(new RegExp(`${brand.productName} backend running on port`));
         expect(output).not.toMatch(/\[dbq\] runner started/);
         expect(code).toBe(1);
     }, 60_000);

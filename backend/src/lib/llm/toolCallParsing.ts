@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 // jsonrepair declares "type": "module" but ships a CommonJS build; importing
 // it normally trips TS1479 under this package's Node16 CJS resolution.
 const { jsonrepair } = require("jsonrepair") as {
@@ -254,7 +255,7 @@ export function parseTextToolCalls(
         });
       }
       throw new Error(
-        "The local model returned a tool call that Mike could not recover. Retry the request or use the deterministic Trademark Monitor mode.",
+        `The local model returned a tool call that ${brand.productName} could not recover. Retry the request or use the deterministic Trademark Monitor mode.`,
       );
     }
   });

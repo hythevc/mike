@@ -1,3 +1,4 @@
+import { brand } from "./brand.generated";
 // Direct (non-organization) access grants on a project.
 //
 // The original model was `projects.shared_with`, a jsonb array of emails. It
@@ -232,7 +233,7 @@ export async function upsertProjectGrant(
             return {
                 ok: false,
                 kind: "validation",
-                detail: `${email} does not belong to a Mike user.`,
+                detail: `${email} does not belong to a ${brand.productName} user.`,
             };
     } catch (error) {
         return {

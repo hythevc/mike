@@ -15,6 +15,7 @@
 //   memory.consolidate — curate scoped Markdown after chat inactivity
 import { recordAudit } from "../../lib/audit";
 import { buildUserAccountExport, buildUserChatsExport, buildUserTabularReviewsExport, userExportFilename } from "./user.dataExport";
+import { brandFileSlug } from "../../lib/brandFiles";
 import { AUDIT_CSV_FILENAME, buildAuditCsv, type AuditQuery } from "../../lib/auditExport";
 import { ensureDocAccess } from "../../lib/access";
 import { downloadFilenameForVersion, loadActiveVersion } from "../../lib/documentVersions";
@@ -166,8 +167,8 @@ async function buildMemoryZipExport(
     return {
         body: await buildMemoryArchive(db, userId, userEmail, orgId),
         filename: orgId
-            ? `mike-memory-export-${orgId.slice(0, 8)}.zip`
-            : "mike-memory-export.zip",
+            ? `${brandFileSlug}-memory-export-${orgId.slice(0, 8)}.zip`
+            : `${brandFileSlug}-memory-export.zip`,
         contentType: "application/zip",
     };
 }

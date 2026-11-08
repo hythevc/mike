@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 /**
  * Native Google Drive integration — first-party tools over the GA Drive REST
  * API with a per-user OAuth token.
@@ -228,7 +229,7 @@ export function googleDriveSetupInstructions(redirectUri: string): string {
         "To let users add Drive files, also enable the Google Picker API and set " +
         "GOOGLE_DRIVE_PICKER_API_KEY and GOOGLE_DRIVE_PICKER_APP_ID. " +
         "The redirect URI is derived from API_PUBLIC_URL, so fix that first if it " +
-        "is not the address browsers use to reach Mike."
+        `is not the address browsers use to reach ${brand.productName}.`
     );
 }
 
@@ -1028,7 +1029,8 @@ const UNTRUSTED_NOTE =
 // drive.file only reaches files Mike created or the user picked, so the model
 // has to tell "not found" apart from "not shared with Mike yet".
 const DRIVE_FILE_BOUNDARY =
-    'Mike can only see files it created and files the user added with "Add files from Google Drive" in Settings → Connectors → Google Drive → Manage. If the file the user means is not found, tell them to add it there and then ask again.';
+    brand.productName +
+    ' can only see files it created and files the user added with "Add files from Google Drive" in Settings → Connectors → Google Drive → Manage. If the file the user means is not found, tell them to add it there and then ask again.';
 
 export const GOOGLE_DRIVE_TOOL_PREFIX = "google_drive_";
 

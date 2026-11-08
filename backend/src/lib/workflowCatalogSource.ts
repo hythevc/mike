@@ -1,3 +1,4 @@
+import { brand } from "./brand.generated";
 import { createHash } from "crypto";
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
@@ -581,11 +582,11 @@ async function downloadArchive(
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
   if (declaredLength > MAX_ARCHIVE_BYTES) {
     throw new Error(
-      "Mike workflows archive exceeds the 10 MB compressed limit",
+      `${brand.productName} workflows archive exceeds the 10 MB compressed limit`,
     );
   }
   if (!response.body) {
-    throw new Error("GitHub returned an empty Mike workflows archive");
+    throw new Error(`GitHub returned an empty ${brand.productName} workflows archive`);
   }
   const archive = await open(archivePath, "wx", 0o600);
   const reader = response.body.getReader();
@@ -598,7 +599,7 @@ async function downloadArchive(
       if (receivedBytes > MAX_ARCHIVE_BYTES) {
         await reader.cancel();
         throw new Error(
-          "Mike workflows archive exceeds the 10 MB compressed limit",
+          `${brand.productName} workflows archive exceeds the 10 MB compressed limit`,
         );
       }
       let offset = 0;
@@ -609,7 +610,7 @@ async function downloadArchive(
           value.byteLength - offset,
         );
         if (bytesWritten === 0) {
-          throw new Error("Could not write the Mike workflows archive");
+          throw new Error(`Could not write the ${brand.productName} workflows archive`);
         }
         offset += bytesWritten;
       }

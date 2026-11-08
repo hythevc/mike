@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import crypto from "crypto";
 import {
     auth as runMcpOAuth,
@@ -469,7 +470,7 @@ export class DbMcpOAuthProvider implements OAuthClientProvider {
     get clientMetadata(): OAuthClientMetadata {
         const env = oauthClientEnvFor(this.connector.server_url);
         return {
-            client_name: "Mike",
+            client_name: brand.productName,
             redirect_uris: [this.redirectUri],
             grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],

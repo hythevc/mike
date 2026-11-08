@@ -18,6 +18,9 @@ COPY packages/contracts /packages/contracts
 
 ARG REACT_APP_WEB_APP_URL
 ARG WORD_ADDIN_PUBLIC_URL
+# The production manifest's add-in Id. scripts/build-manifest.js refuses the
+# development placeholder GUID, so a real GUID must be supplied here.
+ARG WORD_ADDIN_MANIFEST_ID
 # Optional Sentry DSN, baked into the static bundle (docs/observability.md).
 ARG REACT_APP_SENTRY_DSN=
 ARG REACT_APP_SENTRY_DISABLED=
@@ -32,6 +35,7 @@ ENV REACT_APP_API_BASE_URL=/api \
     REACT_APP_GIT_SHA=$GIT_SHA \
     REACT_APP_WEB_APP_URL=$REACT_APP_WEB_APP_URL \
     WORD_ADDIN_PUBLIC_URL=$WORD_ADDIN_PUBLIC_URL \
+    WORD_ADDIN_MANIFEST_ID=$WORD_ADDIN_MANIFEST_ID \
     REACT_APP_SENTRY_DSN=$REACT_APP_SENTRY_DSN \
     REACT_APP_SENTRY_DISABLED=$REACT_APP_SENTRY_DISABLED \
     REACT_APP_SENTRY_INSTALL=$REACT_APP_SENTRY_INSTALL \

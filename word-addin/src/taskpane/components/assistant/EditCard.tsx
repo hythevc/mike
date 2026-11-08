@@ -1,3 +1,4 @@
+import { brand } from "@mike/brand";
 import React from "react";
 import { EditCardUI } from "@mike/edit-card-ui";
 import type { RedlineEdit } from "../../lib/redline";
@@ -142,7 +143,7 @@ export function EditCard({
   // reported how many places the passage matched.
   const ambiguousCopy =
     status === "ambiguous" && matches !== undefined && matches > 1
-      ? `Skipped — this text appears ${matches} times in the document. Tell Mike which one to change.`
+      ? `Skipped — this text appears ${matches} times in the document. Tell ${brand.productName} which one to change.`
       : undefined;
   // A replace-all edit names its breadth so "Applied" can't be misread as a
   // single change.

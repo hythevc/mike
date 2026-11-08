@@ -6,11 +6,11 @@
   ],
   "counts": {
     "supportAddress": 0,
-    "domain": 1,
-    "ossName": 1,
+    "domain": 0,
+    "ossName": 0,
     "sentryOrg": 0,
     "fileName": 0,
-    "name": 31
+    "name": 0
   },
-  "total": 33
+  "total": 0
 }

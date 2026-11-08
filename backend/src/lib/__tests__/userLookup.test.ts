@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import { describe, it, expect } from "vitest";
 import {
     normalizeEmail,
@@ -129,7 +130,7 @@ describe("profileAttributionName", () => {
                     display_name: "  Ada Lovelace  ",
                     email: "ADA@EXAMPLE.COM",
                 },
-                "Mike",
+                brand.docxAuthorLabel,
             ),
         ).toBe("Ada Lovelace");
     });
@@ -138,7 +139,7 @@ describe("profileAttributionName", () => {
         expect(
             profileAttributionName(
                 { display_name: "   ", email: "  ADA@EXAMPLE.COM  " },
-                "Mike",
+                brand.docxAuthorLabel,
             ),
         ).toBe("ada@example.com");
     });
@@ -147,10 +148,10 @@ describe("profileAttributionName", () => {
         expect(
             profileAttributionName(
                 { display_name: null, email: "   " },
-                "Mike",
+                brand.docxAuthorLabel,
             ),
-        ).toBe("Mike");
-        expect(profileAttributionName(null, "Mike")).toBe("Mike");
+        ).toBe(brand.docxAuthorLabel);
+        expect(profileAttributionName(null, brand.docxAuthorLabel)).toBe(brand.docxAuthorLabel);
     });
 });
 

@@ -23,10 +23,11 @@ import {
     type SupportErrorFields,
 } from "../../../word-addin/src/taskpane/lib/supportHandoff";
 
-// The diagnostics block's first line is the product-named header, which the
-// add-in owns and rebrands on its own branch; these tests check its shape
-// rather than the product name so they hold across that rename.
-const DETAILS_HEADER = / support details$/;
+// The diagnostics block's first line is the product-named header. The add-in
+// reads the same brand config as the web app (`@mike/brand` resolves to
+// frontend/src/shared/brand.generated.ts), so the exact header is asserted
+// without hardcoding the product name.
+const DETAILS_HEADER = `${brand.productName} support details`;
 
 const WHEN = new Date("2026-09-17T10:20:30.000Z");
 
@@ -49,7 +50,7 @@ describe("buildSupportDiagnostics", () => {
             userAgent: "Word/16.89 (Macintosh)",
         });
         const [header, ...body] = block.split("\n");
-        expect(header).toMatch(DETAILS_HEADER);
+        expect(header).toBe(DETAILS_HEADER);
         expect(body.join("\n")).toBe(
             [
                 "What happened: Couldn't save the document",
@@ -80,7 +81,7 @@ describe("buildSupportDiagnostics", () => {
             { when: WHEN, userAgent: "" },
         );
         const [header, ...body] = block.split("\n");
-        expect(header).toMatch(DETAILS_HEADER);
+        expect(header).toBe(DETAILS_HEADER);
         expect(body.join("\n")).toBe(
             [
                 "What happened: Connection problem",
@@ -101,7 +102,7 @@ describe("buildSupportDiagnostics", () => {
 });
 
 describe("supportHandoffResult", () => {
-    const details = "Support details\nRequest ID: req-abc123";
+    const details = `${DETAILS_HEADER}\nRequest ID: req-abc123`;
 
     it("confirms both when the draft opened and the block was copied", () => {
         expect(

@@ -1,3 +1,4 @@
+import { brand } from "./brand.generated";
 // Boot-failure and graceful-shutdown mechanics for the API entrypoint
 // (src/index.ts). They live here, with their side effects injected, because
 // index.ts starts a server and registers signal handlers at import time and
@@ -38,7 +39,7 @@ export async function failBoot(
   effects: LifecycleEffects = processEffects,
 ): Promise<void> {
   effects.report(err, { tags: { component: "boot", stage }, level: "fatal" });
-  effects.logError("Mike backend failed to start:", err);
+  effects.logError(`${brand.productName} backend failed to start:`, err);
   await effects.flush();
   effects.exit(1);
 }

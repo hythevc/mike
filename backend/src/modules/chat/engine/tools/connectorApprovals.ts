@@ -1,3 +1,4 @@
+import { brand } from "../../../../lib/brand.generated";
 import { teamOrgIdOf } from "../../../../lib/personalOrgs";
 // Connector write approvals inside the assistant turn.
 //
@@ -56,7 +57,7 @@ export async function planConnectorToolCall(
 }
 
 export const APPROVAL_UNAVAILABLE_MESSAGE =
-  'This connector asks for permission before write actions, and approvals are only available in the Mike assistant. Tell the user to run this from the Mike assistant, or to turn off "Ask for permission for write actions" for this connector in Settings → Connectors.';
+  `This connector asks for permission before write actions, and approvals are only available in the ${brand.productName} assistant. Tell the user to run this from the ${brand.productName} assistant, or to turn off "Ask for permission for write actions" for this connector in Settings → Connectors.`;
 
 function isApprovalItem(
   item: AskInputsEvent["items"][number],
