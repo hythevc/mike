@@ -6,6 +6,10 @@ import {
     canonicalModelId,
     isAllowedModelId,
     isRouterModelSelected,
+    MODELS,
+    modelGroupToProvider,
+    type ProviderKeyStates,
+    ROUTER_SLUGS,
     type RouterSelections,
 } from "@/shared/lib/modelCatalog";
 import { isModelAvailable } from "../lib/modelAvailability";
@@ -51,7 +55,65 @@ function usableStoredModel(
     return canonical;
 }
 
-/** Resolve chat model → profile last-selected model, without a product default. */
+/**
+ * The first model the user can run on a key from one source — "user" (their
+ * own keys), "org" (the organization's) or "env" (the deployment's). Direct
+ * catalog models are tried in catalog order, then each router's first saved
+ * Model Selection. Returns null when that source has nothing usable, or when
+ * key state is unknown (availability must fail open, so no default is guessed).
+ */
+function firstModelFromKeySource(
+    sources: SelectedModelSources,
+    source: "user" | "org" | "env",
+): string | null {
+    const keys: ProviderKeyStates | undefined = sources.apiKeys;
+    if (!keys) return null;
+    const runsOnSource = (provider: string): boolean => {
+        const state = keys[provider];
+        return (
+            !!state?.configured &&
+            state.enabled !== false &&
+            state.source === source
+        );
+    };
+    for (const model of MODELS) {
+        if (runsOnSource(modelGroupToProvider(model.group))) return model.id;
+    }
+    const selections = sources.routerSelections;
+    if (selections) {
+        for (const slug of ROUTER_SLUGS) {
+            if (!runsOnSource(slug)) continue;
+            const first = selections[slug]?.[0];
+            if (first) return `${slug}/${first}`;
+        }
+    }
+    return null;
+}
+
+/**
+ * The product default for a composer that has no usable saved selection: the
+ * first model the user can run, preferring their own keys, then the
+ * organization's, then the deployment's — its environment keys, then the
+ * models the backend lists as configured for this user. Returns "" when
+ * nothing is runnable, so the composer shows its set-up prompt rather than a
+ * model it could not send to.
+ */
+function productDefaultModel(sources: SelectedModelSources): string {
+    return (
+        firstModelFromKeySource(sources, "user") ??
+        firstModelFromKeySource(sources, "org") ??
+        firstModelFromKeySource(sources, "env") ??
+        sources.configuredModelIds?.[0] ??
+        ""
+    );
+}
+
+/**
+ * Resolve chat model → profile last-selected model → a product default: the
+ * first model the user can run (user keys, then org keys, then deployment
+ * models), so the composer never opens on an empty picker when something is
+ * runnable.
+ */
 export function useSelectedModel(
     sources: SelectedModelSources = {},
 ): [string, (id: string) => void] {
@@ -100,7 +162,7 @@ export function useSelectedModel(
                 selectionSources.lastSelectedModel,
                 selectionSources,
             ) ??
-            "";
+            productDefaultModel(selectionSources);
         setModelState(next);
     }, [selectionSources]);
     /* eslint-enable react-hooks/set-state-in-effect */

@@ -9,17 +9,22 @@ export function presetTemplateUrl(preset: PresetTemplate): string {
   return `/preset-templates/${preset.id.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-export async function addPresetTemplate(
+/**
+ * Download one preset's bytes as a File, verifying the catalog's size and
+ * SHA-256 so only the unmodified published template is ever uploaded. Shared
+ * by the library import and the first-run sample matter.
+ */
+export async function fetchPresetTemplateFile(
   preset: PresetTemplate,
-  folderId: string | null,
-  signal: AbortSignal,
-  /** The workspace whose template library it is added to. */
-  workspace?: string,
-) {
+  signal?: AbortSignal,
+): Promise<File> {
   if (!isPresetDocument(preset)) {
     throw new Error("This reference file is available for download only.");
   }
-  const response = await fetch(presetTemplateUrl(preset), { signal });
+  const response = await fetch(
+    presetTemplateUrl(preset),
+    signal ? { signal } : undefined,
+  );
   if (!response.ok) throw new Error("Preset download failed");
   const bytes = await response.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -29,13 +34,23 @@ export async function addPresetTemplate(
   if (bytes.byteLength !== preset.size || hash !== preset.sha256) {
     throw new Error("Preset integrity check failed");
   }
-  signal.throwIfAborted();
-  const file = new File([bytes], preset.filename, {
+  signal?.throwIfAborted();
+  return new File([bytes], preset.filename, {
     type:
       preset.format === "pdf"
         ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
+}
+
+export async function addPresetTemplate(
+  preset: PresetTemplate,
+  folderId: string | null,
+  signal: AbortSignal,
+  /** The workspace whose template library it is added to. */
+  workspace?: string,
+) {
+  const file = await fetchPresetTemplateFile(preset, signal);
   return uploadLibraryDocument(
     { kind: "templates", workspace },
     file,

@@ -9,6 +9,7 @@ import { useUserProfile } from "@/app/contexts/UserProfileContext";
 import { brand } from "@/shared/brand.generated";
 import { BrandMark } from "@/shared/ui/BrandMarkUI";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { FirstRunChecklist } from "./FirstRunChecklist";
 import type { Document, Message, QuickAction } from "../shared/types";
 import {
     LIQUID_GLASS_HOVER_CLASS,
@@ -98,6 +99,8 @@ export function InitialView({
                         AI can make mistakes. Answers are not legal advice.
                     </p>
                 </div>
+
+                <FirstRunChecklist />
 
                 {profile?.quickActionsVisible !== false && (
                     <div className="flex flex-col items-center">

@@ -31,6 +31,40 @@ const routerSelections = selectionsFromProfile({
     openRouterModels: ["openai/gpt-5.4"],
 });
 
+const PROVIDERS: (keyof ApiKeyState)[] = [
+    "claude",
+    "gemini",
+    "openai",
+    "mistral",
+    "openrouter",
+    "vercel",
+    "opencode-go",
+    "bedrock",
+    "azure",
+    "azure-foundry",
+    "vertex",
+    "xai",
+    "custom",
+    "courtlistener",
+    "brave",
+    "tavily",
+    "deepseek",
+];
+
+/** An ApiKeyState with every provider off, then the named ones configured. */
+function keysWith(
+    configured: Partial<Record<keyof ApiKeyState, ApiKeyState[keyof ApiKeyState]["source"]>>,
+): ApiKeyState {
+    const state = {} as ApiKeyState;
+    for (const provider of PROVIDERS) {
+        const source = configured[provider];
+        state[provider] = source
+            ? { configured: true, source }
+            : { configured: false, source: null };
+    }
+    return state;
+}
+
 describe("useSelectedModel", () => {
     it("has no invented default when neither saved source is usable", () => {
         const { result } = renderHook(() => useSelectedModel());
@@ -151,6 +185,78 @@ describe("useSelectedModel", () => {
         expect(result.current[0]).toBe("");
         rerender({ chatModel: "claude-fable-5-1" });
         expect(result.current[0]).toBe("claude-fable-5-1");
+    });
+
+    it("defaults to the first model the user's own keys can run", () => {
+        const { result } = renderHook(() =>
+            useSelectedModel({ apiKeys: keysWith({ claude: "user" }) }),
+        );
+        expect(result.current[0]).toBe("claude-fable-5-1");
+    });
+
+    it("prefers the user's own key over the organization's for the default", () => {
+        // Claude on the org's key sorts before OpenAI in the catalog, but the
+        // user's own key wins the tier, so the default is the first OpenAI model.
+        const { result } = renderHook(() =>
+            useSelectedModel({
+                apiKeys: keysWith({ claude: "org", openai: "user" }),
+            }),
+        );
+        expect(result.current[0]).toBe("gpt-6-astra");
+    });
+
+    it("falls back to the organization's key when the user has none", () => {
+        const { result } = renderHook(() =>
+            useSelectedModel({ apiKeys: keysWith({ claude: "org" }) }),
+        );
+        expect(result.current[0]).toBe("claude-fable-5-1");
+    });
+
+    it("uses a deployment environment key before a configured model id", () => {
+        const { result } = renderHook(() =>
+            useSelectedModel({
+                apiKeys: keysWith({ claude: "env" }),
+                configuredModelIds: ["local-qwen"],
+            }),
+        );
+        expect(result.current[0]).toBe("claude-fable-5-1");
+    });
+
+    it("defaults to a deployment-configured model when no keys are usable", () => {
+        const { result } = renderHook(() =>
+            useSelectedModel({
+                apiKeys: keysWith({}),
+                configuredModelIds: ["local-qwen"],
+            }),
+        );
+        expect(result.current[0]).toBe("local-qwen");
+    });
+
+    it("offers no default when nothing is runnable, so the set-up prompt shows", () => {
+        const { result } = renderHook(() =>
+            useSelectedModel({ apiKeys: keysWith({}) }),
+        );
+        expect(result.current[0]).toBe("");
+    });
+
+    it("defaults to a saved router model when only a router key is configured", () => {
+        const { result } = renderHook(() =>
+            useSelectedModel({
+                apiKeys: keysWith({ openrouter: "user" }),
+                routerSelections,
+            }),
+        );
+        expect(result.current[0]).toBe("openrouter/openai/gpt-5.4");
+    });
+
+    it("seeds a configured deployment model even while key state is unknown", () => {
+        // apiKeys undefined means personal key state has not loaded; no catalog
+        // model is guessed from it. A configured deployment model still seeds
+        // the default, because the backend already lists it as runnable.
+        const { result } = renderHook(() =>
+            useSelectedModel({ configuredModelIds: ["local-qwen"] }),
+        );
+        expect(result.current[0]).toBe("local-qwen");
     });
 });
 
