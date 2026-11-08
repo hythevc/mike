@@ -1057,6 +1057,16 @@ export interface RequestDeskChange {
     comment: RequestDeskComment | null;
 }
 
+/**
+ * The response of `POST /intake/requests/:id/matter`: the matter link's trail
+ * entry and the request it updated, plus the created matter as `POST /projects`
+ * returns it. A client that only needs to open the matter can read
+ * `request.matter` instead.
+ */
+export interface RequestDeskMatterCreated extends RequestDeskChange {
+    project: Record<string, unknown>;
+}
+
 /** Counts for the triage board, computed by the server. */
 export interface RequestDeskBoardSummary {
     org_id: string;

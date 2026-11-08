@@ -81,6 +81,13 @@ export const ACTION_LABELS: Record<string, string> = {
   "export.account": "Account data exported",
   "export.tabular": "Review exported",
   "export.memory": "Memory exported",
+  "request.created": "Request logged",
+  "request.updated": "Request edited",
+  "request.status_changed": "Request status changed",
+  "request.assigned": "Request assigned",
+  "request.unassigned": "Request unassigned",
+  "request.commented": "Request comment added",
+  "request.matter_created": "Matter created from request",
 };
 
 export const SURFACE_LABELS: Record<string, string> = {
@@ -92,6 +99,7 @@ export const SURFACE_LABELS: Record<string, string> = {
   workflows: "Workflows",
   account: "Account",
   organization: "Organization",
+  intake: "Intake",
 };
 
 export function auditLabel(value: string): string {

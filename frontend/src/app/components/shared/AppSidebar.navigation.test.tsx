@@ -4,7 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { listProjectsPage } from "@/app/lib/mikeApi";
 import { AppSidebar } from "./AppSidebar";
-import { NAV_ITEMS } from "./navItems";
+import { navItemsForWorkspace } from "./navItems";
+
+// The sidebar renders with the default (personal) workspace here, so the
+// organization-only Intake item is not among the primary links.
+const PERSONAL_NAV = navItemsForWorkspace({ inOrganization: false });
 
 const state = vi.hoisted(() => ({
     pathname: "/assistant",
@@ -71,9 +75,9 @@ describe("AppSidebar navigation", () => {
                 link.textContent,
                 link.getAttribute("href"),
             ]),
-        ).toEqual(NAV_ITEMS.map((item) => [item.label, item.href]));
+        ).toEqual(PERSONAL_NAV.map((item) => [item.label, item.href]));
         expect(within(primaryNavigation()).getAllByRole("listitem")).toHaveLength(
-            NAV_ITEMS.length,
+            PERSONAL_NAV.length,
         );
         // Links navigate by themselves; the sidebar no longer pushes a route.
         expect(

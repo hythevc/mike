@@ -4,6 +4,7 @@ import {
     ChatSkeuoIcon,
     FolderSkeuoIcon,
     IdeSkeuoIcon,
+    IntakeSkeuoIcon,
     LibrarySkeuoIcon,
     PlaybookSkeuoIcon,
     TabularReviewSkeuoIcon,
@@ -21,6 +22,11 @@ export interface NavItem {
      * row in the sidebar's History and Recent Projects lists instead.
      */
     exact?: boolean;
+    /**
+     * Shown only while an organization workspace is active. The request desk
+     * belongs to an organization, so it is hidden in the Personal workspace.
+     */
+    organizationOnly?: boolean;
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -35,7 +41,28 @@ export const NAV_ITEMS: readonly NavItem[] = [
     },
     { href: "/workflows", label: "Workflows", icon: WorkflowSkeuoIcon },
     { href: "/playbooks", label: "Playbooks", icon: PlaybookSkeuoIcon },
+    {
+        href: "/intake",
+        label: "Intake",
+        icon: IntakeSkeuoIcon,
+        exact: true,
+        organizationOnly: true,
+    },
 ];
+
+/**
+ * The navigation items to show for the active workspace. Organization-only
+ * items drop out of the Personal workspace, where they have nothing to show.
+ */
+export function navItemsForWorkspace({
+    inOrganization,
+}: {
+    inOrganization: boolean;
+}): NavItem[] {
+    return NAV_ITEMS.filter(
+        (item) => inOrganization || !item.organizationOnly,
+    );
+}
 
 /** Whether `item` is the page on screen, which the sidebar marks with aria-current. */
 export function isNavItemCurrent(item: NavItem, pathname: string): boolean {

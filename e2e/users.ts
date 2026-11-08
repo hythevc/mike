@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import type { APIRequestContext } from "@playwright/test";
 
 /** Credentials for one E2E account. */
 export interface E2eAccount {
@@ -89,4 +90,36 @@ export async function ensureUser(email: string, password: string) {
             );
         }
     }
+}
+
+/** An organization workspace a worker owns, for organization-only features. */
+export interface E2eOrganization {
+    id: string;
+    name: string;
+}
+
+/**
+ * Ensure the signed-in worker has an organization workspace, reusing one of
+ * the same name if it is already there. The calls go through the same-origin
+ * `/api` gateway with the worker's own session cookie, so the worker owns the
+ * organization and is therefore one of its admins. Pass `page.request`.
+ */
+export async function ensureOrganizationWorkspace(
+    request: APIRequestContext,
+    name = "Intake E2E Firm",
+): Promise<E2eOrganization> {
+    const listed = await request.get("/api/orgs");
+    if (listed.ok()) {
+        const orgs = (await listed.json()) as E2eOrganization[];
+        const existing = orgs.find((org) => org.name === name);
+        if (existing) return { id: existing.id, name };
+    }
+    const created = await request.post("/api/orgs", { data: { name } });
+    if (!created.ok()) {
+        throw new Error(
+            `Failed to create E2E organization: ${created.status()} ${await created.text()}`,
+        );
+    }
+    const org = (await created.json()) as E2eOrganization;
+    return { id: org.id, name: org.name };
 }

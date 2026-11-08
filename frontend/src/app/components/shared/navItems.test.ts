@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from "vitest";
-import { NAV_ITEMS, isNavItemCurrent, type NavItem } from "./navItems";
+import {
+    NAV_ITEMS,
+    isNavItemCurrent,
+    navItemsForWorkspace,
+    type NavItem,
+} from "./navItems";
 
 const item = (href: string): NavItem => {
     const found = NAV_ITEMS.find((entry) => entry.href === href);
@@ -18,7 +23,34 @@ describe("NAV_ITEMS", () => {
             "/tabular-reviews",
             "/workflows",
             "/playbooks",
+            "/intake",
         ]);
+    });
+});
+
+describe("navItemsForWorkspace", () => {
+    it("shows the Intake item only in an organization workspace", () => {
+        expect(
+            navItemsForWorkspace({ inOrganization: true }).map((e) => e.href),
+        ).toContain("/intake");
+        expect(
+            navItemsForWorkspace({ inOrganization: false }).map((e) => e.href),
+        ).not.toContain("/intake");
+    });
+
+    it("keeps every workspace-agnostic item in the personal workspace", () => {
+        const personal = navItemsForWorkspace({ inOrganization: false }).map(
+            (e) => e.href,
+        );
+        const shared = NAV_ITEMS.filter((e) => !e.organizationOnly).map(
+            (e) => e.href,
+        );
+        expect(personal).toEqual(shared);
+    });
+
+    it("marks Intake organization-only and exact", () => {
+        expect(item("/intake").organizationOnly).toBe(true);
+        expect(item("/intake").exact).toBe(true);
     });
 });
 

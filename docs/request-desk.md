@@ -113,6 +113,26 @@ An organization's account export (Settings > Privacy & Data) includes the
 requests the person logged or is assigned, and the trail entries they wrote,
 under `request_desk`.
 
+## Board (web app)
+
+The web app shows the request desk at `/intake`, reached from the Intake item
+in the sidebar's primary navigation. That item, and the page, appear only in
+an organization workspace; in the Personal workspace the page explains that
+the request desk belongs to an organization. The organization-only flag lives
+on the `NavItem` shape in `frontend/src/app/components/shared/navItems.ts`.
+
+The board (`frontend/src/app/components/intake/`) lists an organization's
+requests grouped by status, with filters for status, priority, assignee and
+SLA due date and sorting by reference, priority or due date. Priority, status
+and the overdue flag are plain text, never colour alone. A side panel holds a
+request's details, its activity trail, assignment, status changes and the
+"Create matter" action with the resulting matter link; a typed comment is kept
+if a save fails. A "New request" modal captures a request inside the app.
+Skeleton, empty, filtered-empty and error states all match the table layout,
+and every failure is shown through `notifyError`. The client calls live in
+`frontend/src/app/lib/mikeApi.ts` and read `request_desk_*` codes through
+`describeError`.
+
 ## Tests
 
 - `backend/src/modules/intake/__tests__/`: service tests over an in-memory
@@ -128,3 +148,9 @@ under `request_desk`.
   ```
 
   It creates and drops its own database.
+- `frontend/src/app/components/intake/`: component tests for the board's
+  grouping and states and for the side panel's assign, status, comment and
+  matter actions, and `frontend/src/app/components/shared/navItems.test.ts`
+  for the organization-only Intake item.
+- `e2e/intake.spec.ts`: an org admin logs, assigns, progresses and converts a
+  request, and the board passes the shared axe check.

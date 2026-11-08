@@ -48,7 +48,7 @@ import {
     SettingsSkeuoIcon,
     SignOutSkeuoIcon,
 } from "@/app/components/shared/AppSidebarSkeuoIcons";
-import { NAV_ITEMS, isNavItemCurrent } from "@/app/components/shared/navItems";
+import { isNavItemCurrent, navItemsForWorkspace } from "@/app/components/shared/navItems";
 import { listProjectsPage } from "@/app/lib/mikeApi";
 import { notifyError, notifyPartialFailure } from "@/app/lib/userFacingError";
 import { dismissToast, showToast } from "@/shared/lib/toastStore";
@@ -592,7 +592,9 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                         tab, show their address and announce the current page. */}
                     <nav aria-label="Primary" className="pt-1.5">
                         <ul>
-                            {NAV_ITEMS.map((item) => {
+                            {navItemsForWorkspace({
+                                inOrganization: Boolean(activeOrganization),
+                            }).map((item) => {
                                 const { href, label, icon: Icon } = item;
                                 const isActive = isNavItemCurrent(item, pathname);
                                 return (

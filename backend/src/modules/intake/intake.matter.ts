@@ -7,7 +7,7 @@
 // person who creates it owns it, and it is private unless they open it to the
 // organization. The request then links it, once, with a trail entry.
 
-import type { RequestDeskChange } from "@mike/contracts";
+import type { RequestDeskMatterCreated } from "@mike/contracts";
 import { AppError } from "../../lib/appError";
 import { reportError } from "../../lib/observability/sentry";
 import {
@@ -34,10 +34,8 @@ import {
 
 const MATTER_LINKED_DETAIL = "A matter has already been created from this request.";
 
-export type MatterFromRequest = RequestDeskChange & {
-    /** The created project, as POST /projects returns it. */
-    project: Record<string, unknown>;
-};
+/** The wire shape is declared once in packages/contracts. */
+export type MatterFromRequest = RequestDeskMatterCreated;
 
 /**
  * Remove a matter this call created but could not link, so a lost race does
