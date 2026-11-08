@@ -33,6 +33,8 @@ import {
 import { playbooksRouter } from "./modules/playbooks/playbooks.routes";
 import { intakeRouter } from "./modules/intake/intake.routes";
 import { sourceCodeRouter } from "./modules/source-code/sourceCode.routes";
+import { plansRouter } from "./modules/plans/plans.routes";
+import { installPlanAllowance } from "./lib/entitlements";
 import { manifestPublicKey } from "./lib/manifestSigning";
 import {
   handleUnhandledError,
@@ -48,6 +50,12 @@ import { requestDiagnostics } from "./middleware/requestDiagnostics";
 
 export const app = express();
 const isProduction = process.env.NODE_ENV === "production";
+
+// With PLANS_ENABLED set, hold model calls on the deployment's keys to each
+// workspace's plan allowance (lib/usage.ts). A no-op when plans are off, so a
+// deployment that runs no plans keeps the deployment-wide cap it had. The
+// worker process installs this too; model calls run in both.
+installPlanAllowance();
 
 // Ceiling for JSON API requests. File bytes upload directly to object storage;
 // only small upload-session manifests and control requests reach Express.
@@ -348,6 +356,7 @@ app.use("/models", modelsRouter);
 app.use("/projects/:projectId/memory", projectMemoryRouter);
 app.use("/projects", projectsRouter);
 app.use("/orgs", orgsRouter);
+app.use("/plans", plansRouter);
 app.use("/projects/:projectId/chat", projectChatRouter);
 app.use("/single-documents", documentsRouter);
 app.use("/library", libraryRouter);

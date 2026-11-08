@@ -23,12 +23,17 @@ import "./instrument";
 import { enforceDocumentLifecycleMigration } from "./lib/dbq/lifecycleGuard";
 import { startAllWorkers, stopAllWorkers } from "./workerRuntime";
 import { flushSentry, reportError } from "./lib/observability/sentry";
+import { installPlanAllowance } from "./lib/entitlements";
 
 // A worker against an unmigrated database cannot run the cleanup kind at all,
 // so it would fail every row it claims. Say so once, loudly, and stop — and
 // only start claiming rows once the answer is in, so no job is touched by a
 // worker the database cannot back.
 async function main(): Promise<void> {
+  // With PLANS_ENABLED set, model calls in jobs (tabular extraction and the
+  // like) are held to each workspace's plan allowance, as in the API process.
+  // A no-op when plans are off.
+  installPlanAllowance();
   await enforceDocumentLifecycleMigration();
   startAllWorkers();
   console.log(`${brand.productName} worker process running`);

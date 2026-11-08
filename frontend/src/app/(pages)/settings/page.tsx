@@ -1,6 +1,7 @@
 "use client";
 
 import { ProfilePhotoSettings } from "@/app/components/settings/ProfilePhotoSettings";
+import { PersonalPlanCard } from "@/app/components/settings/PersonalPlanCard";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
@@ -329,16 +330,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Plan */}
-      <section className="space-y-3">
-        <SettingsHeading id="usage-plan">Usage Plan</SettingsHeading>
-        <GlassCardUI>
-          <SettingsRow layout="stacked">
-            <p className="text-base font-medium text-gray-500 capitalize">
-              {profile?.tier || "Free"}
-            </p>
-          </SettingsRow>
-        </GlassCardUI>
-      </section>
+      <PersonalPlanCard />
 
       {/* Danger Zone */}
       <section className="space-y-3">

@@ -1062,6 +1062,59 @@ command exits with status 1 and names the variable. Every cost it prints is an
 estimate, recorded tokens times your prices; the provider's invoice is the
 authority. The report also says how many calls have estimated tokens.
 
+## Plans, seats and trials
+
+Plans are off by default. With `PLANS_ENABLED` unset, every workspace is
+entitled and has no seat limit, exactly as before plans existed, so a
+self-hosted deployment sees no change. Billing is a separate switch and stays
+off; nothing here charges anyone. Turn plans on only together with a catalog.
+
+`PLANS_CATALOG_JSON` holds the plans this deployment offers, as a JSON array.
+No plans or prices are kept in source control; supply your own. It is validated
+at startup, and a malformed catalog stops the process and names the field at
+fault. Each plan has:
+
+- `key` (required) and `name` (required);
+- `description`;
+- `seat_limit`: a whole number of seats, or `null` for no limit;
+- `features`: an array of short strings;
+- `deployment_token_allowance`: the monthly tokens a workspace on this plan may
+  use on the deployment's own AI keys, or `null` to fall back to
+  `DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP`;
+- `trial_days`;
+- `public`: whether the plan is shown to buyers at `GET /plans` (default true);
+- `sort_order`;
+- `display_price_text`: the price as shown to a buyer;
+- `provider_price_ref`: the billing provider's price id, never returned to a
+  browser.
+
+Every organization — team workspaces and the hidden Personal workspace alike —
+gets an `org_subscriptions` row when it is created, with a trialing status and
+a default trial window. When plans are enabled:
+
+- an invitation is refused with `seat_limit_reached` once members plus open
+  invitations reach the effective seat limit (the plan's, or an override on the
+  subscription row);
+- accepting an invitation takes a seat atomically, so two people accepting the
+  last seat at once cannot both get in;
+- a plan's `deployment_token_allowance` feeds the deployment-key cap above, in
+  place of `DEPLOYMENT_KEY_MONTHLY_TOKEN_CAP`, for that workspace;
+- an expired trial, or a past-due or canceled subscription, blocks only
+  hosted-model use (calls on the deployment's keys); a person's own key, data
+  export and account or organization deletion are never blocked.
+
+Owners and admins see a workspace's plan, seats and this month's usage under
+Settings → Plan and usage (`GET /orgs/:id/plan`); the personal settings Usage
+Plan card shows the same for a person's own workspace. There is no upgrade
+control while billing is off.
+
+**Upgrading.** Apply `20261107_50_org_subscriptions.sql` (Compose's `db-init`
+runs it). It is additive and safe to re-run. The trigger creates a
+subscription row only for organizations created after it runs; organizations
+that already exist keep no row, which reads as no plan — unlimited and
+unblocked, the same as leaving plans off. Leave `PLANS_ENABLED` unset to keep
+today's behaviour.
+
 ## Deployment safety
 
 - Generate unique, high-entropy signing and encryption secrets.

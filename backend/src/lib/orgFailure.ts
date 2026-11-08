@@ -58,6 +58,13 @@ export function sendOrgFailure(
             return void res
                 .status(410)
                 .json({ detail: "That invitation has expired." });
+        case "seat_limit_reached":
+            // 403: a valid request the organization's plan does not allow. The
+            // code lets the client show a tailored line; the detail is written
+            // for the person reading it.
+            return void res
+                .status(403)
+                .json({ code: "seat_limit_reached", detail: result.detail });
         case "db_error":
             // `result.detail` is a raw Postgres message: it can name tables,
             // columns, constraints and index definitions, and quote the

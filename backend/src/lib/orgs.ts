@@ -46,6 +46,7 @@ import {
 } from "./access";
 import { isOrgAccessOverrideRole } from "./orgAccessOverrides";
 import { isPersonalOrgRow } from "./personalOrgs";
+import { effectiveSeatLimit } from "./entitlements";
 
 type DbError = { code?: string; message: string } | null;
 
@@ -123,6 +124,10 @@ export type OrgResult<T> =
           workflows: number;
       }
     | { ok: false; kind: "expired" }
+    // The organization's plan has no free seat for another member. Only when
+    // plans are enabled and the plan or an override sets a finite seat limit;
+    // off, this never arises. Both inviting and accepting can return it.
+    | { ok: false; kind: "seat_limit_reached"; detail: string }
     | { ok: false; kind: "db_error"; detail: string };
 
 // ---------------------------------------------------------------------------
@@ -814,6 +819,40 @@ function invitationExpiry(): string {
     ).toISOString();
 }
 
+const SEAT_LIMIT_DETAIL_INVITE =
+    "This organization has used all the seats its plan includes. Remove a member or a pending invitation, or raise the plan's seat limit, to invite someone new.";
+const SEAT_LIMIT_DETAIL_ACCEPT =
+    "This organization has used all the seats its plan includes. Ask an administrator to remove a member or raise the plan's seat limit.";
+
+/**
+ * A seat_limit_reached failure when the organization has no free seat for
+ * another member, counting members and open invitations, or null when there
+ * is room (and always when plans are off, where the limit is null). The
+ * counts come from the org_seat_state security-definer function.
+ */
+async function refuseWhenSeatsFull(
+    db: Db,
+    orgId: string,
+): Promise<Extract<OrgResult<unknown>, { ok: false }> | null> {
+    const seatLimit = await effectiveSeatLimit(db, orgId);
+    if (seatLimit === null) return null;
+    const { data, error } = await db.rpc("org_seat_state", { p_org_id: orgId });
+    if (error) return { ok: false, kind: "db_error", detail: error.message };
+    const row = (Array.isArray(data) ? data[0] : data) as
+        | { member_count?: number; pending_invite_count?: number }
+        | null;
+    const used =
+        (Number(row?.member_count) || 0) +
+        (Number(row?.pending_invite_count) || 0);
+    if (used >= seatLimit)
+        return {
+            ok: false,
+            kind: "seat_limit_reached",
+            detail: SEAT_LIMIT_DETAIL_INVITE,
+        };
+    return null;
+}
+
 export async function createInvitation(
     db: Db,
     params: {
@@ -906,6 +945,15 @@ export async function createInvitation(
             kind: "conflict",
             detail: "That email already has a pending invitation",
         };
+
+    // Every path from here reserves a seat: refreshing an expired invitation
+    // (an expired one no longer counts, so re-opening it costs a seat) or
+    // creating a new one. A finite seat limit (plans enabled, a plan or
+    // override with a limit) caps members plus open invitations. With plans
+    // off, effectiveSeatLimit is null with no query and nothing is capped.
+    const seatRefusal = await refuseWhenSeatsFull(db, params.orgId);
+    if (seatRefusal) return seatRefusal;
+
     if (live) {
         const { data: refreshed, error: refreshError } = await db
             .from("org_invitations")
@@ -1247,13 +1295,38 @@ export async function acceptInvitation(
         : invite.role;
 
     if (!existing) {
-        const { error } = await db.from("org_members").insert({
-            org_id: invite.org_id,
-            user_id: params.userId,
-            role: effectiveRole,
-        });
-        if (error && !isUniqueViolation(error))
-            return { ok: false, kind: "db_error", detail: error.message };
+        // A finite seat limit (plans enabled, a plan or override with a limit)
+        // is enforced inside org_claim_seat, which counts the seats in use and
+        // inserts the member under a lock on the organization, so two people
+        // accepting the last seat at once cannot both get in. With plans off
+        // the limit is null (no query) and this is the same direct insert as
+        // before.
+        const seatLimit = await effectiveSeatLimit(db, invite.org_id);
+        if (seatLimit !== null) {
+            const { data, error } = await db.rpc("org_claim_seat", {
+                p_org_id: invite.org_id,
+                p_user_id: params.userId,
+                p_role: effectiveRole,
+                p_seat_limit: seatLimit,
+            });
+            if (error)
+                return { ok: false, kind: "db_error", detail: error.message };
+            const outcome = Array.isArray(data) ? data[0] : data;
+            if (outcome === "seat_limit_reached")
+                return {
+                    ok: false,
+                    kind: "seat_limit_reached",
+                    detail: SEAT_LIMIT_DETAIL_ACCEPT,
+                };
+        } else {
+            const { error } = await db.from("org_members").insert({
+                org_id: invite.org_id,
+                user_id: params.userId,
+                role: effectiveRole,
+            });
+            if (error && !isUniqueViolation(error))
+                return { ok: false, kind: "db_error", detail: error.message };
+        }
     } else if (effectiveRole !== existing) {
         const { error } = await db
             .from("org_members")

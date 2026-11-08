@@ -1198,3 +1198,74 @@ export interface WorkflowCatalogAttribution {
   /** The catalog commit the content was synced from. */
   source_commit: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Plans, seats and trials (PLANS_ENABLED). See backend/src/modules/plans and
+// backend/src/lib/entitlements.ts. Plans and billing are off by default; these
+// shapes describe what the API returns when a deployment turns them on.
+// ---------------------------------------------------------------------------
+
+/** A subscription's state, as the provider or a trial reports it. */
+export type SubscriptionStatus =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "none";
+
+/**
+ * A plan as shown to a buyer. The billing provider's price reference is never
+ * included.
+ */
+export interface PublicPlan {
+  key: string;
+  name: string;
+  description: string;
+  /** Seats included, or null for no seat limit. */
+  seat_limit: number | null;
+  features: string[];
+  /** Monthly tokens on the deployment's AI keys, or null for the default. */
+  deployment_token_allowance: number | null;
+  /** Trial length in days, or null for none. */
+  trial_days: number | null;
+  sort_order: number;
+  display_price_text: string;
+}
+
+/** GET /plans: the public plans a deployment offers. */
+export interface PlansResponse {
+  plans_enabled: boolean;
+  billing_enabled: boolean;
+  plans: PublicPlan[];
+}
+
+/** One line of a workspace's AI usage this month, grouped by model and key source. */
+export interface PlanUsageRow {
+  model: string;
+  provider: string;
+  key_source: "user" | "org" | "env";
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  calls: number;
+  /** Any call in this line had estimated, not reported, token counts. */
+  estimated: boolean;
+}
+
+/**
+ * GET /orgs/:id/plan: a workspace's plan, seats and this month's usage. The
+ * plan is null when the workspace is on no named plan. `seats_used` counts
+ * members; `pending_invites` counts open invitations, which also hold seats.
+ */
+export interface OrgPlanView {
+  plans_enabled: boolean;
+  billing_enabled: boolean;
+  plan: PublicPlan | null;
+  status: SubscriptionStatus | null;
+  seats_used: number;
+  pending_invites: number;
+  seat_limit: number | null;
+  trial_ends_at: string | null;
+  current_period_end: string | null;
+  usage: PlanUsageRow[];
+}
