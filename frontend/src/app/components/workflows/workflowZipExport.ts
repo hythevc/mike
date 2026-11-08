@@ -1,4 +1,11 @@
 import type { ColumnConfig, Workflow } from "@/app/components/shared/types";
+import {
+    catalogSourceUrl,
+    hasWorkflowAttribution,
+    licenseLabel,
+    licenseUrl,
+    type WorkflowAttributionInfo,
+} from "./workflowStatusLabels";
 
 type ZipFile = {
     path: string;
@@ -191,7 +198,11 @@ function tableConfigYaml(columns: ColumnConfig[]): string {
     return `${lines.join("\n")}\n`;
 }
 
-function skillFrontmatter(workflow: Workflow, slug: string): string {
+function skillFrontmatter(
+    workflow: Workflow,
+    slug: string,
+    attribution?: WorkflowAttributionInfo,
+): string {
     const contributors =
         workflow.metadata.contributors.length > 0
             ? workflow.metadata.contributors
@@ -203,6 +214,8 @@ function skillFrontmatter(workflow: Workflow, slug: string): string {
                       linkedin: null,
                   },
               ];
+    const credit =
+        attribution && hasWorkflowAttribution(attribution) ? attribution : null;
     const lines = [
         "---",
         `name: ${yamlScalar(slug)}`,
@@ -214,6 +227,12 @@ function skillFrontmatter(workflow: Workflow, slug: string): string {
         `type: ${yamlScalar(workflow.metadata.type)}`,
         `language: ${yamlScalar(workflow.metadata.language || "English")}`,
         `version: ${yamlScalar(workflow.metadata.version || "1.0.0")}`,
+        // The licence and author credit of a catalog workflow travel with the
+        // export so the copy stays attributed wherever it goes.
+        ...(credit?.license ? [`license: ${yamlScalar(credit.license)}`] : []),
+        ...(credit?.attribution
+            ? [`attribution: ${yamlScalar(credit.attribution)}`]
+            : []),
         `practice: ${yamlScalar(workflow.metadata.practice)}`,
         "jurisdictions:",
         ...(workflow.metadata.jurisdictions?.length
@@ -234,10 +253,94 @@ function skillFrontmatter(workflow: Workflow, slug: string): string {
     return lines.join("\n");
 }
 
-function workflowFiles(
+// The LICENSE, NOTICE and CHANGES.md files a catalog workflow's export
+// carries. The full licence text and verbatim NOTICE live in the catalog at
+// the pinned revision; the export records the licence by its SPDX identifier,
+// links the Corresponding Source, reproduces the NOTICE when the payload has
+// it, and keeps the local-modification notice in a block of its own.
+function attributionFiles(
+    basePath: string,
+    attribution: WorkflowAttributionInfo,
+): ZipFile[] {
+    const files: ZipFile[] = [];
+    const label = licenseLabel(attribution.license, attribution.licenseEvidence);
+    const licenseTextUrl = licenseUrl(attribution.license);
+    const sourceUrl = catalogSourceUrl(attribution.provenance, attribution.commit);
+    const licenseLines = [
+        attribution.license
+            ? `SPDX-License-Identifier: ${attribution.license}`
+            : "Licence: not recorded.",
+        "",
+        `This workflow is distributed under the ${label} licence.`,
+        ...(licenseTextUrl ? [`Full licence text: ${licenseTextUrl}`] : []),
+        ...(sourceUrl
+            ? [
+                  "",
+                  "Corresponding Source (the catalog folder at the revision this",
+                  `copy was made from): ${sourceUrl}`,
+              ]
+            : []),
+        ...(attribution.modificationNotice
+            ? ["", `${attribution.modificationNotice}.`]
+            : []),
+        "",
+        "This workflow is provided without warranty of any kind.",
+    ];
+    files.push({
+        path: `${basePath}/LICENSE`,
+        content: `${licenseLines.join("\n")}\n`,
+    });
+
+    const noticeLines = attribution.noticeMd?.trim()
+        ? [
+              attribution.noticeMd.trim(),
+              ...(attribution.modificationNotice
+                  ? [
+                        "",
+                        "---",
+                        `${attribution.modificationNotice}.`,
+                    ]
+                  : []),
+          ]
+        : [
+              attribution.attribution?.trim() ||
+                  "No attribution was recorded for this workflow.",
+              ...(attribution.modificationNotice
+                  ? ["", `${attribution.modificationNotice}.`]
+                  : []),
+          ];
+    files.push({
+        path: `${basePath}/NOTICE`,
+        content: `${noticeLines.join("\n")}\n`,
+    });
+
+    const changesLines = attribution.changesMd?.trim()
+        ? [attribution.changesMd.trim()]
+        : [
+              "# Changes",
+              "",
+              ...(sourceUrl
+                  ? [`Source: ${sourceUrl}`, ""]
+                  : []),
+              attribution.modificationNotice
+                  ? `${attribution.modificationNotice}.`
+                  : "No changes have been recorded against the catalog source.",
+          ];
+    files.push({
+        path: `${basePath}/CHANGES.md`,
+        content: `${changesLines.join("\n")}\n`,
+    });
+
+    return files;
+}
+
+// Exported for tests: the exact files that go into the zip, before the DOM
+// download the browser-only `downloadWorkflowZip` performs.
+export function workflowFiles(
     workflow: Workflow,
     skillMd: string,
     columns: ColumnConfig[],
+    attribution?: WorkflowAttributionInfo,
 ): { files: ZipFile[]; slug: string } {
     const type = workflow.metadata.type;
     const slug = slugify(workflow.metadata.title, workflow.id || "workflow");
@@ -245,7 +348,7 @@ function workflowFiles(
     const files: ZipFile[] = [
         {
             path: `${basePath}/SKILL.md`,
-            content: `${skillFrontmatter(workflow, slug)}${skillMd.trimEnd()}\n`,
+            content: `${skillFrontmatter(workflow, slug, attribution)}${skillMd.trimEnd()}\n`,
         },
     ];
 
@@ -256,6 +359,10 @@ function workflowFiles(
         });
     }
 
+    if (attribution && hasWorkflowAttribution(attribution)) {
+        files.push(...attributionFiles(basePath, attribution));
+    }
+
     return { files, slug };
 }
 
@@ -263,8 +370,9 @@ export function downloadWorkflowZip(
     workflow: Workflow,
     skillMd: string,
     columns: ColumnConfig[],
+    attribution?: WorkflowAttributionInfo,
 ) {
-    const { files, slug } = workflowFiles(workflow, skillMd, columns);
+    const { files, slug } = workflowFiles(workflow, skillMd, columns, attribution);
     const blob = createZip(files);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

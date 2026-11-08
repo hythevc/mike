@@ -26,6 +26,7 @@ import {
   listWorkflows,
   listWorkflowsPage,
   listSystemWorkflows,
+  listCatalogAttributions,
   getWorkflowFilterOptions,
   listWorkflowIds,
   ensureDefaultsInstalled,
@@ -181,6 +182,20 @@ workflowsRouter.get("/system", requireAuth, asyncRoute(async (req, res) => {
   const db = createServerSupabase();
   res.json(await listSystemWorkflows(db, workflowType));
 }));
+
+// GET /workflows/attributions (must come before /:workflowId routes)
+// The open-source notices listing: every workflow in the active catalog with
+// its credit, licence, source and revision. A read of catalog metadata only,
+// so it needs no default-install step.
+workflowsRouter.get(
+  "/attributions",
+  requireAuth,
+  asyncRoute(async (_req, res) => {
+    setOperation("workflows.attributions");
+    const db = createServerSupabase();
+    res.json(await listCatalogAttributions(db));
+  }),
+);
 
 // GET /workflows/filter-options (must come before /:workflowId routes)
 workflowsRouter.get("/filter-options", requireAuth, asyncRoute(async (req, res) => {

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
     deleteWorkflowShare,
+    duplicateBuiltInWorkflow,
     getWorkflow,
     getWorkflowPeople,
     listWorkflowShares,
@@ -16,6 +17,8 @@ import { WorkflowDetailPage } from "./WorkflowDetailPage";
 const useItemWorkspace = vi.hoisted(() => vi.fn());
 vi.mock("@/app/hooks/useItemWorkspace", () => ({ useItemWorkspace }));
 
+const routerPush = vi.hoisted(() => vi.fn());
+
 // `importOriginal` keeps the real `MikeApiError`: `userFacingApiError`
 // decides with `instanceof`, so a stand-in class would make every 4xx look
 // like an unexpected failure.
@@ -23,6 +26,7 @@ vi.mock("@/app/lib/mikeApi", async (importOriginal) => ({
     ...(await importOriginal<typeof import("@/app/lib/mikeApi")>()),
     deleteWorkflow: vi.fn(),
     deleteWorkflowShare: vi.fn(),
+    duplicateBuiltInWorkflow: vi.fn(),
     getWorkflow: vi.fn(),
     getWorkflowPeople: vi.fn(),
     listWorkflowShares: vi.fn(),
@@ -31,7 +35,7 @@ vi.mock("@/app/lib/mikeApi", async (importOriginal) => ({
 }));
 
 vi.mock("next/navigation", () => ({
-    useRouter: () => ({ push: vi.fn() }),
+    useRouter: () => ({ push: routerPush }),
     useSearchParams: () => ({ get: () => null }),
 }));
 
@@ -262,5 +266,161 @@ describe("the workspace a workflow opens", () => {
                 expected,
             ),
         );
+    });
+});
+
+const catalogProvenance = {
+    catalog_repository: "Open-Legal-Products/mike-workflows",
+    catalog_path: "assistant-workflows/opposing-counsel-review",
+    license_file: "assistant-workflows/opposing-counsel-review/LICENSE",
+    source_repository: "hythevc/awesome-legal-skills",
+    source_path: "skills/opposing-counsel-review",
+    source_commit: "f9f28cd",
+    source_name: "Opposing Counsel Review",
+    source_version: "2026-04-26",
+    review_by: null,
+    catalog_commit: "ce62e6a2",
+    contributors: [],
+    content_sha256: "abc",
+};
+
+function catalogCopy(overrides?: Partial<Workflow>): Workflow {
+    return {
+        id: "workflow-copy",
+        is_owner: true,
+        access_role: "owner",
+        org_id: null,
+        metadata: {
+            title: "Opposing Counsel Review",
+            type: "assistant",
+            language: "English",
+            practice: "Dispute Resolution",
+            jurisdictions: ["United States"],
+        },
+        skill_md: "body",
+        catalog_workflow_key: "opposing-counsel-review",
+        catalog_version: "1.1.0",
+        license: "Apache-2.0",
+        license_evidence: "file",
+        attribution:
+            "Based on Opposing Counsel Review by Larissa Meredith-Flister.",
+        provenance: catalogProvenance,
+        catalog_status: "update_available",
+        catalog_latest_version: "1.2.0",
+        catalog_modified: true,
+        modification_notice: "Modified by your organisation",
+        ...overrides,
+    } as unknown as Workflow;
+}
+
+describe("WorkflowDetailPage attribution", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(getWorkflowPeople).mockImplementation(people);
+        vi.mocked(listWorkflowShares).mockResolvedValue([]);
+        vi.stubGlobal(
+            "matchMedia",
+            vi.fn().mockReturnValue({
+                matches: true,
+                addEventListener: vi.fn(),
+                removeEventListener: vi.fn(),
+            }),
+        );
+    });
+
+    it("shows the read-only credit, the modification notice and an update-available status on an imported copy", async () => {
+        vi.mocked(getWorkflow).mockResolvedValue(catalogCopy());
+        render(<WorkflowDetailPage id="workflow-copy" workflowType="assistant" />);
+
+        expect(await screen.findByText("Credits and licence")).toBeVisible();
+        expect(
+            screen.getByRole("link", { name: /Apache-2\.0 licence text/ }),
+        ).toHaveAttribute("href", "https://spdx.org/licenses/Apache-2.0.html");
+        expect(
+            screen.getByText(
+                /Based on Opposing Counsel Review by Larissa Meredith-Flister\./,
+            ),
+        ).toBeVisible();
+        // Status and modification notice are plain text, not pill badges.
+        expect(screen.getByText("Update available")).toBeVisible();
+        expect(screen.getByText("Modified by your organisation")).toBeVisible();
+        // Source links to the catalog tree at the commit the copy was made from.
+        expect(
+            screen.getByRole("link", { name: "View source at this revision" }),
+        ).toHaveAttribute(
+            "href",
+            "https://github.com/Open-Legal-Products/mike-workflows/tree/ce62e6a2/assistant-workflows/opposing-counsel-review",
+        );
+    });
+
+    it("shows a withdrawn copy's status as plain text", async () => {
+        vi.mocked(getWorkflow).mockResolvedValue(
+            catalogCopy({
+                catalog_status: "withdrawn",
+                catalog_latest_version: null,
+                catalog_modified: false,
+                modification_notice: null,
+            }),
+        );
+        render(<WorkflowDetailPage id="workflow-copy" workflowType="assistant" />);
+
+        expect(await screen.findByText("Withdrawn from the catalog")).toBeVisible();
+        expect(
+            screen.queryByText("Modified by your organisation"),
+        ).not.toBeInTheDocument();
+    });
+
+    it("duplicates a built-in to an editable copy through W04's route", async () => {
+        const user = userEvent.setup();
+        vi.mocked(getWorkflow).mockResolvedValue(
+            catalogCopy({
+                id: "builtin-opposing-counsel-review",
+                is_owner: false,
+                access_role: "viewer",
+                allow_edit: false,
+                is_system: true,
+                catalog_status: null,
+                catalog_modified: false,
+                modification_notice: null,
+            }),
+        );
+        const editableCopy = catalogCopy({ id: "workflow-new-copy" });
+        vi.mocked(duplicateBuiltInWorkflow).mockResolvedValue(editableCopy);
+
+        render(
+            <WorkflowDetailPage
+                id="builtin-opposing-counsel-review"
+                workflowType="assistant"
+            />,
+        );
+
+        await screen.findByText("Credits and licence");
+        await user.click(screen.getByRole("button", { name: "Workflow actions" }));
+        await user.click(
+            screen.getByRole("menuitem", { name: "Duplicate to customise" }),
+        );
+
+        await waitFor(() =>
+            expect(duplicateBuiltInWorkflow).toHaveBeenCalledWith(
+                "builtin-opposing-counsel-review",
+            ),
+        );
+        await waitFor(() =>
+            expect(routerPush).toHaveBeenCalledWith(
+                "/workflows/assistant/workflow-new-copy",
+            ),
+        );
+    });
+
+    it("links back to the list when a workflow is not found", async () => {
+        const user = userEvent.setup();
+        vi.mocked(getWorkflow).mockRejectedValue(
+            new MikeApiError({ message: "Not found", status: 404 }),
+        );
+        render(<WorkflowDetailPage id="missing" workflowType="assistant" />);
+
+        expect(await screen.findByText("Workflow not found")).toBeVisible();
+        await user.click(screen.getByRole("button", { name: "Back to workflows" }));
+        expect(routerPush).toHaveBeenCalledWith("/workflows");
     });
 });

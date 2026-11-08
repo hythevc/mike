@@ -14,6 +14,7 @@ const {
   setActiveTab,
   usePaginatedWorkflowsSpy,
   workflowRows,
+  workflowsError,
 } = vi.hoisted(() => ({
   activeTab: { current: "addons" },
   getWorkflowFilterOptions: vi.fn(),
@@ -24,6 +25,7 @@ const {
   routerPush: vi.fn(),
   usePaginatedWorkflowsSpy: vi.fn(),
   workflowRows: { current: [] as Record<string, unknown>[] },
+  workflowsError: { current: null as Error | null },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -45,7 +47,7 @@ vi.mock("@/app/hooks/usePaginatedWorkflows", () => ({
       loading: false,
       loadingMore: false,
       hasMore: false,
-      error: null,
+      error: workflowsError.current,
       loadMoreError: null,
       loadMore: vi.fn(),
       retry: retryWorkflows,
@@ -111,6 +113,7 @@ describe("WorkflowList pack toolbar", () => {
   beforeEach(() => {
     activeTab.current = "addons";
     workflowRows.current = [];
+    workflowsError.current = null;
     setActiveTab.mockReset();
     getWorkflowFilterOptions.mockReset();
     listWorkflowAddons.mockReset();
@@ -512,5 +515,79 @@ describe("WorkflowList pack toolbar", () => {
     );
 
     expect(retryWorkflows).not.toHaveBeenCalled();
+  });
+
+  it("shows the error state with Try again on a load failure, not the create call to action", async () => {
+    const user = userEvent.setup();
+    activeTab.current = "all";
+    workflowRows.current = [];
+    workflowsError.current = new Error("boom");
+    render(<WorkflowList />);
+
+    expect(screen.getByText("Couldn't load workflows")).toBeVisible();
+    const tryAgain = screen.getByRole("button", { name: "Try again" });
+    // The create call to action is not offered while the list failed to load.
+    expect(
+      screen.queryByRole("button", { name: "Create" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(tryAgain);
+    expect(retryWorkflows).toHaveBeenCalledTimes(1);
+  });
+
+  it("filters the Add-ons tab by practice and jurisdiction", async () => {
+    const user = userEvent.setup();
+    activeTab.current = "addons";
+    listWorkflowAddons.mockResolvedValue([
+      {
+        id: "addon-emp",
+        addon_key: "employment-review",
+        pack_key: null,
+        pack_title: null,
+        pack_description: null,
+        pack_version: null,
+        version: "1.0.0",
+        title: "Employment review",
+        description: null,
+        type: "assistant",
+        contributors: [],
+        language: "English",
+        practice: "Employment",
+        jurisdictions: ["United States"],
+        active: true,
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "addon-ip",
+        addon_key: "ip-review",
+        pack_key: null,
+        pack_title: null,
+        pack_description: null,
+        pack_version: null,
+        version: "1.0.0",
+        title: "IP review",
+        description: null,
+        type: "assistant",
+        contributors: [],
+        language: "English",
+        practice: "Intellectual Property",
+        jurisdictions: ["England and Wales"],
+        active: true,
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    render(<WorkflowList initialTab="addons" />);
+
+    expect(await screen.findByText("Employment review")).toBeVisible();
+    expect(screen.getByText("IP review")).toBeVisible();
+
+    // Narrow by practice.
+    await user.click(
+      screen.getByRole("button", { name: "Filter add-ons by practice" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Employment" }));
+
+    expect(screen.getByText("Employment review")).toBeVisible();
+    expect(screen.queryByText("IP review")).not.toBeInTheDocument();
   });
 });

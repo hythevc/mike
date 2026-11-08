@@ -16,6 +16,8 @@ import { PdfView } from "../shared/views/PdfView";
 import { SpreadsheetView } from "../shared/views/SpreadsheetView";
 import { workflowAddonAssetDisplayUrl } from "@/app/lib/mikeApi";
 import { resolveDocumentViewType } from "@/app/lib/documentViewType";
+import { WorkflowCreditsAndLicencePanel } from "./WorkflowAttribution";
+import { attributionInfoFromAddon } from "./workflowStatusLabels";
 
 type DetailView = "columns" | "skill" | "assets";
 type AddonAsset = NonNullable<WorkflowAddon["assets"]>[number];
@@ -388,6 +390,12 @@ function WorkflowAddonPreviewDialog({
               </div>
             )}
           </section>
+
+          <div className="mt-4 shrink-0">
+            <WorkflowCreditsAndLicencePanel
+              info={attributionInfoFromAddon(addon)}
+            />
+          </div>
 
           <div className="mt-4 mb-2 flex min-h-0 flex-1 flex-col">
             {tabs.length > 1 && (

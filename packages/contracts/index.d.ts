@@ -1173,3 +1173,28 @@ export interface WorkflowCatalogCopy {
   /** "Modified by your organisation" once the copy is modified. */
   modification_notice: string | null;
 }
+
+/**
+ * One workflow in the active catalog as the open-source notices page
+ * (GET /workflows/attributions) lists it: enough to credit the original
+ * author, name the licence, point at the source and state the revision.
+ * Fields are null on rows synced before provenance existed.
+ */
+export interface WorkflowCatalogAttribution {
+  workflow_key: string;
+  title: string;
+  type: "assistant" | "tabular";
+  /** "default" for a built-in, "addon" for an importable add-on. */
+  distribution: "default" | "addon";
+  pack_key: string | null;
+  pack_title: string | null;
+  version: string | null;
+  contributors: WorkflowCatalogContributor[];
+  license: WorkflowLicense | null;
+  license_evidence: WorkflowLicenseEvidence | null;
+  /** The one-line credit the catalog gives the original author. */
+  attribution: string | null;
+  provenance: WorkflowProvenance | null;
+  /** The catalog commit the content was synced from. */
+  source_commit: string | null;
+}

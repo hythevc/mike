@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   Check,
+  Copy,
   Download,
   Globe,
   Pencil,
@@ -23,6 +24,7 @@ import {
 import {
   deleteWorkflowShare,
   deleteWorkflow,
+  duplicateBuiltInWorkflow,
   getWorkflow,
   getWorkflowPeople,
   listWorkflowShares,
@@ -99,6 +101,12 @@ import {
   notifyError,
 } from "@/app/lib/userFacingError";
 import { downloadWorkflowZip } from "./workflowZipExport";
+import { workflowDetailPath } from "./workflowRoutes";
+import { WorkflowCreditBlock } from "./WorkflowAttribution";
+import {
+  attributionInfoFromWorkflow,
+  hasWorkflowAttribution,
+} from "./workflowStatusLabels";
 import { WorkflowAssets, type WorkflowAssetsHandle } from "./WorkflowAssets";
 import { isEmptyStatesPreview } from "@/app/lib/emptyStatesPreview";
 // dynamic import keeps Tiptap (browser-only) out of the SSR bundle
@@ -227,6 +235,7 @@ export function WorkflowDetailPage({ id, workflowType }: Props) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteStatus, setDeleteStatus] = useState<DeleteStatus>("idle");
   const [openSourceOpen, setOpenSourceOpen] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   // Column actions dropdown
   const [colActionsOpen, setColActionsOpen] = useState(false);
@@ -572,8 +581,34 @@ export function WorkflowDetailPage({ id, workflowType }: Props) {
 
   if (notFound || !workflow) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-gray-400 font-serif">Workflow not found.</p>
+      <div className="flex h-full flex-col">
+        <PageHeader
+          shrink
+          breadcrumbs={[
+            {
+              label: "Workflows",
+              onClick: () => router.push("/workflows"),
+              title: "Back to Workflows",
+            },
+            { label: "Not found" },
+          ]}
+        />
+        <div className="flex flex-1 items-center justify-center">
+          <EmptyState
+            title="Workflow not found"
+            description="This workflow may have been deleted, or you may not have access to it."
+            action={
+              <PillButtonUI
+                type="button"
+                tone="black"
+                size="sm"
+                onClick={() => router.push("/workflows")}
+              >
+                Back to workflows
+              </PillButtonUI>
+            }
+          />
+        </div>
       </div>
     );
   }
@@ -582,11 +617,28 @@ export function WorkflowDetailPage({ id, workflowType }: Props) {
     profile?.displayName?.trim() || user?.email || "your account name";
   const openSourcePending =
     workflow.open_source_submission?.status === "pending";
+  const attributionInfo = attributionInfoFromWorkflow(workflow);
+  // A built-in is read-only; "Duplicate to customise" makes an editable copy
+  // of it that keeps the same credit, through W04's duplicate route.
+  const canDuplicateBuiltIn = workflow.is_system === true;
+  async function duplicateToCustomise() {
+    if (duplicating) return;
+    setDuplicating(true);
+    try {
+      const copy = await duplicateBuiltInWorkflow(id);
+      router.push(workflowDetailPath(copy));
+    } catch (error) {
+      notifyError(error, { action: "duplicate this workflow" });
+    } finally {
+      setDuplicating(false);
+    }
+  }
   const workflowActionItems: HeaderActionsMenuItem[] = [
     {
       label: "Download workflow",
       icon: Download,
-      onSelect: () => downloadWorkflowZip(workflow, promptMd, columns),
+      onSelect: () =>
+        downloadWorkflowZip(workflow, promptMd, columns, attributionInfo),
     },
     {
       label: "View and Edit details",
@@ -594,6 +646,15 @@ export function WorkflowDetailPage({ id, workflowType }: Props) {
       onSelect: () => setDetailsOpen(true),
     },
   ];
+
+  if (canDuplicateBuiltIn) {
+    workflowActionItems.push({
+      label: duplicating ? "Duplicating…" : "Duplicate to customise",
+      icon: Copy,
+      disabled: duplicating,
+      onSelect: () => void duplicateToCustomise(),
+    });
+  }
 
   if (!readOnly) {
     if (canOpenSource) {
@@ -852,6 +913,11 @@ export function WorkflowDetailPage({ id, workflowType }: Props) {
 
       {/* Body */}
       <div className="flex-1 min-h-0 flex flex-col">
+        {hasWorkflowAttribution(attributionInfo) ? (
+          <div className="mx-4 mt-3 shrink-0 md:mx-8">
+            <WorkflowCreditBlock info={attributionInfo} />
+          </div>
+        ) : null}
         {workflow.metadata.type === "assistant" ? (
           /* ── Assistant: WYSIWYG editor ── */
           <>

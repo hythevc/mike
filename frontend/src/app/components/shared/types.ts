@@ -7,6 +7,19 @@ import type {
   SourceDocumentType,
   SourceSubdocument,
   TabularQuoteStatus,
+  WorkflowCatalogStatus,
+  WorkflowLicense,
+  WorkflowLicenseEvidence,
+  WorkflowProvenance,
+} from "@mike/contracts";
+
+export type {
+  WorkflowCatalogAttribution,
+  WorkflowCatalogContributor,
+  WorkflowCatalogStatus,
+  WorkflowLicense,
+  WorkflowLicenseEvidence,
+  WorkflowProvenance,
 } from "@mike/contracts";
 import type {
   AskInputItem as SharedAskInputItem,
@@ -846,6 +859,35 @@ export interface Workflow {
   is_owner?: boolean;
   access_role?: "owner" | "editor" | "viewer";
   open_source_submission?: WorkflowOpenSourceSubmission | null;
+  // Licence, credit and source of a catalog workflow. The detail payload
+  // (GET /workflows/:id) carries the copy fields below for an editable copy,
+  // and a built-in (GET /workflows/builtin-<key>) carries the licence, NOTICE
+  // and change log. The list payloads omit them, so every field is optional.
+  /** The catalog key this copy was imported or duplicated from. */
+  catalog_workflow_key?: string | null;
+  /** The catalog version this copy was made from. */
+  catalog_version?: string | null;
+  license?: WorkflowLicense | null;
+  license_evidence?: WorkflowLicenseEvidence | null;
+  /** "not-required", "pending" or "confirmed YYYY-MM-DD". */
+  author_confirmation?: string | null;
+  /** The one-line credit the catalog gives the original author. */
+  attribution?: string | null;
+  provenance?: WorkflowProvenance | null;
+  /** How the copy stands against the catalog today; null when unknown. */
+  catalog_status?: WorkflowCatalogStatus | null;
+  /** The version the catalog serves now; null when withdrawn. */
+  catalog_latest_version?: string | null;
+  /** The copy's instructions or columns differ from what was copied. */
+  catalog_modified?: boolean;
+  /** "Modified by your organisation" once a copy is modified. */
+  modification_notice?: string | null;
+  /** A built-in's NOTICE file, verbatim, when it has one. */
+  notice_md?: string | null;
+  /** A built-in's change log (CHANGES.md). */
+  changes_md?: string | null;
+  /** The catalog commit a built-in's content was synced from. */
+  source_commit?: string | null;
 }
 
 export interface QuickAction {
@@ -889,6 +931,22 @@ export interface WorkflowAddon {
     size_bytes: number | null;
     created_at: string;
   }[];
+  // Licence, credit and notices. GET /workflow-addons/:id (the preview's
+  // detail fetch) carries these; the list payload omits them, so each is
+  // optional. Null on a catalog row synced before provenance existed.
+  license?: WorkflowLicense | null;
+  license_evidence?: WorkflowLicenseEvidence | null;
+  /** "not-required", "pending" or "confirmed YYYY-MM-DD". */
+  author_confirmation?: string | null;
+  /** The one-line credit the catalog gives the original author. */
+  attribution?: string | null;
+  provenance?: WorkflowProvenance | null;
+  /** The add-on's NOTICE file, verbatim, when it has one. */
+  notice_md?: string | null;
+  /** The add-on's change log (CHANGES.md). */
+  changes_md?: string | null;
+  /** The catalog commit the content was synced from. */
+  source_commit?: string | null;
 }
 
 // API helpers
