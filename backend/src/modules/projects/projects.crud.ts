@@ -21,6 +21,8 @@ import {
 } from "../../lib/access";
 import { can } from "../../lib/permissions";
 import { reportableServiceError } from "../../lib/serviceResult";
+import { recordAudit } from "../../lib/audit";
+import type { MatterAiRestriction } from "@mike/contracts";
 import { filterParticipatingProjects, type ProjectParticipationRow } from "./projects.participation";
 import {
   workspaceMatches,
@@ -910,6 +912,98 @@ export async function updateProject(
       ...withMemory.rows[0],
       documents: docsTyped,
       folders: folderData ?? [],
+    },
+  };
+}
+
+export type MatterAiRestrictionResult =
+  | { ok: true; body: MatterAiRestriction }
+  | { ok: false; kind: "not_found" }
+  | { ok: false; kind: "forbidden"; detail: string }
+  | { ok: false; kind: "db_error"; error: unknown };
+
+/**
+ * Switch AI on or off for a matter at its client's request (W18).
+ *
+ * This is a responsible-lawyer control rather than a project-settings edit, so
+ * it is open to owners AND editors (`content.edit`), unlike updateProject's
+ * owner-only gate. Each toggle writes exactly one ids-only audit row; the
+ * reason, which may name the client, stays on the project row and out of the
+ * audit trail.
+ */
+export async function setMatterAiRestriction(
+  db: Db,
+  args: {
+    projectId: string;
+    userId: string;
+    userEmail?: string;
+    restricted: boolean;
+    reason?: unknown;
+  },
+): Promise<MatterAiRestrictionResult> {
+  const access = await checkProjectAccess(
+    args.projectId,
+    args.userId,
+    args.userEmail,
+    db,
+  );
+  if (!access.ok) return { ok: false, kind: "not_found" };
+  if (!can(access.projectRole, "content.edit"))
+    return {
+      ok: false,
+      kind: "forbidden",
+      detail: "You do not have permission to change AI use for this matter.",
+    };
+
+  const reason =
+    typeof args.reason === "string" && args.reason.trim()
+      ? args.reason.trim().slice(0, 500)
+      : null;
+  const now = new Date().toISOString();
+  const updates = args.restricted
+    ? {
+        ai_restricted: true,
+        ai_restricted_reason: reason,
+        ai_restricted_by: args.userId,
+        ai_restricted_at: now,
+        updated_at: now,
+      }
+    : {
+        ai_restricted: false,
+        ai_restricted_reason: null,
+        ai_restricted_by: null,
+        ai_restricted_at: null,
+        updated_at: now,
+      };
+
+  const { data, error } = await db
+    .from("projects")
+    .update(updates)
+    .eq("id", args.projectId)
+    .select(
+      "id, ai_restricted, ai_restricted_reason, ai_restricted_by, ai_restricted_at",
+    )
+    .single();
+  if (error || !data) return { ok: false, kind: "db_error", error };
+
+  // One ids-only audit row: who toggled it, on which matter, and which way.
+  await recordAudit(db, {
+    userId: args.userId,
+    orgId: access.project.org_id ?? null,
+    userEmail: args.userEmail ?? null,
+    action: args.restricted ? "project.ai_restricted" : "project.ai_unrestricted",
+    surface: "project",
+    projectId: args.projectId,
+  });
+
+  return {
+    ok: true,
+    body: {
+      ai_restricted: data.ai_restricted === true,
+      ai_restricted_reason:
+        (data.ai_restricted_reason as string | null) ?? null,
+      ai_restricted_by: (data.ai_restricted_by as string | null) ?? null,
+      ai_restricted_at: (data.ai_restricted_at as string | null) ?? null,
     },
   };
 }

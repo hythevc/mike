@@ -69,6 +69,7 @@ import {
 import { UserFacingError } from "../../lib/userFacingError";
 import { runWithUsageContext } from "../../lib/llm/usageContext";
 import { deploymentQuotaError } from "../../lib/usage";
+import { assertMatterAllowsAi } from "../../lib/matterAi";
 import { playbookImportUsage, playbookReviewUsage } from "./playbooks.usage";
 import {
   importReportStage,
@@ -2187,6 +2188,12 @@ async function loadReviewDocument(
   if (!doc) throw missing();
   const access = await ensureDocAccess(doc, userId, userEmail, db);
   if (!access.ok) throw missing();
+  // The client may have switched AI off for this matter: refuse before any
+  // provider call, so no document of the matter reaches a model.
+  await assertMatterAllowsAi(
+    db,
+    (doc as { project_id?: string | null }).project_id ?? null,
+  );
   const version = await loadActiveVersion(documentId, db);
   if (!version) throw missing();
   const filename = version.filename?.trim() || "Untitled document";

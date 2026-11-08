@@ -128,6 +128,26 @@ export function chatTurnAuditEvents(
   events: unknown[] | null | undefined,
 ): AuditEventInput[] {
   const surface = base.surface ?? (base.projectId ? "project" : "assistant");
+  const turnEvents = ((events ?? []) as TurnEvent[]).flatMap((ev) =>
+    ev?.type === "delegation" ? [ev, ...((ev.events ?? []) as TurnEvent[])] : [ev],
+  );
+  // The documents the turn read through read_document and fetch_documents,
+  // each one a doc_read event (chat/engine/streaming.ts), including a
+  // subagent's through the delegation flattening above. Recorded on the
+  // chat.message row so a matter's audit trail shows which documents a chat
+  // read (W18).
+  const readDocumentIds = [
+    ...new Set(
+      turnEvents
+        .filter((ev) => ev?.type === "doc_read")
+        .map((ev) => ev.document_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+  const messageDetail: Record<string, unknown> = {
+    ...(base.flags ?? {}),
+    ...(readDocumentIds.length ? { read_document_ids: readDocumentIds } : {}),
+  };
   const rows: AuditEventInput[] = [
     {
       userId: base.userId,
@@ -140,12 +160,9 @@ export function chatTurnAuditEvents(
       projectId: base.projectId ?? null,
       chatId: base.chatId,
       model: base.model,
-      detail: base.flags && Object.keys(base.flags).length ? base.flags : null,
+      detail: Object.keys(messageDetail).length ? messageDetail : null,
     },
   ];
-  const turnEvents = ((events ?? []) as TurnEvent[]).flatMap((ev) =>
-    ev?.type === "delegation" ? [ev, ...((ev.events ?? []) as TurnEvent[])] : [ev],
-  );
   for (const ev of turnEvents) {
     // A single doc_replicated event can produce several copies; emit one
     // document.generated row per copy, reading the copy's own new_filename and

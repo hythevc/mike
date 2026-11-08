@@ -29,6 +29,7 @@ export {
   getProjectDetail,
   getProjectPeople,
   updateProject,
+  setMatterAiRestriction,
   deleteProject,
   exportProjectManifest,
 } from "./projects.crud";
@@ -56,3 +57,5 @@ export {
 } from "./projects.folders";
 
 export { listProjectChats } from "./projects.chats";
+
+export { getProjectUsage, projectUsageCsv } from "./projects.usage";

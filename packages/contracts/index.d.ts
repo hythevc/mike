@@ -1269,3 +1269,53 @@ export interface OrgPlanView {
   current_period_end: string | null;
   usage: PlanUsageRow[];
 }
+
+/**
+ * A matter's AI restriction state (W18): whether AI is switched off for it at
+ * the client's request, and who switched it off and when (null once that
+ * account is deleted, so the restriction survives as history). The reason may
+ * name the client, so it reaches the firm's own members only.
+ */
+export interface MatterAiRestriction {
+  ai_restricted: boolean;
+  ai_restricted_reason: string | null;
+  ai_restricted_by: string | null;
+  ai_restricted_at: string | null;
+}
+
+/**
+ * One model call's AI usage for a matter (W18), priced with the operator's own
+ * price table. `estimated_cost` is always an estimate: the recorded token
+ * counts times the operator's prices; it is null when the model has no price.
+ */
+export interface ProjectUsageEntry {
+  created_at: string;
+  /** Who ran the work; null once that account is deleted. */
+  user_id: string | null;
+  /** Their email, resolved best-effort; null when it could not be resolved. */
+  user_email: string | null;
+  surface: string;
+  model: string;
+  provider: string;
+  key_source: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  /** The tokens are themselves an estimate (call cut off, or provider reported none). */
+  tokens_estimated: boolean;
+  document_pages: number | null;
+  estimated_cost: number | null;
+}
+
+/**
+ * A matter's AI usage (W18). Every cost is an estimate; `estimates` is always
+ * true and the label says so wherever a cost is shown. `currency` and the
+ * per-row `estimated_cost` are null when no operator price table is set
+ * (`priced` false).
+ */
+export interface ProjectUsageReport {
+  estimates: true;
+  currency: string | null;
+  priced: boolean;
+  rows: ProjectUsageEntry[];
+}

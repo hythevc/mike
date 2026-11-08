@@ -1703,6 +1703,40 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 /**
+ * Switch AI on or off for a matter at its client's request (W18). Owners and
+ * editors; the server writes one audit row and refuses model work on the
+ * matter while it is off.
+ */
+export async function setMatterAiRestriction(
+    projectId: string,
+    restricted: boolean,
+    reason?: string | null,
+): Promise<import("@mike/contracts").MatterAiRestriction> {
+    return apiRequest<import("@mike/contracts").MatterAiRestriction>(
+        "projects.manage",
+        `/projects/${encodeURIComponent(projectId)}/ai-restriction`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                restricted,
+                ...(reason ? { reason } : {}),
+            }),
+        },
+    );
+}
+
+/** Download a matter's AI usage as CSV. Every cost is an estimate (W18). */
+export async function downloadMatterAiUsage(
+    projectId: string,
+): Promise<{ blob: Blob; filename: string | null }> {
+    return apiBlobRequest(
+        "projects.usage",
+        `/projects/${encodeURIComponent(projectId)}/usage?format=csv`,
+    );
+}
+
+/**
  * Someone who can administer a resource, with an address to reach them.
  * `source` says how they got there: the creator, a direct Owner grant, or
  * being an Owner or Admin of the owning organization.

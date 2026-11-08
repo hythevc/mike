@@ -46,6 +46,9 @@ import {
   deleteProjectFolder,
   moveProjectDocument,
   resolveProjectFolderPath,
+  setMatterAiRestriction,
+  getProjectUsage,
+  projectUsageCsv,
   normalizeOptionalString,
   type ProjectAccessFailure,
 } from "./projects.service";
@@ -415,6 +418,63 @@ projectsRouter.patch("/:projectId", requireAuth, asyncRoute(async (req, res) => 
       return void res.status(403).json({ detail: result.detail });
     if (result.kind === "validation")
       return void res.status(400).json({ detail: result.detail });
+    if (result.kind === "db_error")
+      return void sendInternalError(res, result.error);
+    return void res.status(404).json({ detail: "Project not found" });
+  }
+  res.json(result.body);
+}));
+
+// GET /projects/:projectId/usage
+// Per-matter AI usage for anyone who can open the matter; the existing 404
+// otherwise. `?format=csv` downloads it. Every cost is an estimate (W18).
+projectsRouter.get("/:projectId/usage", requireAuth, asyncRoute(async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string | undefined;
+  const { projectId } = req.params;
+  const db = createServerSupabase();
+
+  const result = await getProjectUsage(db, { projectId, userId, userEmail });
+  if (!result.ok) {
+    if (result.kind === "db_error")
+      return void sendInternalError(res, result.error);
+    return void res.status(404).json({ detail: "Project not found" });
+  }
+  if (String(req.query.format ?? "").toLowerCase() === "csv") {
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="matter-ai-usage-${projectId}.csv"`,
+    );
+    return void res.status(200).send(projectUsageCsv(result.report));
+  }
+  res.json(result.report);
+}));
+
+// PUT /projects/:projectId/ai-restriction
+// Switch AI on or off for a matter at its client's request. Owners and
+// editors; one ids-only audit row per toggle (W18).
+projectsRouter.put("/:projectId/ai-restriction", requireAuth, asyncRoute(async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string | undefined;
+  const { projectId } = req.params;
+  const restricted = req.body?.restricted;
+  if (typeof restricted !== "boolean")
+    return void res
+      .status(400)
+      .json({ detail: "restricted must be a boolean" });
+  const db = createServerSupabase();
+
+  const result = await setMatterAiRestriction(db, {
+    projectId,
+    userId,
+    userEmail,
+    restricted,
+    reason: req.body?.reason,
+  });
+  if (!result.ok) {
+    if (result.kind === "forbidden")
+      return void res.status(403).json({ detail: result.detail });
     if (result.kind === "db_error")
       return void sendInternalError(res, result.error);
     return void res.status(404).json({ detail: "Project not found" });

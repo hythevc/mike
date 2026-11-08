@@ -208,6 +208,9 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     // this month's allowance on the deployment's own AI keys; retrying
     // cannot help until a key is added or the month ends.
     deployment_quota_exceeded: "forbidden",
+    // The matter's client has restricted AI use for it; model work on the
+    // matter is refused until a project owner or editor turns it back on.
+    matter_ai_restricted: "forbidden",
     // Something else changed first
     review_running: "conflict",
     review_stale: "conflict",

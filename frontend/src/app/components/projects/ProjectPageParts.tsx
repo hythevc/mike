@@ -4,9 +4,12 @@ import { useRef, useState } from "react";
 import {
     Brain,
     CornerDownRight,
+    Download,
     Loader2,
     Pencil,
     Plus,
+    ShieldCheck,
+    ShieldOff,
     Trash2,
     Users,
 } from "lucide-react";
@@ -404,6 +407,9 @@ export function ProjectPageHeader({
     onOpenDetails,
     onOpenMemory,
     onDeleteProject,
+    onToggleAiRestriction,
+    onDownloadUsage,
+    aiRestricted,
     onSearchChange,
     onOpenAccess,
     onNewChat,
@@ -430,6 +436,12 @@ export function ProjectPageHeader({
     onOpenDetails: () => void;
     onOpenMemory: () => void;
     onDeleteProject: () => void;
+    /** Switch AI off for this matter, or back on (W18). */
+    onToggleAiRestriction: () => void;
+    /** Download the matter's AI usage as CSV (W18). */
+    onDownloadUsage: () => void;
+    /** Whether AI is currently switched off for this matter. */
+    aiRestricted: boolean;
     onSearchChange: (search: string) => void;
     onOpenAccess: () => void;
     onNewChat: () => void;
@@ -533,6 +545,22 @@ export function ProjectPageHeader({
                                         label: "Memory",
                                         icon: Brain,
                                         onSelect: onOpenMemory,
+                                        disabled: !roleKnown,
+                                    },
+                                    {
+                                        label: aiRestricted
+                                            ? "Allow AI for this matter"
+                                            : "Switch AI off for this matter",
+                                        icon: aiRestricted
+                                            ? ShieldCheck
+                                            : ShieldOff,
+                                        onSelect: onToggleAiRestriction,
+                                        disabled: !roleKnown,
+                                    },
+                                    {
+                                        label: "Download AI usage (CSV)",
+                                        icon: Download,
+                                        onSelect: onDownloadUsage,
                                         disabled: !roleKnown,
                                     },
                                     {

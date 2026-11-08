@@ -1,5 +1,11 @@
 import { isUuid } from "../../lib/uuid";
 import { wordChatHasWorkspaceAttachments } from "../../lib/wordWorkspace";
+import { attachedDocumentIds } from "../../lib/documentWorkspace";
+import {
+  restrictedMatterAmongDocuments,
+  MATTER_AI_RESTRICTED_CODE,
+  MATTER_AI_RESTRICTED_DETAIL,
+} from "../../lib/matterAi";
 // Business logic + data-access for the word-chat module.
 //
 // Service layer behind wordChat.routes.ts. Every function takes an explicit
@@ -658,6 +664,30 @@ export async function prepareWordChatStream(
       status: 500,
       detail: "Could not validate Word chat attachments",
       error: withKind(error, "db.query_failed", "Word chat attachment check failed"),
+    };
+  }
+
+  // A Word turn that attaches a document from a matter whose client has
+  // switched AI off is refused before any provider call. Word chats are
+  // Personal-only, so the matter is reached through the attached documents.
+  try {
+    const restricted = await restrictedMatterAmongDocuments(
+      db,
+      attachedDocumentIds(messages),
+    );
+    if (restricted)
+      return {
+        ok: false,
+        status: 403,
+        code: MATTER_AI_RESTRICTED_CODE,
+        detail: MATTER_AI_RESTRICTED_DETAIL,
+      };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      detail: "Could not check the matter's AI setting",
+      error: withKind(error, "db.query_failed", "Word chat matter check failed"),
     };
   }
 

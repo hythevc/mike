@@ -20,6 +20,11 @@
 import { type UserApiKeys } from "../../lib/llm";
 import { ensureReviewAccess } from "../../lib/access";
 import { can } from "../../lib/permissions";
+import {
+    isMatterAiRestricted,
+    MATTER_AI_RESTRICTED_CODE,
+    MATTER_AI_RESTRICTED_DETAIL,
+} from "../../lib/matterAi";
 import { failure, internalFailure } from "../../lib/serviceResult";
 import {
     filterReadableReviewRows,
@@ -58,6 +63,7 @@ export async function prepareTabularGenerate(
     | { ok: false; kind: "not_found" }
     | { ok: false; kind: "forbidden" }
     | { ok: false; kind: "no_columns" }
+    | { ok: false; kind: "matter_restricted" }
     | ({ ok: false; kind: "model" } & Omit<ModelValidationFailure, "ok">)
 > {
     const { reviewId, userId, userEmail } = args;
@@ -77,6 +83,14 @@ export async function prepareTabularGenerate(
     // rewrite the review's contents.
     if (!can(access.projectRole, "content.edit"))
         return { ok: false, kind: "forbidden" };
+
+    // The client may have switched AI off for the review's matter. Refuse
+    // before the lease is claimed and before any provider call.
+    if (
+        review.project_id &&
+        (await isMatterAiRestricted(db, review.project_id as string))
+    )
+        return { ok: false, kind: "matter_restricted" };
 
     const columns: Column[] = review.columns_config ?? [];
     if (columns.length === 0) return { ok: false, kind: "no_columns" };
@@ -268,6 +282,12 @@ export function preparedGenerateFailure(
     // through the generation channel.
     if (prepared.kind === "forbidden")
         return failure("forbidden", REVIEW_EDIT_FORBIDDEN);
+    if (prepared.kind === "matter_restricted")
+        return failure(
+            "forbidden",
+            MATTER_AI_RESTRICTED_DETAIL,
+            MATTER_AI_RESTRICTED_CODE,
+        );
     if (prepared.kind === "no_columns")
         return failure("validation", "No columns configured");
     return statusFailure(prepared.status, prepared.body);
