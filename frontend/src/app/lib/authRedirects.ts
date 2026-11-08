@@ -18,6 +18,7 @@ const APP_ROUTE_ROOTS = [
     "/assistant",
     "/history",
     "/ide",
+    "/intake",
     "/library",
     "/organizations",
     "/playbooks",
