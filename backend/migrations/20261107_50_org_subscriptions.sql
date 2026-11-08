@@ -96,7 +96,9 @@ returns integer
 language sql
 immutable
 set search_path = public, pg_temp
-as $$ select 14 $$;
+as $$
+  select 14
+$$;
 
 create or replace function public.create_org_trial_subscription()
 returns trigger
