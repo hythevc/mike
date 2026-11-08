@@ -414,6 +414,7 @@ export type AssistantEvent =
   | (Omit<WireActivity<"case_opinions">, "document"> & {
       document?: PanelDocument;
     })
+  | WireActivity<"answer_grounding">
   | (Omit<WireActivity<"content">, "isStreaming"> & { isStreaming?: boolean });
 
 export type CaseCitationQuote = {
@@ -434,6 +435,8 @@ export interface Message {
   playbook?: { id: string; title: string };
   model?: string;
   reasoning?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
+  /** "documents" asks the server to answer only from this chat's documents (W25). */
+  answerScope?: "documents";
   citations?: Citation[];
   citationStatus?: "started" | "partial" | "final";
   events?: AssistantEvent[];
@@ -453,11 +456,23 @@ export interface CitationQuote {
   quote: string;
 }
 
+export type CitationPageStatus = "cited_page" | "other_page" | "not_checked";
+
 export type QuoteVerification = {
   verified: boolean;
   source_excerpt?: string;
   start_char?: number;
   end_char?: number;
+  /**
+   * Whether the quote sits on the page it was cited to (W25). See the matching
+   * type in packages/contracts. Absent for a quote found nowhere, or a
+   * case-law quote.
+   */
+  page_status?: CitationPageStatus;
+  /** 1-based page the quote was actually found on. */
+  found_page?: number;
+  /** The page the model cited, or null when it named none. */
+  cited_page?: number | null;
 };
 
 export type DocumentCitationQuote = {

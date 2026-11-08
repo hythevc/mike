@@ -65,6 +65,9 @@
       "@mike/toggle-switch-ui": [
         "../frontend/src/shared/ui/ToggleSwitchUI.tsx"
       ],
+      "@mike/answer-disclaimer-ui": [
+        "../frontend/src/shared/ui/AnswerDisclaimerUI.tsx"
+      ],
       "@mike/dropdown-ui": [
         "../frontend/src/shared/ui/dropdown.tsx"
       ],

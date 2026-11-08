@@ -278,6 +278,96 @@ it.each([
   expect(chunk).not.toContain("private");
 });
 
+describe("documents-only answer scope (W25)", () => {
+  // A doc in scope keeps the no-documents short-circuit from firing, so the
+  // model is actually reached and its advertised tools can be inspected.
+  const docStoreWithFile = () =>
+    new Map([
+      [
+        "doc-0",
+        { storage_path: "s", file_type: "pdf", filename: "lease.pdf" },
+      ],
+    ]);
+
+  it("withholds CourtListener and web tools from the main model and appends the block", async () => {
+    await runLLMStream({
+      ...baseParams(),
+      docStore: docStoreWithFile(),
+      // Even with research and web requested, documents-only wins.
+      webSearch: "mike",
+      answerScope: "documents",
+    });
+    const params = streamChatWithTools.mock.calls[0]![0];
+    const names = params.tools.map((tool) => tool.function.name);
+    expect(names.some((name) => name.startsWith("courtlistener_"))).toBe(false);
+    expect(names).not.toContain("web_search");
+    expect(names).not.toContain("read_webpage");
+    // Reading the documents stays available.
+    expect(names).toContain("read_document");
+    expect(params.systemPrompt).toContain("DOCUMENTS-ONLY ANSWER SCOPE");
+    expect(params.systemPrompt).toContain("Not in these documents.");
+  });
+
+  it("a normal turn still offers CourtListener and omits the block", async () => {
+    await runLLMStream({ ...baseParams(), docStore: docStoreWithFile() });
+    const params = streamChatWithTools.mock.calls[0]![0];
+    const names = params.tools.map((tool) => tool.function.name);
+    expect(names.some((name) => name.startsWith("courtlistener_"))).toBe(true);
+    expect(params.systemPrompt).not.toContain("DOCUMENTS-ONLY ANSWER SCOPE");
+  });
+
+  it("withholds CourtListener and web tools from a subagent too", async () => {
+    let subagentToolNames: string[] = [];
+    streamChatWithTools.mockImplementation(async (params: StreamChatCall) => {
+      if (params.systemPrompt.includes("SUBAGENT:")) {
+        subagentToolNames = params.tools.map((tool) => tool.function.name);
+        return { fullText: "Brief." };
+      }
+      await params.runTools?.([
+        {
+          id: "d1",
+          name: "delegate",
+          input: { title: "Task d1", task: "Summarise doc-0." },
+        },
+      ]);
+      return { fullText: "Answer" };
+    });
+
+    await runLLMStream({
+      ...baseParams(),
+      docStore: docStoreWithFile(),
+      webSearch: "mike",
+      answerScope: "documents",
+      subagentRuns: { save: vi.fn(), load: vi.fn(async () => null) } as never,
+    });
+
+    expect(subagentToolNames.length).toBeGreaterThan(0);
+    expect(subagentToolNames.some((name) => name.startsWith("courtlistener_"))).toBe(
+      false,
+    );
+    expect(subagentToolNames).not.toContain("web_search");
+    expect(subagentToolNames).not.toContain("read_webpage");
+  });
+
+  it("with no document in scope, streams the fixed sentence and never calls the model", async () => {
+    const result = await runLLMStream({
+      ...baseParams(),
+      answerScope: "documents",
+    });
+    expect(streamChatWithTools).not.toHaveBeenCalled();
+    expect(result.fullText).toBe("Not in these documents.");
+    expect(result.events).toContainEqual({
+      type: "content",
+      text: "Not in these documents.",
+    });
+    expect(result.events).toContainEqual({
+      type: "answer_grounding",
+      scope: "documents",
+      status: "not_found",
+    });
+  });
+});
+
 it("assembles the person's connectors for the organization a conversation is in", async () => {
   vi.mocked(buildUserMcpTools).mockResolvedValueOnce([
     { type: "function", function: { name: "mcp_firm_search", description: "", parameters: { type: "object", properties: {} } } },

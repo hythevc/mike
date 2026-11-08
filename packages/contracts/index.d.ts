@@ -184,12 +184,7 @@ export type SourceDocumentAction = {
 
 export type SourceDocumentQuote = {
   quote: string;
-  verification?: {
-    verified: boolean;
-    source_excerpt?: string;
-    start_char?: number;
-    end_char?: number;
-  };
+  verification?: QuoteVerification;
   target: {
     page?: number | string;
     sheet?: string;
@@ -223,12 +218,35 @@ export type SourceDocument = {
  * EXTRACTED source text (not the raw file bytes) and are only present for
  * single-segment quotes that matched.
  */
+/**
+ * Whether a cited quote sits on the page the model cited it to. Set only when
+ * the source has a reliable `[Page N]` sequence and the quote was found:
+ * - `cited_page`: found on its cited page (or inside its cited "N-M" range);
+ * - `other_page`: found on a different page (`found_page`); the citation's
+ *   target page is moved there so the viewer opens the right page, while
+ *   `cited_page` keeps the page the model wrote;
+ * - `not_checked`: the source has no reliable markers (DOCX, inline Word text,
+ *   spreadsheets, slides), so the page is not checked.
+ */
+export type CitationPageStatus = "cited_page" | "other_page" | "not_checked";
+
 export type QuoteVerification = {
   verified: boolean;
   start_char?: number;
   end_char?: number;
   source_excerpt?: string;
+  page_status?: CitationPageStatus;
+  /** 1-based page the quote was actually found on. */
+  found_page?: number;
+  /** The page the model cited, or null when it named none. */
+  cited_page?: number | null;
 };
+
+/**
+ * The answer scope a chat turn ran under. "documents" restricts the model to
+ * the conversation's own documents and offers it no web or case-law research.
+ */
+export type AnswerScope = "documents";
 
 // ---------------------------------------------------------------------------
 // Event / annotation types (shared between toolDispatcher and streaming)
@@ -651,6 +669,18 @@ export type AssistantEvent =
       document: SourceDocument;
     }
   | { type: "content"; text: string }
+  | {
+      /**
+       * How a finished answer relates to the conversation's documents, emitted
+       * once at the end of a documents-only turn and stored with the answer.
+       * "not_found": the answer is the fixed "Not in these documents."
+       * sentence. "cited": the answer cites at least one document.
+       * "uncited": the answer cites no document.
+       */
+      type: "answer_grounding";
+      scope: AnswerScope;
+      status: "not_found" | "cited" | "uncited";
+    }
   | {
       /**
        * Placement marker for one edit a client tool proposed, spliced into

@@ -3275,6 +3275,8 @@ export async function streamChat(payload: {
     org_id?: string;
     model?: string;
     reasoning?: Message["reasoning"];
+    /** "documents" restricts the answer to the conversation's documents (W25). */
+    answer_scope?: "documents";
     ask_inputs_response?: AskInputsResponsePayload;
     signal?: AbortSignal;
 }): Promise<Response> {
@@ -3303,6 +3305,8 @@ export async function streamProjectChat(payload: {
     chat_id?: string;
     model?: string;
     reasoning?: Message["reasoning"];
+    /** "documents" restricts the answer to the conversation's documents (W25). */
+    answer_scope?: "documents";
     displayed_doc?: { filename: string; document_id: string };
     attached_documents?: { filename: string; document_id: string }[];
     ask_inputs_response?: AskInputsResponsePayload;

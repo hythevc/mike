@@ -47,6 +47,8 @@
 
 - [Design system](design-system.md) — color/typography/spacing tokens, the shared
   `components/ui` primitives, and the accessibility baseline
+- [Chat citation checks](chat-citation-checks.md) — the quote and page checks
+  that run on chat answers, what is not checked, and documents-only answers
 
 ## Testing and CI
 

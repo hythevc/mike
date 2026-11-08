@@ -88,3 +88,43 @@ test("cited document turn appends a verifiable <CITATIONS> block", async () => {
         { ref: 1, doc_id: "doc-7", quotes: [{ page: 1, quote: source }] },
     ]);
 });
+
+test("documents-only turn answers with the fixed not-in-documents sentence (W25)", async () => {
+    const result = streamText({
+        model,
+        system:
+            'You are an assistant.\n\nDOCUMENTS-ONLY ANSWER SCOPE:\nReply with exactly this sentence: Not in these documents.\n\nAVAILABLE DOCUMENTS:\n- doc-3: <untrusted-content nonce="test">\ntest.pdf\n</untrusted-content nonce="test">',
+        prompt: "Is there an arbitration clause?",
+    });
+    assert.equal(await result.text, "Not in these documents.");
+    assert.equal(await result.finishReason, "stop");
+});
+
+test("wrong-page script cites a second-page quote to page 1 (W25)", async () => {
+    const twoPageSource =
+        "[Page 1]\nFirst page confidentiality clause.\n\n[Page 2]\nThe Landlord may terminate this Lease.";
+    const result = streamText({
+        model,
+        system:
+            'AVAILABLE DOCUMENTS:\n- doc-9: <untrusted-content nonce="test">\ntwo-page.pdf\n</untrusted-content nonce="test">',
+        prompt: "Quote the second-page clause.",
+        tools: {
+            read_document: tool({
+                inputSchema: jsonSchema({ type: "object", properties: { doc_id: { type: "string" } }, required: ["doc_id"] }),
+                execute: async ({ doc_id }) => {
+                    assert.equal(doc_id, "doc-9");
+                    return `Document filename: two-page.pdf\nAppend a <CITATIONS> block.\n\n<untrusted-content nonce="test">\n${twoPageSource}\n</untrusted-content nonce="test">`;
+                },
+            }),
+        },
+        stopWhen: stepCountIs(2),
+    });
+    const text = await result.text;
+    // The quote really on page 2 is cited to page 1, so the server's page check
+    // has something to correct.
+    assert.match(text, /<CITATIONS>/);
+    const citations = JSON.parse(text.match(/<CITATIONS>\s*([\s\S]*?)\s*<\/CITATIONS>/)[1]);
+    assert.equal(citations[0].doc_id, "doc-9");
+    assert.equal(citations[0].quotes[0].page, 1);
+    assert.equal(citations[0].quotes[0].quote, "The Landlord may terminate this Lease.");
+});

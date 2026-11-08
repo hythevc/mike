@@ -5,12 +5,16 @@ import { FileTypeIcon } from "../../shared/FileTypeIcon";
 import { displayCitationQuote, formatCitationPage } from "../../shared/types";
 import type { Citation } from "../../shared/types";
 import { CitationPillUI } from "@/shared/ui/CitationPillUI";
+import { ANSWER_DISCLAIMER_TEXT } from "@/shared/ui/AnswerDisclaimerUI";
 import { RESPONSE_GLASS_SURFACE } from "./messageStyles";
 import {
+    citationPageStatusNote,
     citationVerificationAriaLabel,
     citationVerificationDescription,
     citationVerificationPillClassName,
+    citationVerificationState,
 } from "./citationVerification";
+import { QUOTE_NOT_FOUND_LABEL } from "./citationLabels";
 
 type CitationSourceRow = {
     key: string;
@@ -41,7 +45,11 @@ export function citationTooltip(annotation: Citation): string {
     const quote = displayCitationQuote(annotation);
     const source = locator ? `${locator}: "${quote}"` : `"${quote}"`;
     const verification = citationVerificationDescription(annotation);
-    return verification ? `${source} — ${verification}` : source;
+    // A page correction ("Quote is on p. 5, not p. 4") or "Page not checked".
+    const pageNote = citationPageStatusNote(annotation);
+    return [source, verification, pageNote]
+        .filter(Boolean)
+        .join(" — ");
 }
 
 function CitationSourceIcon({ annotation }: { annotation: Citation }) {
@@ -94,7 +102,13 @@ function ensureTerminalPeriod(value: string): string {
 }
 
 export function buildCitationAppendix(citations: Citation[]) {
-    if (citations.length === 0) return { html: "", text: "" };
+    // Every copied answer ends with the disclaimer, whether or not it cites.
+    if (citations.length === 0) {
+        return {
+            html: `<p class="copied-disclaimer">${escapeHtmlText(ANSWER_DISCLAIMER_TEXT)}</p>`,
+            text: `\n${ANSWER_DISCLAIMER_TEXT}`,
+        };
+    }
     let previousSourceKey: string | null = null;
     const entries = citations.map((annotation) => {
         const sourceKey = citationSourceKey(annotation);
@@ -103,30 +117,51 @@ export function buildCitationAppendix(citations: Citation[]) {
                 ? "Id."
                 : citationSourceLabel(annotation);
         previousSourceKey = sourceKey;
+        // The page (or Sheet!Cell) locator travels with the copied citation.
+        // Case citations carry their reporter citation in the label already.
+        const locator =
+            annotation.kind === "case" ? "" : formatCitationPage(annotation);
+        const status =
+            citationVerificationState(annotation) === "unverified"
+                ? QUOTE_NOT_FOUND_LABEL
+                : citationPageStatusNote(annotation);
         return {
             number: annotation.ref,
             label,
+            locator,
             quote: displayCitationQuote(annotation).trim(),
+            status,
         };
     });
     const textLines = [
         "",
         "Citations",
         ...entries.map((entry) => {
+            const locator = entry.locator ? ` ${entry.locator}.` : "";
             const quote = entry.quote ? ` "${entry.quote}"` : "";
-            return `${entry.number} ${ensureTerminalPeriod(entry.label)}${quote}`;
+            const status = entry.status ? ` [${entry.status}]` : "";
+            return `${entry.number} ${ensureTerminalPeriod(entry.label)}${locator}${quote}${status}`;
         }),
+        "",
+        ANSWER_DISCLAIMER_TEXT,
     ];
     const html = [
         `<section class="copied-citations">`,
         `<h3>Citations</h3>`,
         ...entries.map((entry) => {
             const label = escapeHtmlText(ensureTerminalPeriod(entry.label));
+            const locator = entry.locator
+                ? ` ${escapeHtmlText(entry.locator)}.`
+                : "";
             const quote = entry.quote
                 ? ` &quot;${escapeHtmlText(entry.quote)}&quot;`
                 : "";
-            return `<p><sup>${entry.number}</sup> ${label}${quote}</p>`;
+            const status = entry.status
+                ? ` [${escapeHtmlText(entry.status)}]`
+                : "";
+            return `<p><sup>${entry.number}</sup> ${label}${locator}${quote}${status}</p>`;
         }),
+        `<p class="copied-disclaimer">${escapeHtmlText(ANSWER_DISCLAIMER_TEXT)}</p>`,
         `</section>`,
     ].join("");
     return { html, text: textLines.join("\n") };

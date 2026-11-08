@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     parseChatMessages,
+    parseOptionalAnswerScope,
     parseOptionalAskInputsResponse,
     parseOptionalAttachedDocuments,
     parseOptionalChatId,
@@ -9,6 +10,35 @@ import {
     parseOptionalProjectId,
   parseOptionalReasoning,
 } from "../requestValidation";
+
+describe("parseOptionalAnswerScope (W25)", () => {
+  it("accepts 'documents'", () => {
+    expect(parseOptionalAnswerScope("documents")).toEqual({
+      ok: true,
+      value: "documents",
+    });
+  });
+
+  it("treats undefined and null as not set", () => {
+    expect(parseOptionalAnswerScope(undefined)).toEqual({
+      ok: true,
+      value: undefined,
+    });
+    expect(parseOptionalAnswerScope(null)).toEqual({
+      ok: true,
+      value: undefined,
+    });
+  });
+
+  it("rejects any other value with a 400-worthy detail", () => {
+    for (const bad of ["all", "web", "", "Documents", 1, {}]) {
+      expect(parseOptionalAnswerScope(bad)).toEqual({
+        ok: false,
+        detail: 'answer_scope must be "documents"',
+      });
+    }
+  });
+});
 
 const ASK_RESPONSE_IDS = {
   assistant_message_id: "assistant-1",

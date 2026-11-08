@@ -6,6 +6,7 @@ import {
   type ChatMessage,
 } from "./types";
 import { REASONING_LEVELS, type ReasoningLevel } from "../../../lib/llm/types";
+import type { AnswerScope } from "@mike/contracts";
 
 type ValidationResult<T> =
   | { ok: true; value: T }
@@ -64,6 +65,21 @@ export function parseOptionalModel(
 ): ValidationResult<string | undefined> {
   if (value === undefined) return { ok: true, value: undefined };
   return parseNonEmptyString(value, "model must be a non-empty string");
+}
+
+export function parseOptionalAnswerScope(
+  value: unknown,
+): ValidationResult<AnswerScope | undefined> {
+  if (value === undefined || value === null) {
+    return { ok: true, value: undefined };
+  }
+  if (value !== "documents") {
+    return {
+      ok: false,
+      detail: 'answer_scope must be "documents"',
+    };
+  }
+  return { ok: true, value: "documents" };
 }
 
 export function parseOptionalReasoning(

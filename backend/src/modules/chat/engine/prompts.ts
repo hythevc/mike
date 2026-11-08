@@ -120,3 +120,24 @@ export function buildSystemPrompt(includeResearchTools = true): string {
     ? `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${COURTLISTENER_SYSTEM_PROMPT}\n${SYSTEM_PROMPT_AFTER_RESEARCH}`
     : `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${SYSTEM_PROMPT_AFTER_RESEARCH}`;
 }
+
+/**
+ * The exact answer the model must return, verbatim, in documents-only mode
+ * when the conversation's documents do not contain the answer. The server
+ * matches an answer against this sentence to classify a turn as not-found
+ * (see engine/grounding.ts), so the two must stay in step.
+ */
+export const NOT_IN_DOCUMENTS_ANSWER = "Not in these documents.";
+
+/**
+ * Appended to the system prompt for a turn whose answer scope is "documents".
+ * It confines the model to the conversation's own documents, requires a
+ * citation for every statement about them, and fixes the exact sentence for
+ * "the documents do not say". The research and web tools are withheld from the
+ * same turn in streaming.ts, so this block never promises a tool the model has.
+ */
+export const DOCUMENTS_ONLY_PROMPT = `DOCUMENTS-ONLY ANSWER SCOPE:
+The user has asked you to answer only from the documents in this conversation. For this response:
+- Use only the content of those documents. Do not draw on general legal knowledge, case law, statutes, or any web or external source, even if you are confident it is correct.
+- Cite every statement you make about the documents with a document citation, exactly as described above.
+- If the documents in this conversation do not contain the answer, do not guess, explain, or answer from general knowledge. Reply with exactly this sentence and nothing else: ${NOT_IN_DOCUMENTS_ANSWER}`;
