@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs/config";
 import { releaseName } from "./src/shared/lib/releaseName.cjs";
+import { securityHeaderRules } from "./src/app/lib/securityHeaders";
 
 const nextConfig: NextConfig = {
     /* config options here */
@@ -23,17 +24,13 @@ const nextConfig: NextConfig = {
     turbopack: {
         root: __dirname,
     },
-    async rewrites() {
-        return [
-            {
-                source: "/sitemap.xml",
-                destination: "/api/sitemap/sitemap.xml",
-            },
-            {
-                source: "/sitemap_:slug.xml",
-                destination: "/api/sitemap/sitemap_:slug.xml",
-            },
-        ];
+    // Security headers on every page route (not the /api gateway, whose
+    // responses carry the API's own headers, nor the /monitoring tunnel). The
+    // policy itself lives in src/app/lib/securityHeaders.ts, where a unit test
+    // reads it. The flag it reads (NEXT_PUBLIC_SITE_INDEXABLE) is a build-time
+    // value, like every NEXT_PUBLIC_* variable.
+    async headers() {
+        return securityHeaderRules();
     },
     async redirects() {
         return [

@@ -105,6 +105,10 @@ export default defineConfig({
                       ...process.env,
                       SENTRY_DISABLED: "true",
                       NEXT_PUBLIC_SENTRY_DISABLED: "true",
+                      // The public home page at / is behind a build-time flag;
+                      // e2e/public-site.spec.ts scans it, so the local server
+                      // runs with it on, as CI does (.github/workflows/e2e.yml).
+                      NEXT_PUBLIC_SITE_ENABLED: "true",
                   },
                   url: "http://localhost:3000",
                   reuseExistingServer: true,

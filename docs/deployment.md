@@ -1115,6 +1115,62 @@ that already exist keep no row, which reads as no plan — unlimited and
 unblocked, the same as leaving plans off. Leave `PLANS_ENABLED` unset to keep
 today's behaviour.
 
+## Public site
+
+The web app serves a small public site for visitors who are not signed in:
+the home page at `/`, `/pricing`, `/docs` (an index and four pages: getting
+started; tabular review and quote status; data and privacy; source code and
+licences), and `/security`. The copy lives in
+`frontend/src/content/site/` and `frontend/src/content/docs/`, where the
+content lint (`frontend/src/content/__tests__/contentLint.test.ts`) checks
+it, and every name, address and document link comes from the brand
+configuration.
+
+Two switches control it. Both are `NEXT_PUBLIC_*` variables, which `next
+build` inlines into the bundle, so **changing either one means rebuilding the
+web app** (`docker compose build frontend` with the matching build argument,
+or a new image). A runtime environment change does nothing.
+
+- `NEXT_PUBLIC_SITE_ENABLED=true` shows the home page at `/` to a signed-out
+  visitor. Unset, `/` keeps redirecting to the app, as it always did. A browser
+  that carries a session cookie goes to the app either way; the pricing,
+  documentation and security pages exist either way.
+- `NEXT_PUBLIC_SITE_INDEXABLE=true` lets search engines index the public
+  pages. Unset, `/robots.txt` disallows all crawling and every page response
+  carries `X-Robots-Tag: noindex, nofollow`, so a preview or a self-hosted
+  install stays out of search results. Draft legal documents and the security
+  page while its status is draft stay `noindex` even on an indexable site.
+
+`/pricing` reads the public plans from `GET /plans`, which answers without a
+session and returns only the plans marked public, their display price text and
+no provider reference (see [Plans, seats and trials](#plans-seats-and-trials)).
+With no plans configured it says "Pricing is not available yet." Nothing can
+be bought there: billing stays off, and the page offers only the account and
+sign-in links.
+
+`/security` states what the software does, filled from the brand
+configuration and from `frontend/src/content/site/securityFacts.ts`, where an
+operator records independent assessments once there are any; until then the
+page says that none exists. `/.well-known/security.txt` is generated on each
+request from `brand.securityEmail`, with an `Expires` field 180 days ahead.
+
+Every page route (everything but the `/api` gateway and the `/monitoring`
+tunnel) carries these response headers, set in `frontend/next.config.ts` from
+`frontend/src/app/lib/securityHeaders.ts`:
+
+- `Content-Security-Policy: frame-ancestors 'self'`, enforced: no other
+  origin may frame the app. The Word add-in signs in through a separate
+  dialog window, never a frame.
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin`, and `Permissions-Policy: camera=(),
+  microphone=(), geolocation=()`.
+- `Content-Security-Policy-Report-Only`, a full policy that browsers only
+  log. It has no reporting endpoint; it records what an enforced policy would
+  have to allow before one is switched on.
+- `X-Robots-Tag: noindex, nofollow` while the site is not indexable.
+
+The API's own responses keep the headers the API sets.
+
 ## Deployment safety
 
 - Generate unique, high-entropy signing and encryption secrets.

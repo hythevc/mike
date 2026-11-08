@@ -58,4 +58,16 @@ describe("ContentPage", () => {
         ).not.toBeInTheDocument();
         expect(screen.getByText(/In effect/)).toBeVisible();
     });
+
+    it("shows neither banner nor version line for an unversioned page", () => {
+        render(<ContentPage title="Getting started" markdown={SAMPLE} />);
+        expect(
+            screen.getByRole("heading", { level: 1, name: "Getting started" }),
+        ).toBeVisible();
+        expect(
+            screen.queryByText("Draft, not in effect, pending counsel review."),
+        ).not.toBeInTheDocument();
+        expect(screen.queryByText(/Version/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/In effect/)).not.toBeInTheDocument();
+    });
 });

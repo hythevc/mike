@@ -17,11 +17,13 @@ import { buildOrgPlanView, buildPlansResponse } from "./plans.service";
 
 export const plansRouter = Router();
 
-// GET /plans — the public plans on offer. Signed in, because choosing a plan
-// is something a member does; pricing for the public lives off the product.
+// GET /plans — the public plans on offer. Unauthenticated: the web app's
+// public /pricing page reads it for visitors who have no account yet. The
+// response carries only the plans marked public, their display price text
+// and no provider reference, and it is built from configuration alone (no
+// database read), so the general per-address lane is the limit it needs.
 plansRouter.get(
     "/",
-    requireAuth,
     asyncRoute(async (_req, res) => {
         res.json(buildPlansResponse());
     }),

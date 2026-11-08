@@ -284,13 +284,15 @@ jobs:
 
       # The web client talks to its own /api gateway. Only the Next server
       # needs the upstream backend origin. Written before the build because
-      # Next inlines NEXT_PUBLIC_* values at build time.
+      # Next inlines NEXT_PUBLIC_* values at build time. The public home page
+      # is behind NEXT_PUBLIC_SITE_ENABLED; e2e/public-site.spec.ts scans it.
       - name: Write web env
         run: |
           {
             echo "API_BASE_URL=http://localhost:3001"
             echo "SENTRY_DISABLED=true"
             echo "NEXT_PUBLIC_SENTRY_DISABLED=true"
+            echo "NEXT_PUBLIC_SITE_ENABLED=true"
           } > frontend/.env.local
 
       - name: Build backend
