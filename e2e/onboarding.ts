@@ -18,6 +18,10 @@ export async function completeOnboardingIfRequired(page: Page): Promise<void> {
             timeout: 15_000,
         });
         if (await continueButton.isVisible()) {
+            // The profile step now also asks new users to accept the current
+            // Terms and Privacy before it will continue.
+            const acceptance = page.getByRole("checkbox");
+            if (await acceptance.count()) await acceptance.first().check();
             await continueButton.click();
             await page.waitForURL(/\/onboarding\/practice/, {
                 timeout: 15_000,

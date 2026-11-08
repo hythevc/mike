@@ -117,6 +117,7 @@
         "aiTransparency",
         "accessibility",
         "cookies",
+        "clientAiUse",
         "security"
       ],
       "description": "The legal documents users and customers are pointed to, each with its address, version and status.",
@@ -129,6 +130,7 @@
         "aiTransparency": { "$ref": "#/$defs/legalDocument", "description": "Statement on how AI is used, by which providers, and its known limitations." },
         "accessibility": { "$ref": "#/$defs/legalDocument", "description": "Accessibility statement." },
         "cookies": { "$ref": "#/$defs/legalDocument", "description": "Cookie notice." },
+        "clientAiUse": { "$ref": "#/$defs/legalDocument", "description": "Plain-language explainer a firm can give its clients on how AI is used on their matter, with an engagement-letter clause." },
         "security": { "$ref": "#/$defs/legalDocument", "description": "Security overview and vulnerability disclosure policy." }
       }
     },

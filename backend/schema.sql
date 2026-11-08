@@ -11925,6 +11925,29 @@ alter table public.usage_events enable row level security;
 revoke all on public.usage_events from public, anon, authenticated;
 grant select, insert, update, delete on public.usage_events to service_role;
 
+create table if not exists public.user_legal_acceptances (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  document text not null
+    constraint user_legal_acceptances_document_check
+      check (char_length(btrim(document)) between 1 and 64),
+  version text not null
+    constraint user_legal_acceptances_version_check
+      check (char_length(btrim(version)) between 1 and 32),
+  sign_in_method text not null default 'unknown'
+    constraint user_legal_acceptances_sign_in_method_check
+      check (sign_in_method in ('password', 'google', 'sso', 'unknown')),
+  accepted_at timestamptz not null default now()
+);
+
+create index if not exists user_legal_acceptances_user_document
+  on public.user_legal_acceptances (user_id, document, accepted_at desc);
+
+alter table public.user_legal_acceptances enable row level security;
+revoke all on public.user_legal_acceptances from anon, authenticated;
+revoke all on public.user_legal_acceptances from service_role;
+grant select, insert on public.user_legal_acceptances to service_role;
+
 -- A row the backend files without an organization is personal work: it
 -- belongs to the person's own organization.
 create or replace function public.usage_events_scope()
@@ -12234,5 +12257,6 @@ insert into public.schema_migrations (filename) values
   ('20261031_52_workflow_provenance.sql'),
   ('20261031_53_request_desk.sql'),
   ('20261031_55_rate_limits.sql'),
-  ('20261031_56_usage_events.sql')
+  ('20261031_56_usage_events.sql'),
+  ('20261031_57_legal_acceptances.sql')
 on conflict (filename) do nothing;

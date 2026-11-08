@@ -864,6 +864,8 @@ export interface UserProfile extends RouterProfileLists {
     practiceAreas: string[];
     onboardingVersion: number | null;
     onboardingComplete: boolean;
+    /** Legal documents whose current version the user must still accept. */
+    legalAcceptanceRequired: string[];
     passwordSet: boolean;
     messageCreditsUsed: number;
     creditsResetDate: string;
@@ -1149,6 +1151,21 @@ export async function completeUserOnboarding(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
     });
+}
+
+/** Records the user's acceptance of legal documents at their current version. */
+export async function recordLegalAcceptances(
+    acceptances: { document: string; version: string }[],
+): Promise<UserProfile> {
+    return apiRequest<UserProfile>(
+        "settings.profile",
+        "/user/legal-acceptances",
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ acceptances }),
+        },
+    );
 }
 
 export async function syncUserPasswordSet(): Promise<UserProfile> {
