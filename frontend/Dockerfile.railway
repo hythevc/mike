@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+# SPDX-License-Identifier: AGPL-3.0-only
+# Variant of frontend/Dockerfile for hosted builders that do not support
+# `--mount=type=secret` (only cache mounts). It is identical in every other
+# respect and is built from the repository root: `docker build -f
+# frontend/Dockerfile.railway .`. The one difference: it never uploads Sentry
+# source maps, because that step needs the build secret the upstream
+# Dockerfile mounts. Keep the two files in step when frontend/Dockerfile
+# changes; CI builds the upstream file, hosted platforms build this one.
+FROM node:22-slim AS deps
+
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm ci
+
+FROM deps AS app
+COPY frontend/ ./
+COPY packages/contracts /packages/contracts
+
+# Baked Sentry defaults for the Next server and browser tunnel (optional).
+# Non-empty runtime SENTRY_* values override them. See docs/observability.md.
+ARG NEXT_PUBLIC_SENTRY_DSN=
+ARG NEXT_PUBLIC_SENTRY_DISABLED=
+ARG NEXT_PUBLIC_SENTRY_INSTALL=
+ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT=
+ARG NEXT_PUBLIC_SENTRY_RELEASE=
+# Release identity, as in frontend/Dockerfile.
+ARG MIKE_VERSION=
+ARG GIT_SHA=
+# The public site (docs/deployment.md, "Public site"): both are inlined by
+# `next build`, so turning either on means rebuilding the image.
+ARG NEXT_PUBLIC_SITE_ENABLED=
+ARG NEXT_PUBLIC_SITE_INDEXABLE=
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN \
+    NEXT_PUBLIC_SENTRY_DISABLED=$NEXT_PUBLIC_SENTRY_DISABLED \
+    NEXT_PUBLIC_SENTRY_INSTALL=$NEXT_PUBLIC_SENTRY_INSTALL \
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT=$NEXT_PUBLIC_SENTRY_ENVIRONMENT \
+    NEXT_PUBLIC_SENTRY_RELEASE=$NEXT_PUBLIC_SENTRY_RELEASE \
+    NEXT_PUBLIC_SITE_ENABLED=$NEXT_PUBLIC_SITE_ENABLED \
+    NEXT_PUBLIC_SITE_INDEXABLE=$NEXT_PUBLIC_SITE_INDEXABLE \
+    NEXT_PUBLIC_MIKE_VERSION=$MIKE_VERSION \
+    NEXT_PUBLIC_GIT_SHA=$GIT_SHA \
+    MIKE_VERSION=$MIKE_VERSION \
+    GIT_SHA=$GIT_SHA
+
+# No source-map upload in this variant: the upstream Dockerfile's build secret
+# is the only supported way to pass the token, so refuse rather than silently
+# build a bundle whose maps were never uploaded.
+ARG SENTRY_UPLOAD_ENABLED=0
+RUN if [ "$SENTRY_UPLOAD_ENABLED" != "0" ]; then \
+      echo "Source-map upload needs frontend/Dockerfile and its build secret; this variant does not upload" >&2; exit 1; \
+    fi; \
+    npm run build
+
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["npm", "start"]
