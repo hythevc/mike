@@ -116,7 +116,7 @@ describe("subscription writes", () => {
         );
     });
 
-    it("syncs status and dates and never the plan", async () => {
+    it("syncs status and dates, and the plan only when the caller resolved one", async () => {
         const db = createFakeDb({ org_subscriptions: [row({ status: "past_due" })] });
         await syncSubscriptionStatus(db, ORG, { status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z" });
         expect(db.writes[0]).toEqual({
@@ -131,14 +131,22 @@ describe("subscription writes", () => {
             current_period_end: null,
             trial_ends_at: "2027-02-01T00:00:00.000Z",
         });
+        // A plan switch the caller matched against the catalog.
+        await syncSubscriptionStatus(db, ORG, { status: "active", currentPeriodEnd: "2027-03-01T00:00:00.000Z", planKey: "team" });
+        expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "active", plan_key: "team" });
+        await syncSubscriptionStatus(db, ORG, { status: "active", currentPeriodEnd: "2027-03-01T00:00:00.000Z", planKey: null });
+        expect(db.tables.org_subscriptions[0].plan_key).toBe("team");
     });
 
-    it("records references alone, and writes nothing when there are none", async () => {
-        const db = createFakeDb({ org_subscriptions: [row({ status: "trialing", provider_customer_ref: null, provider_subscription_ref: null })] });
+    it("records references, and the plan bought, without touching the status; writes nothing when there are none", async () => {
+        const db = createFakeDb({ org_subscriptions: [row({ status: "trialing", plan_key: null, provider_customer_ref: null, provider_subscription_ref: null })] });
         await recordSubscriptionRefs(db, ORG, { customerRef: null, subscriptionRef: null });
+        await recordSubscriptionRefs(db, ORG, { customerRef: null, subscriptionRef: null, planKey: null });
         expect(db.writes).toEqual([]);
         await recordSubscriptionRefs(db, ORG, { customerRef: "cus_9", subscriptionRef: null });
-        expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "trialing", provider_customer_ref: "cus_9", provider_subscription_ref: null });
+        expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "trialing", plan_key: null, provider_customer_ref: "cus_9", provider_subscription_ref: null });
+        await recordSubscriptionRefs(db, ORG, { customerRef: "cus_9", subscriptionRef: "sub_9", planKey: "included" });
+        expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "trialing", plan_key: "included", provider_customer_ref: "cus_9", provider_subscription_ref: "sub_9" });
     });
 
     it("surfaces a database error instead of swallowing it", async () => {

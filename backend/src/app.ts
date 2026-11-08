@@ -37,6 +37,7 @@ import { plansRouter } from "./modules/plans/plans.routes";
 import {
   billingRouter,
   billingWebhookHandler,
+  requireBillingEnabled,
 } from "./modules/billing/billing.routes";
 import { installPlanAllowance } from "./lib/entitlements";
 import { manifestPublicKey } from "./lib/manifestSigning";
@@ -361,11 +362,14 @@ app.put("/download/signed/:token", blobUploadLimiter, blobUploadHandler);
 
 // Also ahead of the JSON parser: the billing provider signs the exact bytes
 // of each webhook delivery, so the handler needs the raw body. The route
-// answers 404 while BILLING_ENABLED is unset. Deliveries are small; the cap
-// keeps the raw parser from buffering anything else.
+// answers 404 while BILLING_ENABLED is unset, and does so before the raw
+// parser runs, so a deployment that does not bill never buffers a body sent
+// to this public path. Deliveries are small; the cap keeps the raw parser
+// from buffering anything else.
 app.post(
   BILLING_WEBHOOK_PATH,
   billingWebhookLimiter,
+  requireBillingEnabled,
   express.raw({ type: () => true, limit: "1mb" }),
   billingWebhookHandler,
 );

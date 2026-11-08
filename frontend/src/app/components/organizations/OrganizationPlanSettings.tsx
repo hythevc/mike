@@ -108,6 +108,8 @@ export function OrganizationPlanSettings() {
           <div className="space-y-3 p-1">
             <SkeletonLine className="w-40" />
             <SkeletonLine className="w-64" />
+            {/* The controls row the card carries when billing is on. */}
+            <SkeletonLine className="h-7 w-32 rounded-full" />
           </div>
         </GlassCardUI>
       </div>
@@ -165,16 +167,17 @@ export function OrganizationPlanSettings() {
                     {view.plan.description}
                   </SettingsDescription>
                 ) : null}
-                {org ? (
-                  <OrganizationBillingActions
-                    orgId={orgId}
-                    view={view}
-                    isOwner={isOrgOwner(org.role)}
-                  />
-                ) : null}
               </div>
             )}
           </SettingsRow>
+          {/* Further rows of the same card: the controls and the plans on offer. */}
+          {view.plans_enabled && org ? (
+            <OrganizationBillingActions
+              orgId={orgId}
+              view={view}
+              isOwner={isOrgOwner(org.role)}
+            />
+          ) : null}
         </GlassCardUI>
       </section>
 

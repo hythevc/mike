@@ -4,7 +4,7 @@
 // keeps a redelivered event from being applied twice. The database is the
 // in-memory fake; the provider is the fake adapter, signing fixtures in the
 // real wire format.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeDb, type FakeDb } from "../../../__tests__/helpers/fakeBillingDb";
 import { resolveOrgEntitlement } from "../../../lib/entitlements";
 import { createFakeBillingProvider } from "../billing.fake";
@@ -28,6 +28,29 @@ const CATALOG = JSON.stringify([
         sort_order: 1,
         display_price_text: "$0 placeholder",
         provider_price_ref: "price_placeholder",
+    },
+    {
+        key: "team",
+        name: "Team",
+        description: "",
+        seat_limit: 50,
+        features: [],
+        deployment_token_allowance: 5_000_000,
+        trial_days: null,
+        public: true,
+        sort_order: 2,
+        display_price_text: "$0 placeholder",
+        provider_price_ref: "price_team_placeholder",
+    },
+    {
+        key: "internal",
+        name: "Internal",
+        description: "",
+        features: [],
+        public: false,
+        sort_order: 99,
+        display_price_text: "",
+        provider_price_ref: "price_internal_placeholder",
     },
 ]);
 
@@ -91,7 +114,7 @@ describe("applyBillingEvent", () => {
         expect(db.tables.org_subscriptions[0]).toMatchObject({ org_id: ORG, status: "active", plan_key: "included" });
     });
 
-    it("records the references but leaves the status alone while the payment is pending", async () => {
+    it("records the references and the plan, but leaves the status alone, while the payment is pending", async () => {
         db = createFakeDb({ org_subscriptions: [subscription({ status: "trialing", plan_key: null, provider_customer_ref: null, provider_subscription_ref: null })] });
         const outcome = await applyBillingEvent(
             db,
@@ -101,10 +124,36 @@ describe("applyBillingEvent", () => {
         expect(outcome).toBe("payment_pending");
         expect(db.tables.org_subscriptions[0]).toMatchObject({
             status: "trialing",
-            plan_key: null,
+            plan_key: "included",
             provider_customer_ref: "cus_9",
             provider_subscription_ref: "sub_9",
         });
+    });
+
+    it("lands a workspace on the plan it bought once its pending payment is confirmed", async () => {
+        db = createFakeDb({ org_subscriptions: [subscription({ status: "trialing", plan_key: null, provider_customer_ref: null, provider_subscription_ref: null, current_period_end: null })] });
+        await applyBillingEvent(
+            db,
+            { ...base, type: "checkout_completed", orgId: ORG, planKey: "included", customerRef: "cus_9", subscriptionRef: "sub_9", paid: false },
+            ENV,
+        );
+        // The provider's report of the paid subscription names no plan.
+        const outcome = await applyBillingEvent(
+            db,
+            { ...base, id: "evt_2", type: "subscription_updated", orgId: ORG, customerRef: "cus_9", subscriptionRef: "sub_9", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null, priceRef: null },
+            ENV,
+        );
+        expect(outcome).toBe("synced");
+        expect(db.tables.org_subscriptions[0]).toMatchObject({
+            status: "active",
+            plan_key: "included",
+            provider_subscription_ref: "sub_9",
+            current_period_end: "2027-01-01T00:00:00.000Z",
+        });
+        const entitlement = await resolveOrgEntitlement(db, ORG, ENV);
+        expect(entitlement.plan?.key).toBe("included");
+        expect(entitlement.seatLimit).toBe(25);
+        expect(entitlement.deploymentTokenAllowance).toBe(1_000_000);
     });
 
     it("does nothing for a checkout that names no workspace, or not a real one", async () => {
@@ -135,6 +184,18 @@ describe("applyBillingEvent", () => {
             await applyBillingEvent(db, { ...base, type: "payment_failed", customerRef: "cus_other", subscriptionRef: "sub_other" }, ENV),
         ).toBe("unmatched");
         expect(db.tables.org_subscriptions[0].status).toBe("active");
+    });
+
+    it("ignores a failed payment on a subscription the workspace has since replaced", async () => {
+        // The workspace canceled sub_1 and bought again (sub_2); sub_1's last
+        // invoice fails. It matches the row through the customer alone and
+        // must not hold the live subscription.
+        db = createFakeDb({ org_subscriptions: [subscription({ provider_subscription_ref: "sub_2" })] });
+        expect(
+            await applyBillingEvent(db, { ...base, type: "payment_failed", customerRef: "cus_1", subscriptionRef: "sub_1" }, ENV),
+        ).toBe("stale");
+        expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "active", plan_key: "included", provider_subscription_ref: "sub_2" });
+        expect(db.writes).toEqual([]);
     });
 
     it("cancels the workspace onto the unpaid default when its subscription is deleted", async () => {
@@ -181,29 +242,68 @@ describe("applyBillingEvent", () => {
         ).toBe("unmatched");
     });
 
-    it("follows the provider's status report for the current subscription, never the plan", async () => {
+    it("follows the provider's status report for the current subscription; the plan stays when the report names no price", async () => {
         db = createFakeDb({ org_subscriptions: [subscription({ status: "past_due" })] });
         const outcome = await applyBillingEvent(
             db,
-            { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null },
+            { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null, priceRef: null },
             ENV,
         );
         expect(outcome).toBe("synced");
         expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "active", plan_key: "included", current_period_end: "2027-01-01T00:00:00.000Z" });
 
         expect(
-            await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "trialing", currentPeriodEnd: null, trialEndsAt: "2027-02-01T00:00:00.000Z" }, ENV),
+            await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "trialing", currentPeriodEnd: null, trialEndsAt: "2027-02-01T00:00:00.000Z", priceRef: null }, ENV),
         ).toBe("synced");
         expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "trialing", trial_ends_at: "2027-02-01T00:00:00.000Z" });
 
         expect(
-            await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: null, currentPeriodEnd: null, trialEndsAt: null }, ENV),
+            await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: null, currentPeriodEnd: null, trialEndsAt: null, priceRef: null }, ENV),
         ).toBe("ignored");
+    });
+
+    it("follows a plan switch made in the portal onto the plan the catalog offers at the new price", async () => {
+        const outcome = await applyBillingEvent(
+            db,
+            { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null, priceRef: "price_team_placeholder" },
+            ENV,
+        );
+        expect(outcome).toBe("synced");
+        expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "active", plan_key: "team", provider_subscription_ref: "sub_1" });
+        const entitlement = await resolveOrgEntitlement(db, ORG, ENV);
+        expect(entitlement.plan?.key).toBe("team");
+        expect(entitlement.seatLimit).toBe(50);
+    });
+
+    it("leaves the plan alone, with a warning, for a price that is not a plan on offer", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // An internal plan's price and a price the catalog does not list.
+            for (const priceRef of ["price_internal_placeholder", "price_unlisted"]) {
+                expect(
+                    await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null, priceRef }, ENV),
+                ).toBe("synced");
+                expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "active", plan_key: "included" });
+            }
+            expect(warn).toHaveBeenCalledTimes(2);
+
+            // A renewal of a plan the operator has since taken off offer is
+            // not a switch: the subscriber keeps it, and nothing is logged.
+            warn.mockClear();
+            db = createFakeDb({ org_subscriptions: [subscription({ plan_key: "internal" })] });
+            expect(
+                await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null, priceRef: "price_internal_placeholder" }, ENV),
+            ).toBe("synced");
+            expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "active", plan_key: "internal" });
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+        }
     });
 
     it("cancels on a canceled status report", async () => {
         expect(
-            await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "canceled", currentPeriodEnd: null, trialEndsAt: null }, ENV),
+            await applyBillingEvent(db, { ...base, type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "canceled", currentPeriodEnd: null, trialEndsAt: null, priceRef: null }, ENV),
         ).toBe("canceled");
         expect(db.tables.org_subscriptions[0]).toMatchObject({ status: "canceled", plan_key: null });
     });
@@ -212,7 +312,7 @@ describe("applyBillingEvent", () => {
         await applyBillingEvent(db, { ...base, type: "subscription_deleted", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1" }, ENV);
         const outcome = await applyBillingEvent(
             db,
-            { ...base, id: "evt_late", type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null },
+            { ...base, id: "evt_late", type: "subscription_updated", orgId: ORG, customerRef: "cus_1", subscriptionRef: "sub_1", status: "active", currentPeriodEnd: "2027-01-01T00:00:00.000Z", trialEndsAt: null, priceRef: "price_placeholder" },
             ENV,
         );
         expect(outcome).toBe("unmatched");

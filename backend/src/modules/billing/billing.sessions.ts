@@ -124,9 +124,12 @@ function providerFailure(
 
 /**
  * Start a hosted checkout for a plan from the catalog. The plan must be on
- * offer and carry a provider price; a workspace that already has a live
- * subscription is sent to the portal instead, so a second checkout can
- * never stack a second subscription on the same organization.
+ * offer and carry a provider price; a workspace whose subscription is live
+ * (any status but canceled: active, past due, or a checkout whose payment
+ * is still pending) is sent to the portal instead, so a second checkout can
+ * never stack a second subscription on the same organization. A canceled
+ * workspace has no subscription id left (cancelSubscription clears it) and
+ * may buy again.
  */
 export async function createCheckoutSession(
     db: Db,
@@ -150,10 +153,17 @@ export async function createCheckoutSession(
         return failure("validation", "This plan cannot be bought online yet.");
 
     const current = await readSubscriptionRefs(db, input.orgId);
-    if (current?.status === "active" && current.subscriptionRef)
+    // The subscription id alone says whether one is live: a past-due
+    // workspace still has it (the provider keeps retrying the payment), and
+    // so does a workspace whose checkout completed with the payment pending.
+    // A second checkout for either would open a second subscription on the
+    // same customer; the portal is where the payment method is fixed.
+    if (current?.subscriptionRef && current.status !== "canceled")
         return failure(
             "conflict",
-            "This organization already has a subscription. Use Manage billing to change it.",
+            current.status === "past_due"
+                ? "This organization's last payment did not go through. Use Manage billing to update the payment method; the plan resumes once the payment is confirmed."
+                : "This organization already has a subscription. Use Manage billing to change it.",
         );
 
     const provider = providerFor(env, input.provider);

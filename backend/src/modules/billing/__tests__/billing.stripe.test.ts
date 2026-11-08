@@ -235,6 +235,8 @@ describe("normalizeStripeEvent", () => {
             status: "active",
             currentPeriodEnd: new Date(1_800_000_000 * 1000).toISOString(),
             trialEndsAt: null,
+            // No items in the report: no price to follow.
+            priceRef: null,
         });
         const onItem = normalizeStripeEvent(
             JSON.parse(
@@ -242,7 +244,10 @@ describe("normalizeStripeEvent", () => {
                     id: "sub_1",
                     status: "trialing",
                     trial_end: 1_800_000_500,
-                    items: { object: "list", data: [{ id: "si_1", current_period_end: 1_800_000_000 }] },
+                    items: {
+                        object: "list",
+                        data: [{ id: "si_1", current_period_end: 1_800_000_000, price: { id: "price_placeholder", object: "price" } }],
+                    },
                 }),
             ),
         );
@@ -250,7 +255,25 @@ describe("normalizeStripeEvent", () => {
             status: "trialing",
             currentPeriodEnd: new Date(1_800_000_000 * 1000).toISOString(),
             trialEndsAt: new Date(1_800_000_500 * 1000).toISOString(),
+            priceRef: "price_placeholder",
         });
+    });
+
+    it("reads the subscription item's price as an id, an expanded object, or the older plan mirror", () => {
+        const read = (item: Record<string, unknown>) =>
+            normalizeStripeEvent(
+                JSON.parse(
+                    event("customer.subscription.updated", {
+                        id: "sub_1",
+                        status: "active",
+                        items: { object: "list", data: [{ id: "si_1", ...item }] },
+                    }),
+                ),
+            );
+        expect(read({ price: "price_placeholder" })).toMatchObject({ priceRef: "price_placeholder" });
+        expect(read({ price: { id: "price_placeholder" } })).toMatchObject({ priceRef: "price_placeholder" });
+        expect(read({ plan: { id: "plan_placeholder" } })).toMatchObject({ priceRef: "plan_placeholder" });
+        expect(read({})).toMatchObject({ priceRef: null });
     });
 
     it("rejects a body without an id or type", () => {

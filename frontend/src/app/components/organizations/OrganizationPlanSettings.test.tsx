@@ -138,12 +138,24 @@ describe("OrganizationPlanSettings", () => {
   });
 
   it("offers an owner the plan and billing controls once billing is on", async () => {
+    // A canceled workspace may buy again, and its billing account still
+    // holds the invoices, so both controls show.
     mocks.getOrgPlan.mockResolvedValue(
-      view({ billing_enabled: true, status: "trialing", has_billing_account: true }),
+      view({ billing_enabled: true, status: "canceled", plan: null, has_billing_account: true }),
     );
     render(<OrganizationPlanSettings />);
     expect(await screen.findByRole("button", { name: "Choose a plan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Manage billing" })).toBeInTheDocument();
+  });
+
+  it("shows a past-due owner Manage billing but offers no second checkout", async () => {
+    mocks.getOrgPlan.mockResolvedValue(
+      view({ billing_enabled: true, status: "past_due", has_billing_account: true }),
+    );
+    render(<OrganizationPlanSettings />);
+    expect(await screen.findByRole("button", { name: "Manage billing" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose a plan" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Past due/)).toBeInTheDocument();
   });
 
   it("offers an admin no billing control even when billing is on", async () => {

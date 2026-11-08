@@ -8,13 +8,21 @@
 //   POST /billing/orgs/:orgId/portal-session                  → { url }
 //   POST /billing/webhook                         the provider's events
 //
+// The two owner routes carry requireMfaIfEnrolled, as the organization's
+// other sensitive writes do (orgs.routes.ts): the portal reaches the payment
+// method, the invoices and cancellation, so a session whose account has a
+// second factor must have passed it. The web client answers the 403 with
+// its step-up prompt and sends the request again.
+//
 // The webhook handler is exported on its own: app.ts registers it ahead of
 // the global JSON parser with a raw body, because the provider's signature
 // covers the exact bytes it sent and a parsed-and-reserialized body would
-// never verify.
+// never verify. requireBillingEnabled is exported with it so app.ts can
+// answer 404 before the raw parser buffers a body on a deployment that
+// does not bill.
 
 import { Router, type NextFunction, type Request, type Response } from "express";
-import { requireAuth } from "../../middleware/auth";
+import { requireAuth, requireMfaIfEnrolled } from "../../middleware/auth";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
 import { sendServiceFailure } from "../../lib/serviceResult";
@@ -25,7 +33,12 @@ import {
     handleBillingWebhook,
 } from "./billing.service";
 
-function requireBillingEnabled(_req: Request, res: Response, next: NextFunction): void {
+/** 404 while BILLING_ENABLED is unset: the surface does not exist. */
+export function requireBillingEnabled(
+    _req: Request,
+    res: Response,
+    next: NextFunction,
+): void {
     if (!billingEnabled()) {
         res.status(404).json({ detail: "Not found" });
         return;
@@ -42,6 +55,7 @@ billingRouter.use(requireBillingEnabled);
 billingRouter.post(
     "/orgs/:orgId/checkout-session",
     requireAuth,
+    requireMfaIfEnrolled,
     asyncRoute(async (req, res) => {
         const result = await createCheckoutSession(createServerSupabase(), {
             orgId: req.params.orgId,
@@ -60,6 +74,7 @@ billingRouter.post(
 billingRouter.post(
     "/orgs/:orgId/portal-session",
     requireAuth,
+    requireMfaIfEnrolled,
     asyncRoute(async (req, res) => {
         const result = await createPortalSession(createServerSupabase(), {
             orgId: req.params.orgId,
@@ -73,8 +88,9 @@ billingRouter.post(
 billingRouter.use(routerErrorHandler("[billing]"));
 
 // POST /billing/webhook — unauthenticated by design: the provider signs each
-// delivery, and the signature is the credential. Registered by app.ts with
-// express.raw so req.body is the exact bytes.
+// delivery, and the signature is the credential. Registered by app.ts behind
+// requireBillingEnabled and express.raw, so req.body is the exact bytes; the
+// check here is defence in depth for a mount that forgot the middleware.
 export const billingWebhookHandler = asyncRoute(async (req, res) => {
     if (!billingEnabled()) {
         res.status(404).json({ detail: "Not found" });

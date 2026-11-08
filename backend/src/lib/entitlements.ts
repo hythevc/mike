@@ -389,21 +389,28 @@ export async function activateSubscription(
 
 /**
  * A checkout that completed before its payment did: remember the provider's
- * references so the payment's own events find the workspace, and leave the
- * status alone until one of them reports the outcome.
+ * references so the payment's own events find the workspace, and the plan it
+ * bought so the workspace is on that plan the moment the provider reports
+ * the subscription active (that report never names a plan). The status is
+ * left alone until one of the payment's events reports the outcome.
  */
 export async function recordSubscriptionRefs(
     db: Db,
     orgId: string,
-    refs: { customerRef: string | null; subscriptionRef: string | null },
+    refs: {
+        customerRef: string | null;
+        subscriptionRef: string | null;
+        planKey?: string | null;
+    },
 ): Promise<void> {
-    if (!refs.customerRef && !refs.subscriptionRef) return;
+    if (!refs.customerRef && !refs.subscriptionRef && !refs.planKey) return;
     await upsertSubscription(db, {
         org_id: orgId,
         ...(refs.customerRef ? { provider_customer_ref: refs.customerRef } : {}),
         ...(refs.subscriptionRef
             ? { provider_subscription_ref: refs.subscriptionRef }
             : {}),
+        ...(refs.planKey ? { plan_key: refs.planKey } : {}),
     });
 }
 
@@ -439,7 +446,10 @@ export async function cancelSubscription(db: Db, orgId: string): Promise<void> {
 /**
  * The provider reports the subscription's current state (a payment that
  * recovered a past-due subscription, a renewal, a provider-side trial). The
- * plan is never changed here; only the status and its dates are.
+ * status and its dates follow the report. The plan changes only when the
+ * caller passes one it resolved from the subscription's price against the
+ * catalog (a plan switch made in the provider's portal); the status alone
+ * never moves a workspace onto a plan.
  */
 export async function syncSubscriptionStatus(
     db: Db,
@@ -448,6 +458,7 @@ export async function syncSubscriptionStatus(
         status: Exclude<SubscriptionStatus, "none" | "canceled">;
         currentPeriodEnd: string | null;
         trialEndsAt?: string | null;
+        planKey?: string | null;
     },
 ): Promise<void> {
     await upsertSubscription(db, {
@@ -455,5 +466,6 @@ export async function syncSubscriptionStatus(
         status: input.status,
         current_period_end: input.currentPeriodEnd,
         ...(input.trialEndsAt !== undefined ? { trial_ends_at: input.trialEndsAt } : {}),
+        ...(input.planKey ? { plan_key: input.planKey } : {}),
     });
 }

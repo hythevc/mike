@@ -5,11 +5,16 @@
 //   checkout completed        the workspace is active on the plan it bought
 //   payment failed            the workspace is past due (hosted models held)
 //   subscription deleted      the workspace is canceled, on no plan
-//   subscription updated      the status and dates follow the provider's
+//   subscription updated      the status and dates follow the provider's;
+//                             the plan follows a plan switch made in the
+//                             portal only onto a plan the catalog offers
+//                             at the subscription's new price
 //
 // Two rules the handlers never bend: a canceled workspace lands on the
 // unpaid default, never on a paid plan — only a new completed checkout puts
-// it on one — and a failed payment is acted on, never only logged.
+// it on one — and a failed payment is acted on, never only logged. An event
+// about a subscription the workspace has since replaced (it canceled and
+// bought again) is stale and changes nothing, whatever it reports.
 //
 // Deliveries arrive at least once and in no fixed order. Every accepted
 // event id is claimed in billing_events before it is applied, so a
@@ -33,7 +38,7 @@ import {
     syncSubscriptionStatus,
     type SubscriptionRefs,
 } from "../../lib/entitlements";
-import { planByKey } from "../../lib/planCatalog";
+import { planByKey, planByProviderPriceRef } from "../../lib/planCatalog";
 import { billingConfiguration } from "../../lib/runtimeConfig";
 import {
     BillingProviderError,
@@ -174,9 +179,14 @@ async function applyCheckoutCompleted(
         });
     }
     if (!event.paid) {
+        // The plan key goes on the row now: when the delayed payment
+        // succeeds, the provider reports the subscription active without
+        // naming a plan, and the workspace must land on the one it bought
+        // rather than on no plan at all.
         await recordSubscriptionRefs(db, orgId, {
             customerRef: event.customerRef,
             subscriptionRef: event.subscriptionRef,
+            planKey: event.planKey,
         });
         return "payment_pending";
     }
@@ -188,6 +198,53 @@ async function applyCheckoutCompleted(
         currentPeriodEnd: null,
     });
     return "activated";
+}
+
+/**
+ * The event is about a subscription other than the one the workspace holds:
+ * the workspace canceled and bought again, and this report concerns the old
+ * subscription. Only an event that names a subscription can be stale; a row
+ * without a subscription id (a checkout whose completion was missed) is
+ * matched through the customer and is never stale.
+ */
+function isStale(
+    subscription: SubscriptionRefs,
+    event: { subscriptionRef: string | null },
+): boolean {
+    return Boolean(
+        subscription.subscriptionRef &&
+            event.subscriptionRef &&
+            subscription.subscriptionRef !== event.subscriptionRef,
+    );
+}
+
+/**
+ * The plan a subscription's price names in the catalog, for a status report
+ * that carries one. A plan switch made in the provider's portal arrives
+ * this way; it moves the workspace only onto a plan on offer at that exact
+ * price. Any other price (a plan not in the catalog, an internal plan, a
+ * price the operator changed at the provider only) is logged and leaves the
+ * plan alone, so nothing outside the catalog can grant an entitlement.
+ */
+function planKeyForPrice(
+    event: Extract<BillingEvent, { type: "subscription_updated" }>,
+    subscription: SubscriptionRefs,
+    env: NodeJS.ProcessEnv,
+): string | null {
+    if (!event.priceRef) return null;
+    const plan = planByProviderPriceRef(event.priceRef, env);
+    if (plan?.public) return plan.key;
+    // The row's own plan at this price (one the operator has since taken off
+    // offer, which existing subscribers keep) is not a switch: nothing to say.
+    if (plan && plan.key === subscription.planKey) return null;
+    // A price this deployment does not sell. The price id is the operator's
+    // own configuration at the provider, not personal data.
+    console.warn("[billing] subscription price is not a plan on offer; plan left as is", {
+        eventId: event.id,
+        priceRef: event.priceRef,
+        planKey: subscription.planKey,
+    });
+    return null;
 }
 
 /**
@@ -207,6 +264,12 @@ export async function applyBillingEvent(
         case "payment_failed": {
             const subscription = await findSubscriptionByProviderRef(db, event);
             if (!subscription) return "unmatched";
+            // Matched through the customer because the subscription id is
+            // not on the row: a failed invoice of a subscription the
+            // workspace has since replaced must not hold the live one, just
+            // as its deletion must not cancel it. (An invoice that names no
+            // subscription still holds its customer's workspace.)
+            if (isStale(subscription, event)) return "stale";
             // Held, not logged: the workspace stays past due until the
             // provider reports the subscription paid again.
             await markSubscriptionPastDue(db, subscription.orgId);
@@ -218,12 +281,7 @@ export async function applyBillingEvent(
             if (!subscription) return "unmatched";
             // The deletion of a subscription the workspace has since replaced
             // (it bought again) must not cancel the live one.
-            if (
-                subscription.subscriptionRef &&
-                event.subscriptionRef &&
-                subscription.subscriptionRef !== event.subscriptionRef
-            )
-                return "stale";
+            if (isStale(subscription, event)) return "stale";
             await cancelSubscription(db, subscription.orgId);
             return "canceled";
         }
@@ -246,6 +304,7 @@ export async function applyBillingEvent(
                 status: event.status,
                 currentPeriodEnd: event.currentPeriodEnd,
                 trialEndsAt: event.status === "trialing" ? event.trialEndsAt : null,
+                planKey: planKeyForPrice(event, subscription, env),
             });
             return "synced";
         }

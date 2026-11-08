@@ -206,6 +206,21 @@ export function planByKey(
     return loadPlanCatalog(env).find((plan) => plan.key === key) ?? null;
 }
 
+/**
+ * The plan whose provider price id this is, or null. The billing module uses
+ * it to follow a plan switch the provider reports on a subscription.
+ */
+export function planByProviderPriceRef(
+    priceRef: string | null | undefined,
+    env: NodeJS.ProcessEnv = process.env,
+): Plan | null {
+    if (!priceRef) return null;
+    return (
+        loadPlanCatalog(env).find((plan) => plan.providerPriceRef === priceRef) ??
+        null
+    );
+}
+
 /** The public plans, without provider references, in display order. */
 export function publicPlans(env: NodeJS.ProcessEnv = process.env): PublicPlan[] {
     return loadPlanCatalog(env)

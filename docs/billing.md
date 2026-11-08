@@ -48,14 +48,18 @@ The module is `backend/src/modules/billing/`:
 
 | Route | Who | Does |
 | --- | --- | --- |
-| `POST /billing/orgs/:orgId/checkout-session` with `{ "plan_key": "…" }` | organization owners | Returns `{ url }` of a hosted checkout for one plan on offer. The browser is sent there and comes back to the organization's Plan and usage page with `?checkout=success` or `?checkout=canceled`. Refused for a plan that is not public, has no provider price, or while the organization already has a live subscription (use the portal instead). |
+| `POST /billing/orgs/:orgId/checkout-session` with `{ "plan_key": "…" }` | organization owners | Returns `{ url }` of a hosted checkout for one plan on offer. The browser is sent there and comes back to the organization's Plan and usage page with `?checkout=success` or `?checkout=canceled`. Refused (400) for a plan that is not public or has no provider price, and refused (409) while the organization's subscription is live: active, past due, or a checkout whose payment is still pending, that is any status but canceled. A second checkout would open a second subscription on the same customer; the portal is where a past-due workspace updates its payment method. A canceled workspace may buy again. |
 | `POST /billing/orgs/:orgId/portal-session` | organization owners | Returns `{ url }` of the provider's billing portal (payment method, invoices, cancellation). Refused with 409 until a first checkout has created a customer. |
 | `POST /billing/webhook` | the provider | Unauthenticated by design; the signature is the credential. |
 
 Members and admins get 403 ("Only an organization owner can change its plan or
 billing."); non-members and personal workspaces get 404, as elsewhere in the
-organization API. Starting a checkout and opening the portal are recorded in
-the organization's audit trail (`billing.checkout_started`,
+organization API. Both owner routes also carry the second-factor step-up the
+organization's other sensitive settings use (`requireMfaIfEnrolled`): a session
+whose account has a factor enrolled is answered 403 `mfa_verification_required`
+until it has passed it, and the web app's prompt sends the request again once
+it has. Starting a checkout and opening the portal are recorded in the
+organization's audit trail (`billing.checkout_started`,
 `billing.portal_opened`). Payment details are entered on the provider's pages,
 never in this app, and nothing about the card or the invoice is stored here.
 
@@ -63,14 +67,19 @@ never in this app, and nothing about the card or the invoice is stored here.
 `has_billing_account` (a customer exists at the provider), which is all the
 web app needs to decide whether to show **Choose a plan** and **Manage
 billing**. Both controls appear only to owners, and only when billing is on.
+**Choose a plan** is offered only while no subscription is live (no plan,
+canceled, or a trial that has no billing account yet); a past-due workspace
+sees **Manage billing** alone, which is where its payment method is fixed.
 
 ### Webhook events
 
-Every delivery is verified against `STRIPE_WEBHOOK_SECRET` (`Stripe-Signature:
-t=…,v1=…`, HMAC-SHA256 over `t.body`, five-minute replay window, constant-time
-comparison). A delivery that does not verify is answered 400 and nothing is
-read from it. A verified event is then **claimed** in `billing_events` by its
-id before it is applied:
+While billing is off the route answers 404 before the request body is read, so
+a deployment that does not bill never buffers whatever is sent to this public
+path. With billing on, every delivery is verified against
+`STRIPE_WEBHOOK_SECRET` (`Stripe-Signature: t=…,v1=…`, HMAC-SHA256 over
+`t.body`, five-minute replay window, constant-time comparison). A delivery that
+does not verify is answered 400 and nothing is read from it. A verified event
+is then **claimed** in `billing_events` by its id before it is applied:
 
 - a redelivery of an event that was already applied answers 200 without being
   applied again;
@@ -88,10 +97,10 @@ helpers in `backend/src/lib/entitlements.ts`):
 
 | Event | Effect |
 | --- | --- |
-| `checkout.session.completed` (subscription mode) | The workspace named in the checkout's metadata becomes `active` on the plan it bought, with the provider's customer and subscription ids recorded and the trial window cleared. A checkout whose payment is still pending records the ids and leaves the status alone. |
-| `invoice.payment_failed` | The workspace becomes `past_due`. It is acted on, never only logged: with plans on, a past-due workspace cannot use the deployment's hosted models until the provider reports the subscription paid again. The plan and the ids stay. |
+| `checkout.session.completed` (subscription mode) | The workspace named in the checkout's metadata becomes `active` on the plan it bought, with the provider's customer and subscription ids recorded and the trial window cleared. A checkout whose payment is still pending records the ids and the plan key and leaves the status alone, so the workspace lands on the plan it bought when the provider later reports the subscription active (that report names no plan). |
+| `invoice.payment_failed` | The workspace becomes `past_due`. It is acted on, never only logged: with plans on, a past-due workspace cannot use the deployment's hosted models until the provider reports the subscription paid again. The plan and the ids stay. A failed invoice of a subscription the workspace has since replaced (it canceled and bought again) changes nothing. |
 | `customer.subscription.deleted` | The workspace becomes `canceled` on the unpaid default: no plan, no subscription id, no period. It never lands on another paid plan here; only a new completed checkout does that. The customer id is kept so the portal (invoices) still opens. A deletion of a subscription the workspace has since replaced changes nothing. |
-| `customer.subscription.updated` | The status and dates follow the provider's report for the workspace's **current** subscription (`active`, `trialing`, `past_due`; `unpaid` and `paused` read as past due; `canceled` and `incomplete_expired` cancel as above). The plan is never changed by this event, and a report about a subscription this deployment never recorded, or has already canceled and cleared, changes nothing, so a late report cannot put a canceled workspace back on a plan. |
+| `customer.subscription.updated` | The status and dates follow the provider's report for the workspace's **current** subscription (`active`, `trialing`, `past_due`; `unpaid` and `paused` read as past due; `canceled` and `incomplete_expired` cancel as above). The plan follows a plan switch made in the provider's portal only when the subscription's new price is the `provider_price_ref` of a **public** plan in the catalog; any other price is logged and leaves the plan alone, so nothing outside the catalog can grant an entitlement. A report about a subscription this deployment never recorded, or has already canceled and cleared, changes nothing, so a late report cannot put a canceled workspace back on a plan. |
 | anything else | Recorded as received and ignored. |
 
 A failed payment therefore holds hosted-model use (`blocksHostedModels` in
@@ -110,6 +119,10 @@ affected, and export and account or organization deletion are never blocked
    provider for the four event types above.
 4. Apply `20261108_50_billing_events.sql` (Compose's `db-init` runs it). It is
    additive and safe to re-run.
+5. If the provider's portal configuration lets customers switch plans, list
+   every price the portal offers as a public plan's `provider_price_ref` in
+   `PLANS_CATALOG_JSON`. A switch to a price the catalog does not offer is
+   logged and leaves the workspace's plan unchanged.
 
 Locally, the provider's CLI can forward test events to the API, for example
 `stripe listen --forward-to localhost:3001/billing/webhook`, and prints the
@@ -133,11 +146,14 @@ from `PLANS_CATALOG_JSON` alone. Fixtures use obviously placeholder values.
 ## Tests
 
 - `backend/src/__tests__/integration/billing.routes.test.ts`: every route is
-  404 with billing off and the real adapter is never constructed; owner-only
-  sessions; the webhook's signature, duplicate and state-change cases over
-  HTTP.
+  404 with billing off (the webhook before its body is read) and the real
+  adapter is never constructed; owner-only sessions behind the second-factor
+  step-up; no second checkout while a subscription is live; the webhook's
+  signature, duplicate and state-change cases over HTTP.
 - `backend/src/modules/billing/__tests__/billing.webhooks.test.ts`: what each
-  event does, the claim, release and takeover.
+  event does, including a pending payment that keeps its plan, a stale
+  failure on a replaced subscription and a portal plan switch; the claim,
+  release and takeover.
 - `backend/src/modules/billing/__tests__/billing.stripe.test.ts`: form
   encoding, signatures, event normalization across API-version shapes, and
   the REST calls against a stubbed `fetch`.

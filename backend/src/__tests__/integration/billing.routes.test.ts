@@ -13,6 +13,7 @@ import { createFakeDb, type FakeDb } from "../helpers/fakeBillingDb";
 import {
     billingRouter,
     billingWebhookHandler,
+    requireBillingEnabled,
 } from "../../modules/billing/billing.routes";
 import {
     createFakeBillingProvider,
@@ -24,6 +25,10 @@ import { resolveOrgEntitlement } from "../../lib/entitlements";
 const holder = vi.hoisted(() => ({ fake: null as FakeDb | null }));
 
 const stripeConstructor = vi.hoisted(() => vi.fn());
+
+// Whether the signed-in account's second factor is satisfied. The MFA test
+// flips it; the stand-in then answers exactly what the real guard does.
+const mfa = vi.hoisted(() => ({ satisfied: true }));
 
 // Sign in whoever x-test-user names; no header, no session.
 vi.mock("../../middleware/auth", () => ({
@@ -42,6 +47,20 @@ vi.mock("../../middleware/auth", () => ({
         }
         res.locals.userId = user;
         res.locals.userEmail = `${user.slice(-4)}@firm.example`;
+        next();
+    },
+    requireMfaIfEnrolled: (
+        _req: unknown,
+        res: { status(code: number): { json(body: unknown): void } },
+        next: () => void,
+    ) => {
+        if (!mfa.satisfied) {
+            res.status(403).json({
+                code: "mfa_verification_required",
+                detail: "MFA verification required",
+            });
+            return;
+        }
         next();
     },
 }));
@@ -129,10 +148,23 @@ function setEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>) {
     for (const [key, value] of Object.entries(values)) process.env[key] = value;
 }
 
-function buildApp() {
+/**
+ * Mirrors app.ts: the webhook answers 404 while billing is off before the
+ * raw parser runs, and takes the raw body ahead of the JSON parser. The raw
+ * parser is counted so a test can assert it never ran.
+ */
+function buildApp(spy: { rawParserRuns: number } = { rawParserRuns: 0 }) {
     const app = express();
-    // Mirrors app.ts: the webhook takes the raw body ahead of the JSON parser.
-    app.post("/billing/webhook", express.raw({ type: () => true, limit: "1mb" }), billingWebhookHandler);
+    const rawParser = express.raw({ type: () => true, limit: "1mb" });
+    app.post(
+        "/billing/webhook",
+        requireBillingEnabled,
+        (req, res, next) => {
+            spy.rawParserRuns += 1;
+            rawParser(req, res, next);
+        },
+        billingWebhookHandler,
+    );
     app.use(express.json());
     app.use("/billing", billingRouter);
     return app;
@@ -180,6 +212,7 @@ beforeEach(() => {
         throw new Error("the real provider must not be constructed in these tests");
     });
     holder.fake = fakeDb();
+    mfa.satisfied = true;
     setBillingProviderForTests(null);
 });
 afterEach(() => {
@@ -219,6 +252,24 @@ describe("with BILLING_ENABLED unset", () => {
             .send({ plan_key: "included" })
             .expect(404);
         expect(stripeConstructor).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 to a large unsigned webhook body before the raw parser reads it", async () => {
+        const spy = { rawParserRuns: 0 };
+        // Far larger than any real delivery: an off deployment must not pay
+        // to buffer whatever is sent to this public path.
+        const body = JSON.stringify({
+            id: "evt_big",
+            type: "invoice.payment_failed",
+            data: { object: { padding: "x".repeat(64 * 1024) } },
+        });
+        await request(buildApp(spy))
+            .post("/billing/webhook")
+            .set("Content-Type", "application/json")
+            .send(body)
+            .expect(404);
+        expect(spy.rawParserRuns).toBe(0);
+        expect(holder.fake!.writes).toEqual([]);
     });
 });
 
@@ -303,15 +354,60 @@ describe("checkout and portal sessions", () => {
         expect(provider.calls).toEqual([]);
     });
 
-    it("refuses a second checkout while a subscription is live", async () => {
-        holder.fake = fakeDb({ status: "active", plan_key: "included", provider_customer_ref: "cus_1", provider_subscription_ref: "sub_1" });
-        const res = await request(buildApp())
+    it("refuses a second checkout while a subscription is live: active, past due, or awaiting its first payment", async () => {
+        const app = buildApp();
+        const live = [
+            { status: "active" },
+            // The provider is still retrying the payment; the subscription exists.
+            { status: "past_due" },
+            // A checkout completed with its payment pending: references
+            // recorded, status not yet changed by the provider.
+            { status: "trialing" },
+        ];
+        for (const row of live) {
+            holder.fake = fakeDb({ ...row, plan_key: "included", provider_customer_ref: "cus_1", provider_subscription_ref: "sub_1" });
+            const res = await request(app)
+                .post(`/billing/orgs/${ORG}/checkout-session`)
+                .set("x-test-user", OWNER)
+                .send({ plan_key: "included" })
+                .expect(409);
+            expect(res.body.detail).toMatch(/Manage billing/);
+            expect(holder.fake!.tables.audit_events).toEqual([]);
+        }
+        expect(provider.calls).toEqual([]);
+    });
+
+    it("lets a canceled organization buy again, on the customer it already has", async () => {
+        holder.fake = fakeDb({ status: "canceled", plan_key: null, provider_customer_ref: "cus_1", provider_subscription_ref: null });
+        await request(buildApp())
             .post(`/billing/orgs/${ORG}/checkout-session`)
             .set("x-test-user", OWNER)
             .send({ plan_key: "included" })
-            .expect(409);
-        expect(res.body.detail).toMatch(/Manage billing/);
+            .expect(200);
+        expect(provider.calls).toHaveLength(1);
+        expect(provider.calls[0]).toMatchObject({
+            kind: "checkout",
+            input: { orgId: ORG, planKey: "included", customerRef: "cus_1", customerEmail: null },
+        });
+    });
+
+    it("asks an enrolled session for its second factor before a checkout or the portal", async () => {
+        mfa.satisfied = false;
+        holder.fake = fakeDb({ provider_customer_ref: "cus_1" });
+        const app = buildApp();
+        const checkout = await request(app)
+            .post(`/billing/orgs/${ORG}/checkout-session`)
+            .set("x-test-user", OWNER)
+            .send({ plan_key: "included" })
+            .expect(403);
+        expect(checkout.body.code).toBe("mfa_verification_required");
+        const portal = await request(app)
+            .post(`/billing/orgs/${ORG}/portal-session`)
+            .set("x-test-user", OWNER)
+            .expect(403);
+        expect(portal.body.code).toBe("mfa_verification_required");
         expect(provider.calls).toEqual([]);
+        expect(holder.fake!.tables.audit_events).toEqual([]);
     });
 
     it("refuses a checkout while plans are off, even with billing on", async () => {

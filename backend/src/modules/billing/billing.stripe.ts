@@ -278,7 +278,9 @@ export function normalizeStripeEvent(raw: unknown): BillingEvent {
             };
         case "customer.subscription.updated": {
             // current_period_end moved from the subscription to its items in
-            // newer API versions; read whichever is present.
+            // newer API versions; read whichever is present. The item also
+            // carries the price (older shapes mirror it as `plan`), which is
+            // how a plan switch made in the portal reaches this deployment.
             const items = asRecord(object.items)?.data;
             const firstItem = asRecord(Array.isArray(items) ? items[0] : null);
             return {
@@ -292,6 +294,7 @@ export function normalizeStripeEvent(raw: unknown): BillingEvent {
                     isoFromUnixSeconds(object.current_period_end) ??
                     isoFromUnixSeconds(firstItem?.current_period_end),
                 trialEndsAt: isoFromUnixSeconds(object.trial_end),
+                priceRef: refOf(firstItem?.price) ?? refOf(firstItem?.plan),
             };
         }
         default:

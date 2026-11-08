@@ -83,6 +83,12 @@ export type BillingEvent =
           status: SubscriptionStatus | null;
           currentPeriodEnd: string | null;
           trialEndsAt: string | null;
+          /**
+           * The provider's price id on the subscription's item, so a plan
+           * switch made in the provider's portal can be matched against the
+           * catalog's `provider_price_ref`. Null when the report carries none.
+           */
+          priceRef: string | null;
       }
     | {
           id: string;

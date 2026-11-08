@@ -4,6 +4,7 @@ import {
     PlanCatalogError,
     parsePlanCatalog,
     planByKey,
+    planByProviderPriceRef,
     plansEnabled,
     publicPlans,
     loadPlanCatalog,
@@ -167,5 +168,11 @@ describe("planByKey and loadPlanCatalog", () => {
     it("loads from the environment", () => {
         expect(loadPlanCatalog(env)).toHaveLength(3);
         expect(loadPlanCatalog({})).toEqual([]);
+    });
+    it("finds a plan by the provider's price id, or nothing", () => {
+        expect(planByProviderPriceRef("price_included_secret", env)?.key).toBe("included");
+        expect(planByProviderPriceRef("price_other", env)).toBeNull();
+        expect(planByProviderPriceRef(null, env)).toBeNull();
+        expect(planByProviderPriceRef("", env)).toBeNull();
     });
 });
