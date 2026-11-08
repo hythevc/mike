@@ -126,8 +126,12 @@ afterEach(() => {
 });
 
 describe("GET /plans", () => {
-    it("requires a session", async () => {
-        await request(buildApp()).get("/plans").expect(401);
+    it("answers without a session, so the public pricing page can read it", async () => {
+        const res = await request(buildApp()).get("/plans").expect(200);
+        expect(res.body).toMatchObject({ plans_enabled: false, plans: [] });
+        // Counted on its own public lane, whose standard headers the response
+        // carries; plans.routes.rateLimit.test.ts spends the budget itself.
+        expect(res.headers["ratelimit-limit"]).toBe("120");
     });
 
     it("reports plans off and no plans by default", async () => {
@@ -154,9 +158,23 @@ describe("GET /plans", () => {
         expect(JSON.stringify(res.body)).not.toContain("SECRET");
         expect(JSON.stringify(res.body)).not.toContain("provider_price_ref");
     });
+
+    it("shows a signed-out visitor the same public plans, and nothing more", async () => {
+        process.env.PLANS_ENABLED = "true";
+        process.env.PLANS_CATALOG_JSON = CATALOG;
+        const res = await request(buildApp()).get("/plans").expect(200);
+        expect(res.body.plans.map((p: { key: string }) => p.key)).toEqual(["byok"]);
+        expect(res.body.billing_enabled).toBe(false);
+        expect(JSON.stringify(res.body)).not.toContain("SECRET");
+        expect(JSON.stringify(res.body)).not.toContain("provider_price_ref");
+    });
 });
 
 describe("GET /plans/me", () => {
+    it("still requires a session", async () => {
+        await request(buildApp()).get("/plans/me").expect(401);
+    });
+
     it("returns the caller's personal workspace plan view", async () => {
         process.env.PLANS_ENABLED = "true";
         process.env.PLANS_CATALOG_JSON = CATALOG;

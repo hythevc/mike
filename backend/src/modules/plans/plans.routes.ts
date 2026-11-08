@@ -12,17 +12,37 @@ import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
 import { personalOrgId } from "../../lib/entitlements";
 import { plansEnabled } from "../../lib/planCatalog";
-import { billingEnabled } from "../../lib/runtimeConfig";
+import { publicRateLimit } from "../../lib/rateLimitStore";
+import { billingEnabled, envInt } from "../../lib/runtimeConfig";
 import type { OrgPlanView } from "@mike/contracts";
 import { buildOrgPlanView, buildPlansResponse } from "./plans.service";
 
 export const plansRouter = Router();
 
-// GET /plans — the public plans on offer. Signed in, because choosing a plan
-// is something a member does; pricing for the public lives off the product.
+function minutes(value: number): number {
+    return value * 60 * 1000;
+}
+
+// GET /plans is anonymous: the web app's public /pricing page reads it for
+// visitors who have no account yet. Like every anonymous public route it
+// counts on its own lane in the shared store, keyed by client address, so the
+// budget is the same on every replica and the lane refuses requests while the
+// store cannot answer (lib/rateLimitStore.ts; the sign-in lanes in app.ts
+// follow the same policy). The response is built from configuration alone,
+// with no database or model work, so the budget is generous: it is there so
+// that one address cannot keep a replica busy serving the catalog.
+const plansPublicRateLimit = publicRateLimit({
+    lane: "plans-public",
+    windowMs: minutes(envInt("RATE_LIMIT_PLANS_PUBLIC_WINDOW_MINUTES", 15)),
+    max: envInt("RATE_LIMIT_PLANS_PUBLIC_MAX", 120),
+    message: "Too many requests. Please try again later.",
+});
+
+// GET /plans — the public plans on offer: only the plans marked public, their
+// display price text and no provider reference.
 plansRouter.get(
     "/",
-    requireAuth,
+    plansPublicRateLimit,
     asyncRoute(async (_req, res) => {
         res.json(buildPlansResponse());
     }),

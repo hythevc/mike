@@ -381,6 +381,10 @@ services:
         # Opt-out and install kind reach the browser bundle at build time.
         NEXT_PUBLIC_SENTRY_DISABLED: ${SENTRY_DISABLED:-}
         NEXT_PUBLIC_SENTRY_INSTALL: ${SENTRY_INSTALL:-}
+        # The public site's home page and its indexing are build-time flags
+        # too (docs/deployment.md, "Public site"); a change needs a rebuild.
+        NEXT_PUBLIC_SITE_ENABLED: ${NEXT_PUBLIC_SITE_ENABLED:-}
+        NEXT_PUBLIC_SITE_INDEXABLE: ${NEXT_PUBLIC_SITE_INDEXABLE:-}
         GIT_SHA: ${GIT_SHA:-}
         # Sentry source-map upload (docs/observability.md); the token is the
         # build secret below.

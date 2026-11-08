@@ -9,10 +9,14 @@ export interface ContentPageProps {
     title: string;
     /** The document body as Markdown, with its placeholders already filled. */
     markdown: string;
-    /** A draft document shows a banner and is excluded from search engines. */
-    status: "draft" | "in-effect";
-    /** The version shown in the page's footer line. */
-    version: string;
+    /**
+     * A draft document shows a banner and is excluded from search engines.
+     * Omit it, with `version`, for a page that is not a versioned document
+     * (the documentation pages): no banner and no version line are shown.
+     */
+    status?: "draft" | "in-effect";
+    /** The version shown in the page's footer line; omitted with `status`. */
+    version?: string;
 }
 
 /**
@@ -68,9 +72,9 @@ const MARKDOWN_COMPONENTS: Components = {
 
 /**
  * Renders a Markdown content page: the Terms, Privacy Notice and the other
- * legal documents, and (through the same component) other static pages. A
- * draft shows a plain banner saying it is not in effect; the page it is used
- * on sets `noindex` for drafts.
+ * legal documents, the security page, and (through the same component) the
+ * documentation pages. A draft shows a plain banner saying it is not in
+ * effect; the page it is used on sets `noindex` for drafts.
  */
 export function ContentPage({
     title,
@@ -79,6 +83,7 @@ export function ContentPage({
     version,
 }: ContentPageProps) {
     const isDraft = status === "draft";
+    const versioned = status !== undefined && version !== undefined;
     return (
         <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
             {isDraft && (
@@ -98,10 +103,12 @@ export function ContentPage({
                     {markdown}
                 </ReactMarkdown>
             </div>
-            <p className="mt-10 border-t border-current/10 pt-4 text-sm opacity-70">
-                Version {version} ·{" "}
-                {isDraft ? "Draft, not in effect" : "In effect"}
-            </p>
+            {versioned && (
+                <p className="mt-10 border-t border-current/10 pt-4 text-sm opacity-70">
+                    Version {version} ·{" "}
+                    {isDraft ? "Draft, not in effect" : "In effect"}
+                </p>
+            )}
         </main>
     );
 }

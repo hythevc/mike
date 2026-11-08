@@ -148,6 +148,10 @@ jobs:
       # sends every Anthropic request to the loopback fixture, never a provider.
       ANTHROPIC_API_KEY: e2e-local-key
       ANTHROPIC_BASE_URL: http://127.0.0.1:4141/v1
+      # "Write web env" below builds the web app with NEXT_PUBLIC_SITE_ENABLED,
+      # so e2e/public-site.spec.ts must find the home page at / and fails on a
+      # redirect instead of skipping.
+      E2E_SITE_ENABLED: "true"
     steps:
       - uses: actions/checkout@v7
 
@@ -284,13 +288,15 @@ jobs:
 
       # The web client talks to its own /api gateway. Only the Next server
       # needs the upstream backend origin. Written before the build because
-      # Next inlines NEXT_PUBLIC_* values at build time.
+      # Next inlines NEXT_PUBLIC_* values at build time. The public home page
+      # is behind NEXT_PUBLIC_SITE_ENABLED; e2e/public-site.spec.ts scans it.
       - name: Write web env
         run: |
           {
             echo "API_BASE_URL=http://localhost:3001"
             echo "SENTRY_DISABLED=true"
             echo "NEXT_PUBLIC_SENTRY_DISABLED=true"
+            echo "NEXT_PUBLIC_SITE_ENABLED=true"
           } > frontend/.env.local
 
       - name: Build backend
@@ -340,6 +346,7 @@ jobs:
             echo "RATE_LIMIT_AUTH_EMAIL_MAX=100000"
             echo "RATE_LIMIT_AUTH_FLOW_MAX=100000"
             echo "RATE_LIMIT_AUTH_MFA_MAX=100000"
+            echo "RATE_LIMIT_PLANS_PUBLIC_MAX=100000"
             # Point the S3-compatible storage adapter at the RustFS container above.
             echo "R2_ENDPOINT_URL=http://localhost:9000"
             echo "R2_ACCESS_KEY_ID=rustfsadmin"

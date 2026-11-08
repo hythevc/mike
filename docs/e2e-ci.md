@@ -213,3 +213,10 @@ npm run test:e2e            # or test:e2e:ui / test:e2e:headed
 `e2e/auth.setup.ts` reads `SUPABASE_URL` / `SUPABASE_SECRET_KEY` from the
 environment or `backend/.env`, so a running local Supabase + a populated
 `backend/.env` is all the setup needs.
+
+The public home page at `/` is behind a build-time flag. The config starts the
+web server with `NEXT_PUBLIC_SITE_ENABLED=true` and sets `E2E_SITE_ENABLED=true`
+for the specs, so `e2e/public-site.spec.ts` expects the home page and fails if
+`/` redirects. Against a web server you started yourself without the flag, set
+`E2E_SITE_ENABLED=false` to skip that one test. CI sets both in
+`.github/workflows/e2e.yml`.
