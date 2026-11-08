@@ -32,6 +32,7 @@ import {
 } from "./modules/memory/memory.routes";
 import { playbooksRouter } from "./modules/playbooks/playbooks.routes";
 import { intakeRouter } from "./modules/intake/intake.routes";
+import { sourceCodeRouter } from "./modules/source-code/sourceCode.routes";
 import { manifestPublicKey } from "./lib/manifestSigning";
 import {
   handleUnhandledError,
@@ -362,6 +363,9 @@ app.use("/audit", auditRouter);
 app.use("/playbooks", playbooksRouter);
 app.use("/intake", intakeRouter);
 app.use("/upload-sessions", uploadSessionsRouter);
+// Unauthenticated: the AGPL-3.0 section 13 corresponding-source offer must be
+// reachable by every network user, signed in or not.
+app.use("/source", sourceCodeRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

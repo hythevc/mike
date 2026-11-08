@@ -155,7 +155,8 @@ describe("failBoot (MIKE-BACKEND-2 / -3)", () => {
       component: "boot",
       stage: "runtime-config",
       failure_code: "configuration_invalid",
-      configuration_fields: "API_PUBLIC_URL,FRONTEND_URL",
+      // GIT_SHA joins the set in production: the AGPL source offer needs it.
+      configuration_fields: "API_PUBLIC_URL,FRONTEND_URL,GIT_SHA",
     });
     expect(event.level).toBe("fatal");
     const exception = (event.exception as { values: { value: string }[] })

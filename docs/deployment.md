@@ -881,6 +881,29 @@ To try the image on your own machine over plain `http`, pass
 settings are missing, the fatal startup message lists each variable and
 repeats this choice.
 
+### Source offer (AGPL-3.0 section 13)
+
+Every network user must be able to obtain the complete corresponding source of
+the exact running version. Two things make that work in production, and boot
+fails with a message naming the field if either is missing:
+
+- `GIT_SHA` must be the full 40-character commit the image was built from
+  (`GIT_SHA=$(git rev-parse HEAD)`), the same build argument the images already
+  take. The running commit is shown on Settings > About and on the public
+  `/source` page, which link to the repository at that commit.
+- The source repository URL in the brand configuration
+  (`packages/brand/brand.json`) must name the real public repository, not an
+  `example.com`-style placeholder.
+
+The backend serves the offer, unauthenticated, at `GET /source`: the licence,
+the repository, the running commit and version, the upstream attribution, and
+the workflow catalog repository with the commit its active rows were synced
+from. Before building a release image,
+`node scripts/agpl/check-release-commit.mjs` confirms the commit is on the
+public remote, so the offer can always point at source that can be fetched. See
+[UPSTREAM.md](../UPSTREAM.md) for how the fork tracks upstream and
+[NOTICE.md](../NOTICE.md) for the modification and trademark notices.
+
 ### Building the Word add-in image
 
 The repository includes Dockerfiles for the backend, frontend, and Word add-in.

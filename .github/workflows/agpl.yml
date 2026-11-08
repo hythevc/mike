@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# CI: AGPL compliance for the fork.
+#
+# This workflow keeps the fork's AGPL obligations enforceable:
+#
+#   - the SPDX licence line is present on every fork-authored source file added
+#     since the fork base (scripts/agpl/check-spdx.mjs);
+#   - the upstream LICENSE file is byte-for-byte unchanged, checked against a
+#     recorded SHA-256 so no git history is needed;
+#   - CREDITS.md still carries the upstream open-source credits;
+#   - on a push, the built commit is on the public remote
+#     (scripts/agpl/check-release-commit.mjs), so the source offer can always
+#     point at source that can be fetched.
+#
+# The scripts are dependency-free and carry their own node tests. The
+# modification ledger (scripts/agpl/modifications.mjs) is regenerated in a
+# release pull request, not here, so it is not checked on every pull request.
+name: AGPL compliance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  # Include stacked PRs whose base is another feature branch.
+  pull_request:
+
+concurrency:
+  group: agpl-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+permissions:
+  contents: read
+
+jobs:
+  agpl:
+    name: AGPL source offer, SPDX and licence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Full history: the SPDX check diffs against the fork base commit, and
+      # the release-commit check reads the remote-tracking refs.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+
+      - name: AGPL script tests
+        run: node --test scripts/agpl/*.test.mjs
+
+      - name: SPDX headers on new source files
+        run: node scripts/agpl/check-spdx.mjs
+
+      - name: LICENSE is unchanged (recorded SHA-256)
+        run: |
+          echo "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0  LICENSE" \
+            | sha256sum -c -
+
+      - name: CREDITS keeps the upstream credits
+        run: |
+          grep -qF "# Open-source credits" CREDITS.md
+          grep -qF "Open-Legal-Products" CREDITS.md
+
+      - name: Release commit is on the public remote
+        if: github.event_name == 'push'
+        run: |
+          git fetch --no-tags origin "+refs/heads/*:refs/remotes/origin/*"
+          node scripts/agpl/check-release-commit.mjs

@@ -1,6 +1,11 @@
 # Mike
 
-> **Notice:** this is a modified version of Mike by Open-Legal-Products, modified since 2026-10-31. See [NOTICE.md](NOTICE.md).
+> **Notice:** this is a modified version of Mike by Open-Legal-Products, modified
+> since 2026-10-31 and licensed under the GNU Affero General Public License v3.0
+> only (AGPL-3.0-only). Its complete corresponding source is this repository. See
+> [NOTICE.md](NOTICE.md) for the modification and trademark notices,
+> [UPSTREAM.md](UPSTREAM.md) for how it tracks upstream, and
+> [MODIFICATIONS.md](MODIFICATIONS.md) for the per-file change ledger.
 
 ![Mike](docs/assets/link-image.jpg)
 
