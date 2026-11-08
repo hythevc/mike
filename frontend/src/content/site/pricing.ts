@@ -5,6 +5,8 @@
 // and this page shows whatever that returns. While billing is off there is
 // no checkout, only the account links.
 
+import { SITE_CHROME_COPY } from "./chrome";
+
 export const PRICING_COPY = {
     title: "Pricing",
     intro: "Plans are published here as the deployment configures them. Prices are shown as the operator states them; nothing is charged through this page.",
@@ -18,9 +20,9 @@ export const PRICING_COPY = {
     noSeatLimit: "No seat limit",
     trial: (days: number) => (days === 1 ? "1-day trial" : `${days}-day trial`),
     featuresHeading: "Included",
-    accountAction: "Create an account",
-    signInAction: "Sign in",
+    accountAction: SITE_CHROME_COPY.createAccount,
+    signInAction: SITE_CHROME_COPY.signIn,
     billingOffNote:
         "Billing is not enabled on this deployment, so plans cannot be bought here. Create an account to start, or contact the operator about a plan.",
-    disclaimer: "Legal information, not legal advice.",
+    disclaimer: SITE_CHROME_COPY.disclaimer,
 } as const;

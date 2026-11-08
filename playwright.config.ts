@@ -11,6 +11,17 @@ const SYNTHETIC_SPECS = [
     /brand-layout\.spec\.ts/,
 ];
 
+/* The public home page at / is behind a build-time flag. The web server this
+   config starts (webServer below) runs with NEXT_PUBLIC_SITE_ENABLED=true, so
+   the home test in e2e/public-site.spec.ts can expect the home page and fail
+   on a redirect instead of skipping; E2E_SITE_ENABLED tells the spec so. CI
+   owns its own servers and sets both in .github/workflows/e2e.yml, so it is
+   left alone here. Against a web server you started yourself without the
+   flag, set E2E_SITE_ENABLED=false to skip that one test. */
+if (!process.env.CI && process.env.E2E_SITE_ENABLED === undefined) {
+    process.env.E2E_SITE_ENABLED = "true";
+}
+
 export default defineConfig({
     testDir: "./e2e",
     /* Every parallel worker signs in as its OWN user (worker 0 is the
@@ -107,7 +118,8 @@ export default defineConfig({
                       NEXT_PUBLIC_SENTRY_DISABLED: "true",
                       // The public home page at / is behind a build-time flag;
                       // e2e/public-site.spec.ts scans it, so the local server
-                      // runs with it on, as CI does (.github/workflows/e2e.yml).
+                      // runs with it on, as CI does (.github/workflows/e2e.yml),
+                      // and E2E_SITE_ENABLED above tells the spec to expect it.
                       NEXT_PUBLIC_SITE_ENABLED: "true",
                   },
                   url: "http://localhost:3000",

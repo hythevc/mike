@@ -11,10 +11,11 @@ const AUTH_REDIRECT_PATHS = new Set([
 
 /**
  * The top-level routes of the signed-in app (the `(pages)` route group). A
- * link into any of them survives sign-in and onboarding as `?next`.
- * `authRedirects.test.ts` fails when a top-level page is missing here.
+ * link into any of them survives sign-in and onboarding as `?next`, and
+ * robots.ts keeps crawlers out of all of them. `authRedirects.test.ts` and
+ * `robots.test.ts` fail when a top-level page is missing here.
  */
-const APP_ROUTE_ROOTS = [
+export const APP_ROUTE_ROOTS = [
     "/assistant",
     "/history",
     "/ide",

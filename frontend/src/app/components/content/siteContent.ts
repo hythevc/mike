@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { brand } from "@/shared/brand.generated";
 import { DOCS_PAGES, docsPageForSlug, type DocsPage } from "@/content/docs/registry";
+import { SECURITY_PAGE_COPY } from "@/content/site/chrome";
 import {
     fillSitePlaceholders,
     sitePlaceholders,
@@ -24,6 +25,28 @@ const CONTENT_DIR = path.join(process.cwd(), "src", "content");
 const SITE_DIR = path.join(CONTENT_DIR, "site");
 const DOCS_DIR = path.join(CONTENT_DIR, "docs");
 
+// The content is fixed when the app is built, but the (site) pages render on
+// every request (force-dynamic), and each request renders generateMetadata
+// and then the page. So each file is read and filled once per process, the
+// first time it is asked for, and served from memory after that. It stays a
+// filesystem read, so the image needs nothing it did not already have.
+const filledMarkdown = new Map<string, string>();
+
+function fillOnce(
+    key: string,
+    file: string,
+    values?: () => Record<string, string>,
+): string {
+    const cached = filledMarkdown.get(key);
+    if (cached !== undefined) return cached;
+    const markdown = fillSitePlaceholders(
+        stripLeadingComment(readFileSync(file, "utf8")),
+        values?.(),
+    );
+    filledMarkdown.set(key, markdown);
+    return markdown;
+}
+
 export interface LoadedSecurityPage {
     readonly title: string;
     /** The filled Markdown body, SPDX comment removed. */
@@ -33,18 +56,16 @@ export interface LoadedSecurityPage {
     readonly version: string;
 }
 
-export const SECURITY_PAGE_TITLE = "Security";
-
 /** The public security page, filled from the brand and the facts registries. */
 export function loadSecurityPage(): LoadedSecurityPage {
     const doc = brand.legalDocuments.security;
-    const raw = readFileSync(path.join(SITE_DIR, "security.md"), "utf8");
-    const markdown = fillSitePlaceholders(stripLeadingComment(raw), {
-        ...sitePlaceholders(),
-        version: doc.version,
-    });
+    const markdown = fillOnce(
+        `site/security.md@${doc.version}`,
+        path.join(SITE_DIR, "security.md"),
+        () => ({ ...sitePlaceholders(), version: doc.version }),
+    );
     return {
-        title: SECURITY_PAGE_TITLE,
+        title: SECURITY_PAGE_COPY.title,
         markdown,
         status: doc.status,
         version: doc.version,
@@ -63,8 +84,8 @@ export function loadDocsPage(slug: string): LoadedDocsPage | null {
     if (!page) return null;
     // `page.file` comes from the registry, never from the slug, so the path is
     // fixed and cannot be steered out of the content directory.
-    const raw = readFileSync(path.join(DOCS_DIR, page.file), "utf8");
-    return { page, markdown: fillSitePlaceholders(stripLeadingComment(raw)) };
+    const markdown = fillOnce(`docs/${page.file}`, path.join(DOCS_DIR, page.file));
+    return { page, markdown };
 }
 
 /** Every docs page, in index order. */

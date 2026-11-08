@@ -3,14 +3,14 @@ import type { Metadata } from "next";
 import { ContentPage } from "@/app/components/content/ContentPage";
 import { loadSecurityPage } from "@/app/components/content/siteContent";
 import { siteRobotsMetadata } from "@/app/lib/siteFlags";
+import { SECURITY_PAGE_COPY } from "@/content/site/chrome";
 import { brand } from "@/shared/brand.generated";
 
 export function generateMetadata(): Metadata {
     const page = loadSecurityPage();
     return {
         title: `${page.title} · ${brand.productName}`,
-        description:
-            "What the software does to protect accounts, keys and documents, stated as facts: encryption of stored keys, multi-factor authentication, single sign-on, the audit log, export and deletion, model providers, and independent certification.",
+        description: SECURITY_PAGE_COPY.description,
         // A draft stays out of search engines even on an indexable site, as
         // the legal documents do.
         robots: siteRobotsMetadata({ noindex: page.status === "draft" }),

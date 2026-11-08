@@ -448,11 +448,12 @@ and Word chat turns, tabular review chat and generation, playbook reviews) and
 starting a chat are limited per signed-in user, after authentication, with one
 budget per user whichever workspace a request is for. People who share an
 office address each get their own budget. Sign-in, MFA, email and public lanes
-are limited per client address; failed sign-ins are also limited per account,
-keyed by a digest of the email address. The general lane and the export,
-import, deletion, signed-upload and Word tool-result lanes are limited per
-client address too, and upload sessions have their own per-user limits (see
-above).
+(the plan catalog a signed-out visitor reads at `GET /plans`,
+`RATE_LIMIT_PLANS_PUBLIC_*`) are limited per client address; failed sign-ins
+are also limited per account, keyed by a digest of the email address. The
+general lane and the export, import, deletion, signed-upload and Word
+tool-result lanes are limited per client address too, and upload sessions have
+their own per-user limits (see above).
 
 **Where the count lives.** The model, sign-in, MFA, email and public lanes
 count in Postgres (the `rate_limit_windows` table, through the
@@ -1144,9 +1145,14 @@ or a new image). A runtime environment change does nothing.
 `/pricing` reads the public plans from `GET /plans`, which answers without a
 session and returns only the plans marked public, their display price text and
 no provider reference (see [Plans, seats and trials](#plans-seats-and-trials)).
-With no plans configured it says "Pricing is not available yet." Nothing can
-be bought there: billing stays off, and the page offers only the account and
-sign-in links.
+Like every anonymous route it has its own per-address lane in the shared
+rate-limit store (`RATE_LIMIT_PLANS_PUBLIC_MAX`, default 120 requests per
+`RATE_LIMIT_PLANS_PUBLIC_WINDOW_MINUTES`, default 15; see [Rate limits and
+client addresses](#rate-limits-and-client-addresses)), so the pricing page
+reports a failed load while the database cannot count requests. With no plans
+configured it says "Pricing is not available yet." Nothing can be bought
+there: billing stays off, and the page offers only the account and sign-in
+links.
 
 `/security` states what the software does, filled from the brand
 configuration and from `frontend/src/content/site/securityFacts.ts`, where an

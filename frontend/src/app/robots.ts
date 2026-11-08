@@ -8,23 +8,15 @@
 // app, the gateway and the sign-in pages stay out; the public pages do not.
 
 import type { MetadataRoute } from "next";
+import { APP_ROUTE_ROOTS } from "@/app/lib/authRedirects";
 import { siteIndexable } from "@/app/lib/siteFlags";
 
-/** Paths crawlers are kept out of even on an indexable site. */
-export const CRAWL_EXCLUDED_PATHS: readonly string[] = [
-    "/api/",
-    "/monitoring",
-    "/assistant",
-    "/history",
-    "/ide",
-    "/intake",
-    "/library",
-    "/organizations",
-    "/playbooks",
-    "/projects",
-    "/settings",
-    "/tabular-reviews",
-    "/workflows",
+/**
+ * The pages around sign-in (entering, recovering and confirming an account,
+ * onboarding, the OAuth callbacks), the support page and the request-desk
+ * forms: none of them is a page for a search engine to list.
+ */
+const SIGN_IN_AND_FORM_PATHS = [
     "/onboarding",
     "/login",
     "/signup",
@@ -34,6 +26,19 @@ export const CRAWL_EXCLUDED_PATHS: readonly string[] = [
     "/auth/",
     "/support",
     "/request/",
+] as const;
+
+/**
+ * Paths crawlers are kept out of even on an indexable site: the API gateway
+ * and the error-reporting tunnel, every top-level route of the signed-in app
+ * (the same list the sign-in redirects trust, so a new app page is excluded
+ * here the day it is added there), and the pages around sign-in.
+ */
+export const CRAWL_EXCLUDED_PATHS: readonly string[] = [
+    "/api/",
+    "/monitoring",
+    ...APP_ROUTE_ROOTS,
+    ...SIGN_IN_AND_FORM_PATHS,
 ];
 
 export default function robots(): MetadataRoute.Robots {

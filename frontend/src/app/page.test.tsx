@@ -75,4 +75,17 @@ describe("/ (root page)", () => {
         headers.cookieNames = ["mike-session.1"];
         await expect(RootPage()).rejects.toThrow("REDIRECT:/assistant");
     });
+
+    it("shows the home page to a visitor who started a provider sign-in and backed out", async () => {
+        // The PKCE verifier (`mike-session-code-verifier`) is set as soon as
+        // the provider button is clicked and outlives an abandoned sign-in by
+        // months. It is not a session, so it must not hide the home page.
+        vi.stubEnv("NEXT_PUBLIC_SITE_ENABLED", "true");
+        headers.cookieNames = ["theme", "mike-session-code-verifier"];
+        render(await RootPage());
+        expect(
+            screen.getByRole("heading", { level: 1, name: HOME_COPY.headline }),
+        ).toBeInTheDocument();
+        expect(navigation.redirect).not.toHaveBeenCalled();
+    });
 });

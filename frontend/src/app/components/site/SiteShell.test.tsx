@@ -2,7 +2,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { brand } from "@/shared/brand.generated";
-import { SITE_FOOTER_DISCLAIMER } from "./SiteFooter";
+import { SITE_CHROME_COPY } from "@/content/site/chrome";
 
 const navigation = vi.hoisted(() => ({ pathname: "/pricing" }));
 
@@ -84,7 +84,7 @@ describe("SiteShell", () => {
             "href",
             `${brand.sourceRepositoryUrl}/blob/${COMMIT}/CREDITS.md`,
         );
-        expect(within(footer).getByText(SITE_FOOTER_DISCLAIMER)).toBeInTheDocument();
+        expect(within(footer).getByText(SITE_CHROME_COPY.disclaimer)).toBeInTheDocument();
     });
 
     it("never shows the upstream project's name as the product", () => {

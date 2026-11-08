@@ -129,6 +129,9 @@ describe("GET /plans", () => {
     it("answers without a session, so the public pricing page can read it", async () => {
         const res = await request(buildApp()).get("/plans").expect(200);
         expect(res.body).toMatchObject({ plans_enabled: false, plans: [] });
+        // Counted on its own public lane, whose standard headers the response
+        // carries; plans.routes.rateLimit.test.ts spends the budget itself.
+        expect(res.headers["ratelimit-limit"]).toBe("120");
     });
 
     it("reports plans off and no plans by default", async () => {

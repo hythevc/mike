@@ -148,6 +148,10 @@ jobs:
       # sends every Anthropic request to the loopback fixture, never a provider.
       ANTHROPIC_API_KEY: e2e-local-key
       ANTHROPIC_BASE_URL: http://127.0.0.1:4141/v1
+      # "Write web env" below builds the web app with NEXT_PUBLIC_SITE_ENABLED,
+      # so e2e/public-site.spec.ts must find the home page at / and fails on a
+      # redirect instead of skipping.
+      E2E_SITE_ENABLED: "true"
     steps:
       - uses: actions/checkout@v7
 
@@ -342,6 +346,7 @@ jobs:
             echo "RATE_LIMIT_AUTH_EMAIL_MAX=100000"
             echo "RATE_LIMIT_AUTH_FLOW_MAX=100000"
             echo "RATE_LIMIT_AUTH_MFA_MAX=100000"
+            echo "RATE_LIMIT_PLANS_PUBLIC_MAX=100000"
             # Point the S3-compatible storage adapter at the RustFS container above.
             echo "R2_ENDPOINT_URL=http://localhost:9000"
             echo "R2_ACCESS_KEY_ID=rustfsadmin"

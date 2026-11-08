@@ -6,9 +6,12 @@
  * robots.txt files; the security headers on a page route; and a signed-in
  * browser at / landing in the app.
  *
- * The home page flag is baked into the build (playwright.config.ts and the
- * e2e workflow set it). When a build runs without it, / redirects to the app
- * and the home test is skipped rather than failed: there is no home to scan.
+ * The home page flag is baked into the web build. playwright.config.ts and
+ * the e2e workflow both build with it on and say so through E2E_SITE_ENABLED,
+ * so the home test expects the home page and fails on any redirect (a gate
+ * regression, or a cookie wrongly read as a session). Only a run that does
+ * not declare the flag on (E2E_SITE_ENABLED unset or not "true") skips that
+ * test: there is then no home to scan.
  */
 import { test, expect, type Page } from "./fixtures";
 import { expectAccessibleInEveryTheme } from "./axe";
@@ -26,13 +29,18 @@ test.describe("public site", () => {
         test.use({ storageState: { cookies: [], origins: [] } });
 
         test("/ shows the home page and passes the axe check", async ({ page }) => {
+            test.skip(
+                process.env.E2E_SITE_ENABLED !== "true",
+                "E2E_SITE_ENABLED is not 'true': the web build under test was not given NEXT_PUBLIC_SITE_ENABLED, so / redirects to the app",
+            );
             await page.goto("/");
             await page.waitForLoadState("networkidle");
-            const pathname = new URL(page.url()).pathname;
-            test.skip(
-                pathname !== "/",
-                "NEXT_PUBLIC_SITE_ENABLED is not 'true' in this build: / redirects to the app",
-            );
+            // Any redirect is a failure here: the build has the flag on and a
+            // fresh context carries no cookie, so / must stay the home page.
+            expect(
+                new URL(page.url()).pathname,
+                "/ redirected away from the home page",
+            ).toBe("/");
             await expect(
                 page.getByRole("heading", { level: 1, name: HOME_HEADLINE }),
             ).toBeVisible();

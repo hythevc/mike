@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // @vitest-environment node
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { APP_ROUTE_ROOTS } from "@/app/lib/authRedirects";
 import robots, { CRAWL_EXCLUDED_PATHS } from "./robots";
 
 afterEach(() => {
@@ -33,6 +36,37 @@ describe("robots.txt", () => {
         }
         for (const path of ["/pricing", "/docs", "/security", "/legal/", "/source"]) {
             expect(rule.disallow).not.toContain(path);
+        }
+    });
+
+    it("excludes every top-level page of the signed-in app, taken from the sign-in redirect list", () => {
+        // A new directory under (pages)/ is added to APP_ROUTE_ROOTS
+        // (authRedirects.ts) once: that keeps it out of search results here
+        // and lets a deep link to it survive sign-in.
+        const roots = readdirSync(join(__dirname, "(pages)"), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
+            .filter((name) => !name.startsWith("(") && !name.startsWith("_"));
+        expect(roots.length).toBeGreaterThan(0);
+        for (const root of roots) {
+            expect(APP_ROUTE_ROOTS).toContain(`/${root}`);
+            expect(CRAWL_EXCLUDED_PATHS).toContain(`/${root}`);
+        }
+    });
+
+    it("excludes the pages around sign-in, the support page and the request forms", () => {
+        for (const path of [
+            "/onboarding",
+            "/login",
+            "/signup",
+            "/forgot-password",
+            "/reset-password",
+            "/verify-mfa",
+            "/auth/",
+            "/support",
+            "/request/",
+        ]) {
+            expect(CRAWL_EXCLUDED_PATHS).toContain(path);
         }
     });
 });

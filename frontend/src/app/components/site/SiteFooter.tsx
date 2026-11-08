@@ -2,9 +2,7 @@
 import Link from "next/link";
 import { brand } from "@/shared/brand.generated";
 import { getBuildInfo, repositoryFileUrl } from "@/app/lib/buildInfo";
-
-/** The line under every public page: these pages describe a tool, not advice. */
-export const SITE_FOOTER_DISCLAIMER = "Legal information, not legal advice.";
+import { SITE_CHROME_COPY } from "@/content/site/chrome";
 
 const linkClassName =
     "rounded-sm underline-offset-2 transition-colors hover:text-fg hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
@@ -13,15 +11,17 @@ const linkClassName =
  * The footer of the public pages. Like the signed-out AuthFooter it carries
  * the source offer (the repository at the running commit, AGPL-3.0 section
  * 13), the terms and the privacy notice, and adds the security page and the
- * open-source attributions. Every address comes from the brand configuration
- * or the running build.
+ * open-source attributions, then the line that these pages describe a tool,
+ * not advice. Every address comes from the brand configuration or the
+ * running build; every word from content/site/chrome.ts.
  */
 export function SiteFooter() {
     const build = getBuildInfo();
+    const { footer } = SITE_CHROME_COPY;
     return (
         <footer className="border-t border-border">
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-4 py-6 text-sm text-fg-muted sm:px-6">
-                <nav aria-label="Legal and source">
+                <nav aria-label={SITE_CHROME_COPY.footerNavLabel}>
                     <ul className="flex flex-wrap gap-x-5 gap-y-1">
                         <li>
                             <a
@@ -30,22 +30,22 @@ export function SiteFooter() {
                                 rel="noreferrer"
                                 className={linkClassName}
                             >
-                                Source
+                                {footer.source}
                             </a>
                         </li>
                         <li>
                             <Link href={brand.legalDocuments.terms.url} className={linkClassName}>
-                                Terms
+                                {footer.terms}
                             </Link>
                         </li>
                         <li>
                             <Link href={brand.legalDocuments.privacy.url} className={linkClassName}>
-                                Privacy
+                                {footer.privacy}
                             </Link>
                         </li>
                         <li>
                             <Link href={brand.legalDocuments.security.url} className={linkClassName}>
-                                Security
+                                {footer.security}
                             </Link>
                         </li>
                         <li>
@@ -55,12 +55,12 @@ export function SiteFooter() {
                                 rel="noreferrer"
                                 className={linkClassName}
                             >
-                                Attributions
+                                {footer.attributions}
                             </a>
                         </li>
                     </ul>
                 </nav>
-                <p>{SITE_FOOTER_DISCLAIMER}</p>
+                <p>{SITE_CHROME_COPY.disclaimer}</p>
             </div>
         </footer>
     );

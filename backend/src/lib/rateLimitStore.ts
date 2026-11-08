@@ -305,10 +305,11 @@ export type PublicRateLimitOptions = Omit<
 >;
 
 /**
- * The lane for an anonymous public route, such as a form reached by a link:
- * keyed by client address, counted in the shared store, and refusing requests
- * while the store cannot answer. Mount it in app.ts ahead of the route, so it
- * runs before any lookup the route makes.
+ * The lane for an anonymous public route, such as a form reached by a link or
+ * the plan catalog: keyed by client address, counted in the shared store, and
+ * refusing requests while the store cannot answer. Mount it ahead of the
+ * route (in app.ts, or first on the route itself), so it runs before any
+ * lookup the route makes.
  */
 export function publicRateLimit(
   options: PublicRateLimitOptions,

@@ -6,6 +6,7 @@
 // accuracy or time saved, because none has been measured.
 
 import { brand } from "@/shared/brand.generated";
+import { SITE_CHROME_COPY } from "./chrome";
 
 export interface HomeFact {
     readonly title: string;
@@ -16,8 +17,8 @@ export const HOME_COPY = {
     /** The page's one h1. */
     headline: "Review, draft and negotiate with sources you can check.",
     lede: `${brand.productName} reads the documents you give it and answers with the passages it relied on. Every quote is matched against the source text and labelled with what was found. Every proposed edit waits for a lawyer's decision.`,
-    primaryAction: "Create an account",
-    secondaryAction: "Sign in",
+    primaryAction: SITE_CHROME_COPY.createAccount,
+    secondaryAction: SITE_CHROME_COPY.signIn,
     docsAction: "Read the documentation",
     factsHeading: "What you get",
     facts: [
@@ -43,5 +44,5 @@ export const HOME_COPY = {
         "In the browser, and inside Microsoft Word through the task-pane add-in, where proposed edits arrive as tracked changes you review in the document itself.",
     limitsHeading: "What it is not",
     limitsBody: `${brand.productName} is a tool for legal professionals and the people they supervise. It does not practise law, does not give legal advice and does not replace a lawyer's judgement. Models can be wrong, out of date or unsupported by your documents, so read every answer against the source before relying on it.`,
-    disclaimer: "Legal information, not legal advice.",
+    disclaimer: SITE_CHROME_COPY.disclaimer,
 } as const;

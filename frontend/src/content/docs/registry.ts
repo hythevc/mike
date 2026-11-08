@@ -6,6 +6,8 @@
 // the set of pages stays in step with the files. The pages fill the same
 // brand placeholders as the rest of the site (content/site/placeholders.ts).
 
+import { SITE_CHROME_COPY } from "@/content/site/chrome";
+
 export interface DocsPage {
     /** URL segment under /docs/. */
     readonly slug: string;
@@ -82,7 +84,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
 export const DOCS_INDEX_COPY = {
     title: "Documentation",
     intro: "How the product works, what it checks and what it does not, how your data is handled, and where its source code is.",
-    disclaimer: "Legal information, not legal advice.",
+    disclaimer: SITE_CHROME_COPY.disclaimer,
 } as const;
 
 /** The URL slugs of every docs page. */

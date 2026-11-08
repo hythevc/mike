@@ -3,12 +3,14 @@ import Link from "next/link";
 import { brand } from "@/shared/brand.generated";
 import { BrandMark } from "@/shared/ui/BrandMarkUI";
 import { pillButtonUIClassName } from "@/shared/ui/PillButtonUI.styles";
+import { SITE_CHROME_COPY } from "@/content/site/chrome";
 import { SiteNav } from "./SiteNav";
 
 /**
  * The header of the public pages: the product mark and name (from the brand
- * configuration), the site navigation, and the way into the app. Wraps onto
- * two rows on a narrow screen rather than overflowing.
+ * configuration), the site navigation, and the way into the app. Every word
+ * comes from content/site/chrome.ts. Wraps onto two rows on a narrow screen
+ * rather than overflowing.
  */
 export function SiteHeader() {
     return (
@@ -28,13 +30,13 @@ export function SiteHeader() {
                         href="/login"
                         className={pillButtonUIClassName({ tone: "white", size: "normal" })}
                     >
-                        Sign in
+                        {SITE_CHROME_COPY.signIn}
                     </Link>
                     <Link
                         href="/signup"
                         className={pillButtonUIClassName({ tone: "black", size: "normal" })}
                     >
-                        Create an account
+                        {SITE_CHROME_COPY.createAccount}
                     </Link>
                 </div>
             </div>
