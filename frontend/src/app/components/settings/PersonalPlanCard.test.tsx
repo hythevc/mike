@@ -15,6 +15,7 @@ function view(over: Partial<OrgPlanView> = {}): OrgPlanView {
   return {
     plans_enabled: false,
     billing_enabled: false,
+    has_billing_account: false,
     plan: null,
     status: null,
     seats_used: 1,

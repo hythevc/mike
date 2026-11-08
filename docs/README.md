@@ -6,6 +6,9 @@
   registration, Ollama, and first-run setup
 - [Manual and production deployment](deployment.md) — managed infrastructure,
   environment variables, database upgrades, and deployment safety
+- [Billing](billing.md) — the payment-provider adapter behind `BILLING_ENABLED`
+  (off by default): test mode only, checkout and portal for owners, webhook
+  events and idempotency
 - [Troubleshooting](troubleshooting.md) — common local and production problems
 - [Safe local testing](safe-local-testing.md) — disposable resources, synthetic
   documents, and secret handling

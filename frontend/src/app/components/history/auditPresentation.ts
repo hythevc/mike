@@ -53,6 +53,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "org.logo.updated": "Logo updated",
   "org.logo.removed": "Logo removed",
   "org.router_models.updated": "Models updated",
+  "billing.checkout_started": "Plan checkout started",
+  "billing.portal_opened": "Billing portal opened",
   "org.departure.item.transferred": "Departed work transferred",
   "org.departure.item.archived": "Departed work archived",
   "org.departure.item.recovered": "Departed work recovered",

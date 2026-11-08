@@ -32,6 +32,7 @@ function view(over: Partial<OrgPlanView> = {}): OrgPlanView {
   return {
     plans_enabled: true,
     billing_enabled: false,
+    has_billing_account: false,
     plan: {
       key: "included",
       name: "Included AI",
@@ -123,5 +124,48 @@ describe("OrganizationPlanSettings", () => {
     expect(
       await screen.findByRole("button", { name: "Try again" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows no upgrade or manage control while billing is off", async () => {
+    mocks.getOrgPlan.mockResolvedValue(
+      view({ billing_enabled: false, status: "trialing", has_billing_account: false }),
+    );
+    render(<OrganizationPlanSettings />);
+    expect(await screen.findByText("Included AI")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /choose a plan/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /manage billing/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
+  });
+
+  it("offers an owner the plan and billing controls once billing is on", async () => {
+    // A canceled workspace may buy again, and its billing account still
+    // holds the invoices, so both controls show.
+    mocks.getOrgPlan.mockResolvedValue(
+      view({ billing_enabled: true, status: "canceled", plan: null, has_billing_account: true }),
+    );
+    render(<OrganizationPlanSettings />);
+    expect(await screen.findByRole("button", { name: "Choose a plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage billing" })).toBeInTheDocument();
+  });
+
+  it("shows a past-due owner Manage billing but offers no second checkout", async () => {
+    mocks.getOrgPlan.mockResolvedValue(
+      view({ billing_enabled: true, status: "past_due", has_billing_account: true }),
+    );
+    render(<OrganizationPlanSettings />);
+    expect(await screen.findByRole("button", { name: "Manage billing" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose a plan" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Past due/)).toBeInTheDocument();
+  });
+
+  it("offers an admin no billing control even when billing is on", async () => {
+    mocks.org = { id: "org-1", name: "Firm", role: "admin" };
+    mocks.getOrgPlan.mockResolvedValue(
+      view({ billing_enabled: true, status: "trialing", has_billing_account: true }),
+    );
+    render(<OrganizationPlanSettings />);
+    expect(await screen.findByText("Included AI")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /choose a plan|manage billing/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Only an organization owner can change the plan/)).toBeInTheDocument();
   });
 });

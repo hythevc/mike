@@ -1111,7 +1111,10 @@ a default trial window. When plans are enabled:
 Owners and admins see a workspace's plan, seats and this month's usage under
 Settings → Plan and usage (`GET /orgs/:id/plan`); the personal settings Usage
 Plan card shows the same for a person's own workspace. There is no upgrade
-control while billing is off.
+control while billing is off. Billing is its own switch, `BILLING_ENABLED`
+(default off), with a test-mode-only provider adapter behind it; see
+[Billing](billing.md) for the switches, the checkout and portal routes, and
+what each provider event does to a subscription.
 
 **Upgrading.** Apply `20261107_50_org_subscriptions.sql` (Compose's `db-init`
 runs it). It is additive and safe to re-run. The trigger creates a

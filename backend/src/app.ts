@@ -34,6 +34,11 @@ import { playbooksRouter } from "./modules/playbooks/playbooks.routes";
 import { intakeRouter, requestFormsRouter } from "./modules/intake/intake.routes";
 import { sourceCodeRouter } from "./modules/source-code/sourceCode.routes";
 import { plansRouter } from "./modules/plans/plans.routes";
+import {
+  billingRouter,
+  billingWebhookHandler,
+  requireBillingEnabled,
+} from "./modules/billing/billing.routes";
 import { installPlanAllowance } from "./lib/entitlements";
 import { manifestPublicKey } from "./lib/manifestSigning";
 import {
@@ -104,6 +109,11 @@ const TOOL_RESULT_PATH = "/word-chat/tool-result";
 // its own rate-limit lane and to keep it out of the shared one.
 const BLOB_UPLOAD_PREFIX = "/download/signed/";
 
+// The billing provider's webhook. Its deliveries come from the provider's
+// own addresses in bursts, so it has a lane of its own rather than a share of
+// one address's general budget (see modules/billing).
+const BILLING_WEBHOOK_PATH = "/billing/webhook";
+
 const generalLimiter = makeLimiter({
   windowMs: minutes(envInt("RATE_LIMIT_GENERAL_WINDOW_MINUTES", 15)),
   max: envInt("RATE_LIMIT_GENERAL_MAX", 300),
@@ -113,7 +123,14 @@ const generalLimiter = makeLimiter({
     req.path === TOOL_RESULT_PATH ||
     req.path === "/upload-sessions" ||
     req.path.startsWith("/upload-sessions/") ||
-    (req.method === "PUT" && req.path.startsWith(BLOB_UPLOAD_PREFIX)),
+    (req.method === "PUT" && req.path.startsWith(BLOB_UPLOAD_PREFIX)) ||
+    (req.method === "POST" && req.path === BILLING_WEBHOOK_PATH),
+});
+
+const billingWebhookLimiter = makeLimiter({
+  windowMs: minutes(envInt("RATE_LIMIT_BILLING_WEBHOOK_WINDOW_MINUTES", 15)),
+  max: envInt("RATE_LIMIT_BILLING_WEBHOOK_MAX", 1000),
+  message: "Too many billing events. Please try again later.",
 });
 
 // The filesystem storage driver's signed PUT (see downloads.routes.ts) is the
@@ -377,6 +394,20 @@ app.post(
   express.json({ limit: REQUEST_FORM_BODY_LIMIT }),
 );
 
+// Also ahead of the JSON parser: the billing provider signs the exact bytes
+// of each webhook delivery, so the handler needs the raw body. The route
+// answers 404 while BILLING_ENABLED is unset, and does so before the raw
+// parser runs, so a deployment that does not bill never buffers a body sent
+// to this public path. Deliveries are small; the cap keeps the raw parser
+// from buffering anything else.
+app.post(
+  BILLING_WEBHOOK_PATH,
+  billingWebhookLimiter,
+  requireBillingEnabled,
+  express.raw({ type: () => true, limit: "1mb" }),
+  billingWebhookHandler,
+);
+
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 // Body-aware account throttling complements the per-IP login limiter. The key
@@ -391,6 +422,8 @@ app.use("/projects/:projectId/memory", projectMemoryRouter);
 app.use("/projects", projectsRouter);
 app.use("/orgs", orgsRouter);
 app.use("/plans", plansRouter);
+// Every /billing route answers 404 until BILLING_ENABLED is set (docs/billing.md).
+app.use("/billing", billingRouter);
 app.use("/projects/:projectId/chat", projectChatRouter);
 app.use("/single-documents", documentsRouter);
 app.use("/library", libraryRouter);

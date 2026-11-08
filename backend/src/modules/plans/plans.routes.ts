@@ -12,6 +12,7 @@ import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
 import { personalOrgId } from "../../lib/entitlements";
 import { plansEnabled } from "../../lib/planCatalog";
+import { billingEnabled } from "../../lib/runtimeConfig";
 import type { OrgPlanView } from "@mike/contracts";
 import { buildOrgPlanView, buildPlansResponse } from "./plans.service";
 
@@ -40,7 +41,8 @@ plansRouter.get(
             // empty view rather than fail.
             const empty: OrgPlanView = {
                 plans_enabled: plansEnabled(),
-                billing_enabled: false,
+                billing_enabled: billingEnabled(),
+                has_billing_account: false,
                 plan: null,
                 status: null,
                 seats_used: 0,

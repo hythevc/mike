@@ -4,8 +4,11 @@ import {
   diagnosticEvent,
 } from "../observability/sentryPrivacy";
 import {
+  billingConfiguration,
+  configuredFrontendUrl,
   envInt,
   envNonNegativeInt,
+  isLiveBillingKey,
   uploadConversionTimeoutMs,
   uploadJobWallClockMs,
   uploadProcessingConfiguration,
@@ -168,6 +171,160 @@ describe("runtime authentication configuration", () => {
         "https://example.com/placeholder",
       ),
     ).not.toThrow();
+  });
+});
+
+// Billing is off by default and never turns on by accident: with it on, a
+// live-mode provider key is refused at boot unless a second switch says so.
+describe("billing configuration", () => {
+  const billingOn = {
+    ...validProduction,
+    NODE_ENV: "development",
+    FRONTEND_URL: "http://localhost:3000",
+    API_PUBLIC_URL: "http://localhost:3000/api",
+    BILLING_ENABLED: "true",
+    STRIPE_WEBHOOK_SECRET: "whsec_test_placeholder",
+  } as NodeJS.ProcessEnv;
+
+  it("is off unless BILLING_ENABLED is exactly true", () => {
+    expect(billingConfiguration({}).enabled).toBe(false);
+    expect(billingConfiguration({ BILLING_ENABLED: "1" }).enabled).toBe(false);
+    expect(billingConfiguration({ BILLING_ENABLED: "yes" }).enabled).toBe(false);
+    expect(billingConfiguration({ BILLING_ENABLED: " TRUE " }).enabled).toBe(true);
+    expect(billingConfiguration({ BILLING_ENABLED: "true" })).toMatchObject({
+      enabled: true,
+      allowLive: false,
+      provider: "stripe",
+      secretKey: "",
+      webhookSecret: "",
+    });
+    expect(billingConfiguration({ BILLING_PROVIDER: "Fake" }).provider).toBe("fake");
+    expect(billingConfiguration({ BILLING_PROVIDER: "paypal" }).provider).toBeNull();
+  });
+
+  it("recognises live-mode secret and restricted keys", () => {
+    expect(isLiveBillingKey("sk_live_placeholder")).toBe(true);
+    expect(isLiveBillingKey(" rk_live_placeholder ")).toBe(true);
+    expect(isLiveBillingKey("sk_test_placeholder")).toBe(false);
+    expect(isLiveBillingKey("rk_test_placeholder")).toBe(false);
+    expect(isLiveBillingKey("")).toBe(false);
+    expect(isLiveBillingKey(undefined)).toBe(false);
+  });
+
+  it("refuses BILLING_ENABLED with a live-mode secret unless BILLING_ALLOW_LIVE is true", () => {
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        STRIPE_SECRET_KEY: "sk_live_placeholder",
+      }),
+    ).toThrow(/BILLING_ENABLED is set with a live-mode STRIPE_SECRET_KEY/);
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        STRIPE_SECRET_KEY: "rk_live_placeholder",
+      }),
+    ).toThrow(/live-mode/);
+    // Only the exact value counts, so a stray "1" or "yes" does not unlock it.
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        STRIPE_SECRET_KEY: "sk_live_placeholder",
+        BILLING_ALLOW_LIVE: "1",
+      }),
+    ).toThrow(/live-mode/);
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        STRIPE_SECRET_KEY: "sk_live_placeholder",
+        BILLING_ALLOW_LIVE: "true",
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts a test-mode secret", () => {
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        STRIPE_SECRET_KEY: "sk_test_placeholder",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        STRIPE_SECRET_KEY: "rk_test_placeholder",
+      }),
+    ).not.toThrow();
+  });
+
+  it("requires the provider key and the webhook secret once billing is on", () => {
+    expect(() =>
+      validateRuntimeConfiguration({ ...billingOn, STRIPE_WEBHOOK_SECRET: undefined }),
+    ).toThrow(/STRIPE_SECRET_KEY is required[\s\S]*STRIPE_WEBHOOK_SECRET is required/);
+    // The fake provider needs no provider key, only the webhook secret.
+    expect(() =>
+      validateRuntimeConfiguration({ ...billingOn, BILLING_PROVIDER: "fake" }),
+    ).not.toThrow();
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        BILLING_PROVIDER: "fake",
+        STRIPE_WEBHOOK_SECRET: undefined,
+      }),
+    ).toThrow(/STRIPE_WEBHOOK_SECRET is required/);
+  });
+
+  it("refuses the fake provider in production and an unknown provider anywhere", () => {
+    expect(() =>
+      validateRuntimeConfiguration(
+        {
+          ...validProduction,
+          BILLING_ENABLED: "true",
+          BILLING_PROVIDER: "fake",
+          STRIPE_WEBHOOK_SECRET: "whsec_test_placeholder",
+        },
+        REAL_REPOSITORY,
+      ),
+    ).toThrow(/BILLING_PROVIDER=fake is for tests and local stacks only/);
+    expect(() =>
+      validateRuntimeConfiguration({ ...billingOn, BILLING_PROVIDER: "paypal" }),
+    ).toThrow(/BILLING_PROVIDER must be "stripe" or "fake"/);
+  });
+
+  it("checks nothing while billing is off, whatever keys are around", () => {
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...billingOn,
+        BILLING_ENABLED: undefined,
+        STRIPE_SECRET_KEY: "sk_live_placeholder",
+        STRIPE_WEBHOOK_SECRET: undefined,
+        BILLING_PROVIDER: "paypal",
+      }),
+    ).not.toThrow();
+  });
+
+  it("names the billing fields in the diagnostic tags without their values", () => {
+    let failure: unknown;
+    try {
+      validateRuntimeConfiguration({
+        ...billingOn,
+        STRIPE_SECRET_KEY: "sk_live_PRIVATE",
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const event = diagnosticEvent({ tags: diagnosticErrorTags(failure) });
+    expect(event.tags).toEqual({
+      failure_code: "configuration_invalid",
+      configuration_fields: "BILLING_ENABLED",
+    });
+    expect(JSON.stringify(event)).not.toContain("PRIVATE");
+  });
+
+  it("builds the web app origin for provider return URLs", () => {
+    expect(configuredFrontendUrl({})).toBe("http://localhost:3000");
+    expect(configuredFrontendUrl({ FRONTEND_URL: "https://app.example.test/" })).toBe(
+      "https://app.example.test",
+    );
   });
 });
 

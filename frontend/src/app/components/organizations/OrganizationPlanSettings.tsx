@@ -16,8 +16,9 @@ import {
 } from "@/app/components/settings/SettingsText";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { getOrgPlan } from "@/app/lib/mikeApi";
-import { isOrgAdmin } from "@/app/lib/permissions";
+import { isOrgAdmin, isOrgOwner } from "@/app/lib/permissions";
 import { userFacingApiError } from "@/app/lib/userFacingError";
+import { OrganizationBillingActions } from "./OrganizationBillingActions";
 import {
   organizationSettingsHref,
   useOrganizationSettings,
@@ -27,8 +28,10 @@ import {
 // admins' alone. It shows the plan the workspace is on, the seats in use
 // against the limit, and this month's AI usage, read back from the usage
 // ledger. Plans and billing are off by default; when plans are off the
-// section says so and still shows seats and usage. There is no upgrade control
-// while billing is off.
+// section says so and still shows seats and usage. The checkout and portal
+// controls (OrganizationBillingActions) appear only when the deployment
+// reports billing enabled, and only to owners; with billing off there is no
+// upgrade or manage control at all.
 
 const STATUS_LABELS: Record<NonNullable<OrgPlanView["status"]>, string> = {
   trialing: "Trial",
@@ -105,6 +108,8 @@ export function OrganizationPlanSettings() {
           <div className="space-y-3 p-1">
             <SkeletonLine className="w-40" />
             <SkeletonLine className="w-64" />
+            {/* The controls row the card carries when billing is on. */}
+            <SkeletonLine className="h-7 w-32 rounded-full" />
           </div>
         </GlassCardUI>
       </div>
@@ -165,6 +170,14 @@ export function OrganizationPlanSettings() {
               </div>
             )}
           </SettingsRow>
+          {/* Further rows of the same card: the controls and the plans on offer. */}
+          {view.plans_enabled && org ? (
+            <OrganizationBillingActions
+              orgId={orgId}
+              view={view}
+              isOwner={isOrgOwner(org.role)}
+            />
+          ) : null}
         </GlassCardUI>
       </section>
 

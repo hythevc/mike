@@ -197,6 +197,121 @@ export function configuredApiPublicUrl(
   return required(env, ["API_PUBLIC_URL"]).replace(/\/+$/, "");
 }
 
+/**
+ * The browser-reachable web app origin, without a trailing slash: where a
+ * flow that leaves the app (a payment provider's hosted page) sends the
+ * person back. Production requires FRONTEND_URL (checked below); a local run
+ * defaults to the dev server, the same default lib/origins.ts allows.
+ */
+export function configuredFrontendUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return (env.FRONTEND_URL?.trim() || "http://localhost:3000").replace(
+    /\/+$/,
+    "",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Billing (BILLING_ENABLED). Off by default and never switched on by a code
+// change: the adapter in modules/billing is inert, and every /billing route
+// answers 404, until an operator sets BILLING_ENABLED=true. Even then a
+// live-mode provider key is refused at boot unless BILLING_ALLOW_LIVE is set
+// as well, so a deployment cannot start charging by mistake. docs/billing.md
+// describes the switches; this file only reads them.
+// ---------------------------------------------------------------------------
+
+/** Which billing adapter to construct: the provider over REST, or the in-process fake for tests. */
+export type BillingProviderKind = "stripe" | "fake";
+
+export type BillingConfiguration = {
+  /** BILLING_ENABLED is exactly "true" (trimmed, any case). */
+  enabled: boolean;
+  /** BILLING_ALLOW_LIVE is "true": a live-mode key may be used. Unset by default. */
+  allowLive: boolean;
+  /** The adapter named by BILLING_PROVIDER (default stripe), or null for an unknown value. */
+  provider: BillingProviderKind | null;
+  /** The provider's secret API key (STRIPE_SECRET_KEY), or "". */
+  secretKey: string;
+  /** The webhook signing secret (STRIPE_WEBHOOK_SECRET), or "". */
+  webhookSecret: string;
+};
+
+function flag(env: NodeJS.ProcessEnv, name: string): boolean {
+  return env[name]?.trim().toLowerCase() === "true";
+}
+
+/** Whether billing routes exist on this deployment. Off unless explicitly set. */
+export function billingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return flag(env, "BILLING_ENABLED");
+}
+
+/**
+ * A live-mode provider secret: one that would move real money. Stripe's
+ * secret keys are `sk_live_…` and its restricted keys `rk_live_…`; test-mode
+ * keys read `sk_test_…` / `rk_test_…`.
+ */
+export function isLiveBillingKey(key: string | null | undefined): boolean {
+  return /^(?:sk|rk)_live_/i.test(key?.trim() ?? "");
+}
+
+export function billingConfiguration(
+  env: NodeJS.ProcessEnv = process.env,
+): BillingConfiguration {
+  const providerSetting = env.BILLING_PROVIDER?.trim().toLowerCase() || "stripe";
+  return {
+    enabled: billingEnabled(env),
+    allowLive: flag(env, "BILLING_ALLOW_LIVE"),
+    provider:
+      providerSetting === "stripe" || providerSetting === "fake"
+        ? providerSetting
+        : null,
+    secretKey: env.STRIPE_SECRET_KEY?.trim() ?? "",
+    webhookSecret: env.STRIPE_WEBHOOK_SECRET?.trim() ?? "",
+  };
+}
+
+/**
+ * The boot-time rules for billing, as error lines. Nothing is checked while
+ * billing is off: the keys are then unused, and a self-hosted deployment that
+ * never bills must not have to think about them.
+ */
+function billingConfigurationErrors(env: NodeJS.ProcessEnv): string[] {
+  const billing = billingConfiguration(env);
+  if (!billing.enabled) return [];
+  const errors: string[] = [];
+  if (!billing.provider) {
+    errors.push('BILLING_PROVIDER must be "stripe" or "fake"');
+  }
+  if (billing.provider === "fake" && env.NODE_ENV === "production") {
+    errors.push(
+      "BILLING_PROVIDER=fake is for tests and local stacks only, not for production",
+    );
+  }
+  if (billing.provider === "stripe" && !billing.secretKey) {
+    errors.push("STRIPE_SECRET_KEY is required when BILLING_ENABLED is true");
+  }
+  if (billing.provider && !billing.webhookSecret) {
+    errors.push(
+      "STRIPE_WEBHOOK_SECRET is required when BILLING_ENABLED is true",
+    );
+  }
+  // The one rule that matters most: a live key never boots by accident. The
+  // switch that allows it is separate from the one that turns billing on, so
+  // enabling billing against a copied production key still stops here.
+  if (
+    billing.provider === "stripe" &&
+    isLiveBillingKey(billing.secretKey) &&
+    !billing.allowLive
+  ) {
+    errors.push(
+      "BILLING_ENABLED is set with a live-mode STRIPE_SECRET_KEY (sk_live_ or rk_live_); " +
+        "this deployment runs billing in test mode only unless BILLING_ALLOW_LIVE=true is also set",
+    );
+  }
+  return errors;
+}
+
 export function authHandoffEncryptionSecret(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -277,6 +392,10 @@ export function validateRuntimeConfiguration(
       "AUTH_HANDOFF_ENCRYPTION_SECRET is required when WORD_ADDIN_URL is set",
     );
   }
+
+  // Billing's rules apply in every environment: a live key is refused in a
+  // local run as firmly as in production.
+  errors.push(...billingConfigurationErrors(env));
 
   const errorsBeforeProductionChecks = errors.length;
   if (env.NODE_ENV === "production") {
