@@ -1113,6 +1113,72 @@ export interface RequestDeskBoardSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Request forms: public submissions into the request desk, by people without
+// a seat. Owners and admins manage them under /intake/forms; the public
+// endpoints under /request-forms take no session.
+// ---------------------------------------------------------------------------
+
+/**
+ * A request form as its organization's owners and admins see it. The link
+ * token is never part of it: it is stored only as a digest, and shown once
+ * when the form is created or its link rotated (RequestDeskFormLink).
+ */
+export interface RequestDeskForm {
+    id: string;
+    org_id: string;
+    title: string;
+    intro: string;
+    /** Notices the public page shows, in the organization's own wording. */
+    disclaimer: string;
+    privacy_notice: string;
+    /** The organization's privacy policy, linked from the privacy notice. */
+    privacy_policy_url: string | null;
+    /** Lower-case domains whose addresses may submit; empty means any address. */
+    allowed_sender_domains: string[];
+    /** How long a submission that has not become a matter is kept. */
+    retention_days: number;
+    enabled: boolean;
+    created_by: RequestDeskPerson | null;
+    token_rotated_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+/** The answer to creating a form or rotating its link. */
+export interface RequestDeskFormLink {
+    form: RequestDeskForm;
+    /** The link token, shown this once and never stored. */
+    token: string;
+    /** The web app path that opens the form: `/request/<token>`. */
+    path: string;
+}
+
+/** What the public page shows for a form reached by its link. */
+export interface RequestDeskPublicForm {
+    organization: {
+        name: string;
+        /** The organization's logo as a data URL, or null for none. */
+        logo_data_url: string | null;
+    };
+    title: string;
+    intro: string;
+    disclaimer: string;
+    privacy_notice: string;
+    privacy_policy_url: string | null;
+    retention_days: number;
+    /**
+     * Whether only approved email domains may submit. The domains themselves
+     * are not disclosed to visitors.
+     */
+    restricts_sender_domains: boolean;
+}
+
+/** The only thing a requester gets back: the request's reference. */
+export interface RequestDeskFormReceipt {
+    reference: string;
+}
+
+// ---------------------------------------------------------------------------
 // Workflow catalog licences and provenance
 // ---------------------------------------------------------------------------
 

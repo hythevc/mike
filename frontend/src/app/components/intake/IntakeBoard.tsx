@@ -2,11 +2,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/app/components/shared/PageHeader";
 import { PAGE_HEADER_TITLE_CLASS } from "@/app/components/shared/pageHeaderStyles";
 import { FORM_CONTROL_GLASS_CLASS } from "@/app/components/ui/form-field";
 import { useAuth } from "@/app/contexts/AuthContext";
+import { useWorkspace } from "@/app/contexts/WorkspaceContext";
+import { isOrgAdmin } from "@/app/lib/permissions";
 import { reportFault } from "@/app/lib/userFacingError";
+import { headerButtonClassName } from "@/shared/ui/HeaderButtonsUI";
 import {
     getIntakeBoard,
     listIntakeRequests,
@@ -78,6 +82,11 @@ function toApiFilters(
 
 export function IntakeBoard({ workspace }: { workspace: string }) {
     const { user } = useAuth();
+    // Request forms are managed by owners and admins; the link to them is
+    // offered only once the caller's role is known to allow it.
+    const { activeOrganization } = useWorkspace();
+    const canManageForms =
+        activeOrganization?.id === workspace && isOrgAdmin(activeOrganization.role);
     const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
     const [sort, setSort] = useState<IntakeSortState | null>(null);
     const [requests, setRequests] = useState<RequestDeskRequest[]>([]);
@@ -200,6 +209,16 @@ export function IntakeBoard({ workspace }: { workspace: string }) {
         <div className="flex h-full min-h-0 flex-col">
             <PageHeader
                 actions={[
+                    canManageForms && {
+                        type: "custom",
+                        render: (
+                            // A destination, so a link: it opens in a new tab
+                            // and announces where it goes.
+                            <Link href="/intake/forms" className={headerButtonClassName()}>
+                                Request forms
+                            </Link>
+                        ),
+                    },
                     {
                         type: "new",
                         onClick: () => setNewRequestOpen(true),

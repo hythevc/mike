@@ -12,8 +12,12 @@
 //   intake.matter.ts       create a matter from a request
 //   intake.comments.ts     the activity trail
 //   intake.board.ts        the triage board's counts
+//   intake.forms.ts        public request forms: managed by owners and
+//                          admins, submitted through without a session
+//   intake.retention.ts    deletion of expired form submissions
 //
-// Database objects: request_desk_* (backend/migrations/20261031_53_request_desk.sql).
+// Database objects: request_desk_* (backend/migrations/20261031_53_request_desk.sql
+// and 20261108_50_request_desk_forms.sql).
 
 export {
     createRequest,
@@ -29,3 +33,14 @@ export { createMatterFromRequest } from "./intake.matter";
 export { addRequestComment, listRequestComments } from "./intake.comments";
 
 export { getRequestDeskBoard } from "./intake.board";
+
+export {
+    createRequestForm,
+    getPublicRequestForm,
+    listRequestForms,
+    rotateRequestFormLink,
+    submitPublicRequestForm,
+    updateRequestForm,
+} from "./intake.forms";
+
+export { deleteExpiredFormSubmissions } from "./intake.retention";

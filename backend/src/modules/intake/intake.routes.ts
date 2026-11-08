@@ -16,8 +16,26 @@
 //   POST   /intake/requests/:requestId/comments  comment on it
 //   POST   /intake/requests/:requestId/matter    create a matter from it
 //
+// Request forms, for the organization's owners and admins:
+//
+//   GET    /intake/forms?workspace=<org id>      the organization's forms
+//   POST   /intake/forms                         create one (org_id in body);
+//                                                the link token is in the
+//                                                answer, this once
+//   PATCH  /intake/forms/:formId                 edit its notices and
+//                                                settings, or enable/disable
+//   POST   /intake/forms/:formId/rotate          replace its link
+//
 // Organization workspaces only: a Personal workspace is answered with 400
 // request_desk_org_only.
+//
+// The public side is requestFormsRouter, mounted at /request-forms with no
+// requireAuth, behind the dedicated rate-limit lanes app.ts registers ahead
+// of it:
+//
+//   GET    /request-forms/:token                 what the form shows
+//   POST   /request-forms/:token/submit          a submission; answers with
+//                                                the reference only
 
 import { Router, type Response } from "express";
 import { requireAuth } from "../../middleware/auth";
@@ -30,11 +48,17 @@ import {
     changeRequestStatus,
     createMatterFromRequest,
     createRequest,
+    createRequestForm,
+    getPublicRequestForm,
     getRequest,
     getRequestDeskBoard,
     listRequestComments,
+    listRequestForms,
     listRequests,
+    rotateRequestFormLink,
+    submitPublicRequestForm,
     updateRequest,
+    updateRequestForm,
 } from "./intake.service";
 
 export const intakeRouter = Router();
@@ -200,4 +224,102 @@ intakeRouter.post(
     }),
 );
 
+intakeRouter.get(
+    "/forms",
+    requireAuth,
+    asyncRoute(async (req, res) => {
+        send(
+            res,
+            await listRequestForms(createServerSupabase(), {
+                ...caller(res),
+                workspace: req.query.workspace,
+            }),
+        );
+    }),
+);
+
+intakeRouter.post(
+    "/forms",
+    requireAuth,
+    asyncRoute(async (req, res) => {
+        send(
+            res,
+            await createRequestForm(createServerSupabase(), {
+                ...caller(res),
+                body: req.body,
+            }),
+            201,
+        );
+    }),
+);
+
+intakeRouter.patch(
+    "/forms/:formId",
+    requireAuth,
+    asyncRoute(async (req, res) => {
+        send(
+            res,
+            await updateRequestForm(createServerSupabase(), {
+                ...caller(res),
+                formId: req.params.formId,
+                body: req.body,
+            }),
+        );
+    }),
+);
+
+intakeRouter.post(
+    "/forms/:formId/rotate",
+    requireAuth,
+    asyncRoute(async (req, res) => {
+        send(
+            res,
+            await rotateRequestFormLink(createServerSupabase(), {
+                ...caller(res),
+                formId: req.params.formId,
+            }),
+        );
+    }),
+);
+
 intakeRouter.use(routerErrorHandler("[intake]"));
+
+// ---------------------------------------------------------------------------
+// The public form. No session: whoever holds the link may read the form and
+// submit through it. The answers carry nothing a visitor should not have (the
+// organization's name and logo, the notices, and on submission the reference
+// alone), and never a cached copy of a form that was since rotated or
+// disabled.
+// ---------------------------------------------------------------------------
+
+export const requestFormsRouter = Router();
+
+requestFormsRouter.get(
+    "/:token",
+    asyncRoute(async (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        send(
+            res,
+            await getPublicRequestForm(createServerSupabase(), {
+                token: req.params.token,
+            }),
+        );
+    }),
+);
+
+requestFormsRouter.post(
+    "/:token/submit",
+    asyncRoute(async (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        send(
+            res,
+            await submitPublicRequestForm(createServerSupabase(), {
+                token: req.params.token,
+                body: req.body,
+            }),
+            201,
+        );
+    }),
+);
+
+requestFormsRouter.use(routerErrorHandler("[request-forms]"));
