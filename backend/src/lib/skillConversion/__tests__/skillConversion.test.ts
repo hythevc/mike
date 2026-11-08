@@ -74,7 +74,7 @@ function convertOptions(outRoot: string, check = false): ConvertCatalogOptions {
 
 const ROOT_LICENSE = `MIT License
 
-Copyright (c) 2026 Mike
+Copyright (c) 2026 Sample Author
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -235,7 +235,7 @@ function manifestFor(overrides: Partial<WorkflowManifest> = {}): WorkflowManifes
     ],
     webUse: "none",
     reviewBy: "2027-05-01",
-    changeSummary: "converted to Mike format",
+    changeSummary: "converted to the workflow format",
     ...overrides,
   };
 }

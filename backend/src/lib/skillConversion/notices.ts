@@ -7,6 +7,7 @@
 // conversion facts, so the output is deterministic.
 
 import { stringify as stringifyYaml } from "yaml";
+import { brand } from "../brand.generated";
 import type { ConverterLicense } from "./licenses";
 import { footerLicenseClause, licenseLink } from "./licenses";
 
@@ -142,7 +143,7 @@ export function changesFile(input: ChangesInput): string {
   return [
     `## ${input.version} - ${input.modifiedOn} - ${input.company}`,
     `Source: ${SOURCE_LIST}@${shortCommit} skills/${input.sourceFolder} (upstream version ${input.upstreamVersion})`,
-    "- Converted to Mike workflow format: frontmatter, key, references converted to Word or inlined.",
+    `- Converted to ${brand.productName} workflow format: frontmatter, key, references converted to Word or inlined.`,
     bullet("Removed", input.removed),
     `- Added: copilot ground rules, output requirements, attribution section${
       input.added.length ? `; ${input.added.join("; ")}` : ""

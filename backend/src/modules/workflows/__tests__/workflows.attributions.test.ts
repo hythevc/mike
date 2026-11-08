@@ -68,7 +68,7 @@ describe("listCatalogAttributions", () => {
         pack_title: null,
         license: "MIT",
         license_evidence: "file",
-        attribution: "Copyright (c) 2026 Mike.",
+        attribution: "Copyright (c) 2026 Sample Author.",
         source_commit: "aaaa",
       }),
       row({
