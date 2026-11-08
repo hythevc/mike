@@ -53,7 +53,7 @@ const CATALOG = JSON.stringify([
         trial_days: 14,
         public: true,
         sort_order: 1,
-        display_price_text: "$79",
+        display_price_text: "$12",
         provider_price_ref: "price_byok_SECRET",
     },
     {

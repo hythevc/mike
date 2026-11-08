@@ -34,7 +34,7 @@ export type Plan = {
     public: boolean;
     /** Where the plan sorts among the others; lower comes first. */
     sortOrder: number;
-    /** The price as shown to a buyer, for example "$99 per user / month". */
+    /** The price as shown to a buyer, for example "$12 per user / month". */
     displayPriceText: string;
     /** The billing provider's price id. Never returned to a browser. */
     providerPriceRef: string | null;

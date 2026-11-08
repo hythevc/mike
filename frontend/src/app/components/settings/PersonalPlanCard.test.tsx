@@ -56,7 +56,7 @@ describe("PersonalPlanCard", () => {
           deployment_token_allowance: null,
           trial_days: 14,
           sort_order: 1,
-          display_price_text: "$79",
+          display_price_text: "$12",
         },
         usage: [
           {
