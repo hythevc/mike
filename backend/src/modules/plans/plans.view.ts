@@ -19,11 +19,15 @@ import {
     toPublicPlan,
     type PublicPlan,
 } from "../../lib/planCatalog";
-import { resolveOrgEntitlement } from "../../lib/entitlements";
+import {
+    readSubscriptionRefs,
+    resolveOrgEntitlement,
+} from "../../lib/entitlements";
+import { billingEnabled } from "../../lib/runtimeConfig";
 
-// Billing is a later item and stays behind BILLING_ENABLED (default off); the
-// plan surfaces report it off and show no upgrade control.
-const BILLING_ENABLED = false;
+// Billing sits behind BILLING_ENABLED (default off; modules/billing). The plan
+// surfaces report the switch so the web app shows its checkout and portal
+// controls only on a deployment that has turned it on.
 
 function toWirePlan(plan: PublicPlan): WirePublicPlan {
     return {
@@ -46,7 +50,7 @@ export function buildPlansResponse(
     const enabled = plansEnabled(env);
     return {
         plans_enabled: enabled,
-        billing_enabled: BILLING_ENABLED,
+        billing_enabled: billingEnabled(env),
         plans: enabled ? publicPlans(env).map(toWirePlan) : [],
     };
 }
@@ -109,14 +113,19 @@ export async function buildOrgPlanView(
     env: NodeJS.ProcessEnv = process.env,
     now: Date = new Date(),
 ): Promise<OrgPlanView> {
-    const [entitlement, seats, usage] = await Promise.all([
+    const billing = billingEnabled(env);
+    const [entitlement, seats, usage, refs] = await Promise.all([
         resolveOrgEntitlement(db, orgId, env, now),
         fetchSeatState(db, orgId),
         fetchUsage(db, orgId, now),
+        // The provider references are read only when billing is on: they
+        // decide whether the portal has a customer to open for.
+        billing ? readSubscriptionRefs(db, orgId) : Promise.resolve(null),
     ]);
     return {
         plans_enabled: entitlement.plansEnabled,
-        billing_enabled: BILLING_ENABLED,
+        billing_enabled: billing,
+        has_billing_account: Boolean(refs?.customerRef),
         plan: entitlement.plan ? toWirePlan(toPublicPlan(entitlement.plan)) : null,
         status: entitlement.status,
         seats_used: seats.member_count,

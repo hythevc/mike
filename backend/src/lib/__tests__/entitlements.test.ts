@@ -205,6 +205,6 @@ describe("planDeploymentAllowance", () => {
         const allowance = planDeploymentAllowance(env, () =>
             fakeDb({ personalOrg: null }),
         );
-        expect(await allowance(ctx({ orgId: null, userId: null }), "workspace")).toBe(500);
+        expect(await allowance(ctx({ orgId: null, userId: undefined }), "workspace")).toBe(500);
     });
 });

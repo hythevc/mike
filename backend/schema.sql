@@ -12294,6 +12294,31 @@ grant execute on function public.org_claim_seat(uuid, uuid, text, integer)
 grant execute on function public.org_usage_month_summary(uuid, timestamptz)
   to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Billing webhook ledger (BILLING_ENABLED); see
+-- backend/migrations/20261108_50_billing_events.sql. One row per accepted
+-- provider event, so a redelivery is answered without being processed again.
+-- Only the event id and type are kept, never the payload.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.billing_events (
+  event_id text primary key
+    constraint billing_events_event_id_check
+    check (char_length(event_id) between 1 and 255),
+  type text not null
+    constraint billing_events_type_check
+    check (char_length(type) between 1 and 100),
+  received_at timestamptz not null default now(),
+  processed_at timestamptz
+);
+
+create index if not exists billing_events_received_at_idx
+  on public.billing_events (received_at);
+
+alter table public.billing_events enable row level security;
+revoke all on public.billing_events from public, anon, authenticated;
+grant select, insert, update, delete on public.billing_events to service_role;
+
 insert into public.schema_migrations (filename) values
   ('20260419_tabular_chat_jsonb.sql'),
   ('20260421_01_docx_editing.sql'),
@@ -12470,5 +12495,6 @@ insert into public.schema_migrations (filename) values
   ('20261031_56_usage_events.sql'),
   ('20261031_57_legal_acceptances.sql'),
   ('20261107_50_org_subscriptions.sql'),
-  ('20261107_51_matter_ai_controls.sql')
+  ('20261107_51_matter_ai_controls.sql'),
+  ('20261108_50_billing_events.sql')
 on conflict (filename) do nothing;

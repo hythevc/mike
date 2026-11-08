@@ -6,6 +6,9 @@ import express from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "../../lib/supabase";
+// vi.mock calls are hoisted above this import, so the router sees the mocked
+// auth and database.
+import { plansRouter } from "../../modules/plans/plans.routes";
 
 const holder = vi.hoisted(() => ({ fake: null as Db | null }));
 
@@ -35,9 +38,6 @@ vi.mock("../../lib/supabase", () => ({
         return holder.fake;
     },
 }));
-
-// Imported after the mocks are registered.
-const { plansRouter } = await import("../../modules/plans/plans.routes");
 
 const USER = "00000000-0000-4000-8000-000000000020";
 const PERSONAL = "00000000-0000-4000-8000-000000000011";

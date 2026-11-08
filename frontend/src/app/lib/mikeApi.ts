@@ -1,5 +1,5 @@
 import type { Operation } from "@/shared/lib/sentryPrivacy";
-import type { OrgPlanView, PlansResponse } from "@mike/contracts";
+import type { BillingSessionResponse, OrgPlanView, PlansResponse } from "@mike/contracts";
 import type {
     TabularReviewHistoryStatus,
     AuditActor,
@@ -1977,6 +1977,35 @@ export async function getOrgPlan(orgId: string): Promise<OrgPlanView> {
 /** The caller's own (Personal) workspace plan, seats and usage. */
 export async function getPersonalPlan(): Promise<OrgPlanView> {
     return apiRequest<OrgPlanView>("plans.read", "/plans/me");
+}
+
+/**
+ * Start a hosted checkout for one of the plans on offer (organization owners).
+ * The browser is sent to the returned URL. Billing is off by default and the
+ * route answers 404 until the deployment turns it on.
+ */
+export async function createOrgCheckoutSession(
+    orgId: string,
+    planKey: string,
+): Promise<BillingSessionResponse> {
+    return apiRequest<BillingSessionResponse>(
+        "organizations.billing",
+        `/billing/orgs/${orgId}/checkout-session`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ plan_key: planKey }),
+        },
+    );
+}
+
+/** Open the billing provider's portal for an organization (owners; billing must be on). */
+export async function createOrgPortalSession(orgId: string): Promise<BillingSessionResponse> {
+    return apiRequest<BillingSessionResponse>(
+        "organizations.billing",
+        `/billing/orgs/${orgId}/portal-session`,
+        { method: "POST" },
+    );
 }
 
 export async function updateOrg(orgId: string, name: string): Promise<Org> {

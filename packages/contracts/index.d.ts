@@ -1299,7 +1299,14 @@ export interface PlanUsageRow {
  */
 export interface OrgPlanView {
   plans_enabled: boolean;
+  /** The deployment has billing switched on (BILLING_ENABLED), so checkout and portal controls apply. */
   billing_enabled: boolean;
+  /**
+   * A customer exists at the billing provider for this workspace (a checkout
+   * completed), so the billing portal has something to open. Always false
+   * while billing is off.
+   */
+  has_billing_account: boolean;
   plan: PublicPlan | null;
   status: SubscriptionStatus | null;
   seats_used: number;
@@ -1308,6 +1315,15 @@ export interface OrgPlanView {
   trial_ends_at: string | null;
   current_period_end: string | null;
   usage: PlanUsageRow[];
+}
+
+/**
+ * POST /billing/orgs/:id/checkout-session and /portal-session: the provider's
+ * hosted page to send the browser to. Billing is off by default; these routes
+ * answer 404 until BILLING_ENABLED is set.
+ */
+export interface BillingSessionResponse {
+  url: string;
 }
 
 /**
