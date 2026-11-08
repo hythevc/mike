@@ -286,13 +286,13 @@ describe("WorkflowDetailPage failures", () => {
         );
 
         // The screen says so with its own "Try again": a transport failure
-        // must not be reported as "Workflow not found.", and a notice with a
+        // must not be reported as "Workflow not found", and a notice with a
         // second Retry would repeat the same failure.
         expect(
             await screen.findByRole("button", { name: "Try again" }),
         ).toBeVisible();
         expect(screen.getByText("Couldn't load this workflow")).toBeVisible();
-        expect(screen.queryByText("Workflow not found.")).toBeNull();
+        expect(screen.queryByText("Workflow not found")).toBeNull();
         expect(screen.queryByRole("alert")).toBeNull();
 
         vi.mocked(getWorkflow).mockClear();
@@ -312,7 +312,8 @@ describe("WorkflowDetailPage failures", () => {
             </>,
         );
 
-        expect(await screen.findByText("Workflow not found.")).toBeVisible();
+        // The not-found screen is an EmptyState whose title carries the copy.
+        expect(await screen.findByText("Workflow not found")).toBeVisible();
         expect(screen.queryByRole("alert")).toBeNull();
     });
 
@@ -327,7 +328,7 @@ describe("WorkflowDetailPage failures", () => {
         await userEvent.setup().click(tryAgain);
 
         await waitFor(() => expect(getWorkflow).toHaveBeenCalledTimes(2));
-        expect(screen.queryByText("Workflow not found.")).toBeNull();
+        expect(screen.queryByText("Workflow not found")).toBeNull();
     });
 
     it("keeps \"Couldn't save\" up after an earlier save's \"Saved\" would have faded", async () => {
