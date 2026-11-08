@@ -55,6 +55,7 @@ import { dismissToast, showToast } from "@/shared/lib/toastStore";
 import { useAssignLatest } from "@/app/hooks/useLatestRef";
 import type { Project } from "@/app/components/shared/types";
 import { cn } from "@/app/lib/utils";
+import { brand } from "@/shared/brand.generated";
 import { useAssistantHistoryStatuses } from "@/app/hooks/useAssistantHistoryStatuses";
 import { useSidebarHistory } from "@/app/hooks/useSidebarHistory";
 import { useTabularHistoryStatuses } from "@/app/hooks/useTabularHistoryStatuses";
@@ -264,8 +265,8 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
               ]
             : null;
     // The sidebar is headed by whose work it is showing: the organization's
-    // name in its workspace, and plain "Mike" for personal work. `null` while
-    // a remembered organization's name is still loading — saying "Mike" for
+    // name in its workspace, and the product name for personal work. `null` while
+    // a remembered organization's name is still loading — showing the product name for
     // that moment would be naming the wrong workspace.
     const sidebarHeading = activeOrganization
         ? activeOrganization.name
@@ -273,7 +274,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
             workspaceId !== PERSONAL_WORKSPACE &&
             organizations === null
           ? null
-          : "Mike";
+          : brand.productName;
     const [recentProjects, setRecentProjects] = useState<Project[] | null>(
         null,
     );

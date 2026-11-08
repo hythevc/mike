@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { brand } from "@/shared/brand.generated";
 import { Check, EyeOff, User } from "lucide-react";
 import { openSourceWorkflow } from "@/app/lib/mikeApi";
 import type { WorkflowOpenSourceSubmission } from "@/app/components/shared/types";
@@ -320,8 +321,9 @@ export function OpenSourceWorkflowModal({
                                             htmlFor="open-source-disclosure-consent"
                                             className="cursor-pointer"
                                         >
-                                            GitHub repository and on the
-                                            mikeoss.com website.
+                                            GitHub repository and on the{" "}
+                                            {brand.productName} workflow
+                                            gallery.
                                         </label>
                                     </p>
                                 </div>

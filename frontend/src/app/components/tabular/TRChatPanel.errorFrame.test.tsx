@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -112,13 +113,13 @@ describe("TRChatPanel terminal error frame", () => {
         // The server's own wording is internal: it is never shown.
         expect(alert).not.toHaveTextContent("0xdeadbeef");
         expect(alert).toHaveTextContent(
-            "Mike couldn't finish this answer. Try again.",
+            `${brand.productName} couldn't finish this answer. Try again.`,
         );
 
         // What already streamed is kept, and the bubble says the turn failed.
         expect(await screen.findByText(/Clause 4 says/)).toBeVisible();
         expect(
-            screen.getByText("Mike couldn't finish this answer. Try again.", {
+            screen.getByText(`${brand.productName} couldn't finish this answer. Try again.`, {
                 selector: "p",
             }),
         ).toBeVisible();

@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AuthCallbackPage from "./page";
@@ -28,7 +29,7 @@ vi.mock("@/app/lib/authRedirects", () => ({
 }));
 
 vi.mock("@/app/components/site-logo", () => ({
-    SiteLogo: () => <div>Mike</div>,
+    SiteLogo: () => <div>logo</div>,
 }));
 
 describe("AuthCallbackPage", () => {
@@ -55,7 +56,7 @@ describe("AuthCallbackPage", () => {
         );
     });
 
-    it("does not send the user chasing a new link when Mike is down", async () => {
+    it("does not send the user chasing a new link when the service is down", async () => {
         exchangeAuthCode.mockRejectedValue(
             Object.assign(new Error("boom"), { status: 503 }),
         );
@@ -63,10 +64,10 @@ describe("AuthCallbackPage", () => {
         render(<AuthCallbackPage />);
 
         expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Mike is temporarily unavailable. Try again in a moment.",
+            `${brand.productName} is temporarily unavailable. Try again in a moment.`,
         );
         expect(
             screen.getByRole("link", { name: "Contact support" }),
-        ).toHaveAttribute("href", expect.stringContaining("will@mikeoss.com"));
+        ).toHaveAttribute("href", expect.stringContaining(brand.supportEmail));
     });
 });

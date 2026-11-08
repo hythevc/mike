@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -63,7 +64,7 @@ describe("ResponseStyleSection", () => {
     await waitFor(() => expect(trigger("Language")).toBeEnabled());
     expect(trigger("Language")).toHaveTextContent("Automatic");
     expect(
-      screen.getByText("Mike replies in the language you write in."),
+      screen.getByText(`${brand.assistantName} replies in the language you write in.`),
     ).toBeInTheDocument();
 
     fireEvent.pointerDown(
@@ -87,7 +88,7 @@ describe("ResponseStyleSection", () => {
     await waitFor(() =>
       expect(trigger("Language")).toHaveTextContent("English (UK)"),
     );
-    expect(screen.getByText("Mike replies in English (UK).")).toBeInTheDocument();
+    expect(screen.getByText(`${brand.assistantName} replies in English (UK).`)).toBeInTheDocument();
   });
 
   it("saves only the setting that changed", async () => {

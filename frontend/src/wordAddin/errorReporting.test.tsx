@@ -3,6 +3,7 @@
  * functions are exercised here through the same `@mike/*` aliases webpack
  * resolves, so a change to either side of the contract fails one suite.
  */
+import { brand } from "@/shared/brand.generated";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastViewportUI, clearToasts } from "@/shared/ui/ToastUI";
@@ -83,7 +84,7 @@ describe("network failures", () => {
         });
         expect(error).toBeInstanceOf(NetworkUnreachableError);
         expect(error.message).toBe(
-            "Mike couldn't reach the server at http://localhost:3001. Check your connection and that the server is running, then try again.",
+            `${brand.productName} couldn't reach the server at http://localhost:3001. Check your connection and that the server is running, then try again.`,
         );
         const described = describeError(error, { action: "sign in" });
         expect(described.kind).toBe("network");
@@ -149,7 +150,7 @@ describe("add-in notify", () => {
         expect(details).toContain("Request ID: req-7");
 
         const opened = open.mock.calls[0]?.[0] as string;
-        expect(opened.startsWith("mailto:will@mikeoss.com?")).toBe(true);
+        expect(opened.startsWith(`mailto:${brand.supportEmail}?`)).toBe(true);
         expect(opened).not.toContain("/support");
         const draft = decodeURIComponent(opened);
         expect(draft).toContain("Client: word-addin");

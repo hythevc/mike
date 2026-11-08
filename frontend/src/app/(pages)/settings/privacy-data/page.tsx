@@ -36,6 +36,14 @@ import {
   type UserExportType,
 } from "@/app/lib/mikeApi";
 import { UserVisibleError, notifyError } from "@/app/lib/userFacingError";
+import { brand } from "@/shared/brand.generated";
+
+// A filesystem-safe slug from the product name for the export download names.
+const EXPORT_FILE_PREFIX =
+  brand.productName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "") || "export";
 
 type DeleteDataAction = "chats" | "tabular-reviews" | "projects" | "memory";
 type ExportDataAction =
@@ -188,7 +196,7 @@ function PrivacyData({
       const status = await getUserExportStatus(export_id);
       if (status.status === "failed") {
         throw new UserVisibleError(
-          "Mike couldn't build the export. Try again, and contact support if it keeps happening.",
+          `${brand.productName} couldn't build the export. Try again, and contact support if it keeps happening.`,
           { retryable: true },
         );
       }
@@ -212,7 +220,7 @@ function PrivacyData({
         setPendingMfaAction("export-account");
         return;
       }
-      await runAsyncExport("account", "mike-account-export.json");
+      await runAsyncExport("account", `${EXPORT_FILE_PREFIX}-account-export.json`);
     } catch (error) {
       devLog("[privacy-data/mfa] export account failed", {
         isMfaRequired: isMfaRequiredError(error),
@@ -239,7 +247,7 @@ function PrivacyData({
         setPendingMfaAction("export-chats");
         return;
       }
-      await runAsyncExport("chats", "mike-chat-export.json");
+      await runAsyncExport("chats", `${EXPORT_FILE_PREFIX}-chat-export.json`);
     } catch (error) {
       devLog("[privacy-data/mfa] export chats failed", {
         isMfaRequired: isMfaRequiredError(error),
@@ -268,7 +276,7 @@ function PrivacyData({
       }
       await runAsyncExport(
         "tabular-reviews",
-        "mike-tabular-reviews-export.json",
+        `${EXPORT_FILE_PREFIX}-tabular-reviews-export.json`,
       );
     } catch (error) {
       devLog("[privacy-data/mfa] export tabular reviews failed", {
@@ -296,7 +304,7 @@ function PrivacyData({
         setPendingMfaAction("export-memory");
         return;
       }
-      await runAsyncExport("memory-zip", "mike-memory-export.zip");
+      await runAsyncExport("memory-zip", `${EXPORT_FILE_PREFIX}-memory-export.zip`);
     } catch (error) {
       devLog("[privacy-data/mfa] export memory failed", {
         isMfaRequired: isMfaRequiredError(error),

@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useEffect, useRef, useState } from "react";
 import { CustomInstructionsSection } from "@/app/components/settings/CustomInstructionsSection";
 import { ResponseStyleSection } from "@/app/components/settings/ResponseStyleSection";
@@ -141,7 +142,7 @@ function PersonalisationForm({
       <section className="space-y-3">
         <SettingsHeading id="your-background">Your background</SettingsHeading>
         <SettingsDescription>
-          Tell Mike about your role and practice so responses can be tailored to
+          Tell {brand.assistantName} about your role and practice so responses can be tailored to
           your professional context.
         </SettingsDescription>
         <GlassCardUI>

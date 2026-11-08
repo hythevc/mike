@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +33,7 @@ vi.mock("@/app/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/app/components/site-logo", () => ({
-    SiteLogo: () => <div>Mike</div>,
+    SiteLogo: () => <div>logo</div>,
 }));
 
 describe("SignupPage", () => {
@@ -153,7 +154,7 @@ describe("SignupPage", () => {
         [
             "a dropped connection",
             new TypeError("Failed to fetch"),
-            "Mike couldn't reach the server. Check your connection and try again.",
+            `${brand.productName} couldn't reach the server. Check your connection and try again.`,
         ],
         [
             "a password the server calls weak",

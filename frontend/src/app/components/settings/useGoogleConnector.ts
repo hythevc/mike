@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   GoogleWorkspaceProvider,
@@ -169,7 +170,7 @@ export function useGoogleConnector(
     try {
       if (!popup)
         throw new GoogleConnectorFlowError(
-          "Allow popups for Mike, then try adding the connector again.",
+          `Allow popups for ${brand.productName}, then try adding the connector again.`,
         );
       const { authorizationUrl } = await api.start();
       pending = new URL(authorizationUrl).searchParams.get("state");

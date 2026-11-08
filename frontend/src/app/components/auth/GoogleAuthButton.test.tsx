@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -106,7 +107,7 @@ describe("GoogleAuthButton", () => {
         expect(onError).toHaveBeenLastCalledWith(
             expect.objectContaining({
                 message:
-                    "Mike couldn't reach the server. Check your connection and try again.",
+                    `${brand.productName} couldn't reach the server. Check your connection and try again.`,
             }),
         );
     });

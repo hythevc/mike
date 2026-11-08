@@ -373,7 +373,7 @@ test.describe("auth flow", () => {
     // A 5xx body is never echoed, however friendly it looks: 503 reads as a
     // temporary outage.
     await expect(page.getByRole("alert")).toContainText(
-      "Mike is temporarily unavailable",
+      "is temporarily unavailable",
     );
     await addin.expectAuthedShell();
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { FieldLabel } from "@/app/components/ui/form-field";
@@ -174,7 +175,7 @@ export function ConnectorDetailsModal({
                                             </p>
                                             <p className="mt-0.5 text-xs text-gray-500">
                                                 {hasWriteTools || toolsLoading
-                                                    ? "Mike asks you in the chat before running an action that changes data."
+                                                    ? `${brand.assistantName} asks you in the chat before running an action that changes data.`
                                                     : "This connector has no write actions right now."}
                                             </p>
                                         </div>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useRef, type RefObject } from "react";
 import { SvgAssetIcon } from "@/app/components/ui/svg-asset-icon";
 import quickActionsIcon from "../../../../public/icons/features/quick-actions.svg";
 import { MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { useUserProfile } from "@/app/contexts/UserProfileContext";
-import { MikeIcon } from "@/shared/ui/MikeIconUI";
+import { brand } from "@/shared/brand.generated";
+import { BrandMark } from "@/shared/ui/BrandMarkUI";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import type { Document, Message, QuickAction } from "../shared/types";
 import {
@@ -23,7 +24,7 @@ interface InitialViewProps {
 }
 
 const ICON_SIZE = 30;
-const GAP = 12; // gap-4 = 1rem = 16px
+
 export function InitialView({
     onSubmit,
     onDocumentClick,
@@ -33,29 +34,12 @@ export function InitialView({
 }: InitialViewProps) {
     const { user } = useAuth();
     const { profile } = useUserProfile();
-    const [loaded, setLoaded] = useState(false);
-    const [iconOffset, setIconOffset] = useState(0);
-    const [textOffset, setTextOffset] = useState(0);
-    const textRef = useRef<HTMLHeadingElement>(null);
     const localInputRef = useRef<ChatInputHandle>(null);
     const chatInputRef = inputRef ?? localInputRef;
 
     const username =
         profile?.displayName?.trim() || user?.email?.split("@")[0] || "there";
     const visibleQuickActions = quickActions.filter((action) => action.enabled);
-
-    useLayoutEffect(() => {
-        if (!profile || !textRef.current) return;
-        const h1Width = textRef.current.offsetWidth;
-        setIconOffset((h1Width + GAP) / 2);
-        setTextOffset((ICON_SIZE + GAP) / 2);
-    }, [profile]);
-
-    useEffect(() => {
-        if (!iconOffset) return;
-        const t = setTimeout(() => setLoaded(true), 100);
-        return () => clearTimeout(t);
-    }, [iconOffset]);
 
     function handleQuickAction(action: QuickAction) {
         const workflow = action.workflow;
@@ -80,38 +64,21 @@ export function InitialView({
 
     return (
         <div className="grid h-full w-full grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] px-6">
-            <div className="flex min-h-0 items-end justify-center pb-6">
-                <div className="relative h-10 w-full max-w-4xl px-0 xl:px-8">
-                    <div
-                        className="absolute h-[30px] w-[30px]"
-                        style={{
-                            left: "50%",
-                            top: "50%",
-                            transform: loaded
-                                ? `translate(calc(-50% - ${iconOffset}px), -50%)`
-                                : "translate(-50%, -50%)",
-                            transition:
-                                "transform 900ms cubic-bezier(0.25, 0.46, 0.45, 0.94)",
-                        }}
-                    >
-                        <MikeIcon size={ICON_SIZE} />
-                    </div>
+            {/* Our mark and a plain greeting, stacked and centred. The name
+                wraps rather than overflowing on a narrow viewport. */}
+            <div className="flex min-h-0 flex-col items-center justify-end gap-3 pb-6">
+                <BrandMark size={ICON_SIZE} />
+                <div className="w-full max-w-4xl text-center">
                     <h1
-                        ref={textRef}
-                        className="absolute text-4xl font-serif font-light text-gray-900 whitespace-nowrap"
-                        style={{
-                            left: "50%",
-                            top: "50%",
-                            transform: loaded
-                                ? `translate(calc(-50% + ${textOffset}px), -50%)`
-                                : "translate(-50%, -50%)",
-                            opacity: loaded ? 1 : 0,
-                            transition:
-                                "transform 900ms cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 800ms ease-in-out 300ms",
-                        }}
+                        data-slot="initial-view-wordmark"
+                        className="text-3xl font-light text-gray-900 [overflow-wrap:anywhere]"
+                        style={{ fontFamily: "var(--brand-display-face)" }}
                     >
-                        Hi, {username}
+                        {brand.productName}
                     </h1>
+                    <p className="mt-1 text-sm text-gray-500 [overflow-wrap:anywhere]">
+                        Hi, {username}
+                    </p>
                 </div>
             </div>
 
@@ -134,7 +101,7 @@ export function InitialView({
 
                 {profile?.quickActionsVisible !== false && (
                     <div className="flex flex-col items-center">
-                        <div className="group relative flex h-5 items-center justify-center">
+                        <div className="relative flex h-5 items-center justify-center">
                             <span className="flex items-center gap-1.5 text-xs font-medium text-gray-800">
                                 <SvgAssetIcon
                                     src={quickActionsIcon}
@@ -149,7 +116,7 @@ export function InitialView({
                                 type="button"
                                 onClick={onEditQuickActions}
                                 aria-label="Configure quick actions"
-                                className="absolute left-full ml-1.5 flex h-5 w-5 items-center justify-center text-gray-400 opacity-0 transition-all hover:text-gray-700 group-hover:opacity-100 focus:opacity-100"
+                                className="absolute left-full ml-1.5 flex h-5 w-5 items-center justify-center text-gray-400 transition-colors hover:text-gray-700 focus:text-gray-700"
                             >
                                 <MoreHorizontal className="h-3.5 w-3.5" />
                             </button>

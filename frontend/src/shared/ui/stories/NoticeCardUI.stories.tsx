@@ -1,3 +1,4 @@
+import { brand } from "../../brand.generated";
 import { Lock } from "lucide-react";
 import { NoticeCardUI, noticeActionClassName } from "@/shared/ui/NoticeCardUI";
 
@@ -10,7 +11,7 @@ export const Tones = () => (
         <NoticeCardUI
             tone="error"
             title="Couldn't save your changes"
-            message="Mike couldn't reach the server. Check your connection and try again."
+            message={`${brand.productName} couldn't reach the server. Check your connection and try again.`}
             onDismiss={() => {}}
             actions={
                 <button type="button" className={noticeActionClassName()}>

@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,7 +67,7 @@ vi.mock("@/app/components/shared/MfaLoginGate", () => ({
 }));
 
 vi.mock("@/app/components/site-logo", () => ({
-    SiteLogo: () => <div>Mike</div>,
+    SiteLogo: () => <div>logo</div>,
 }));
 
 async function enterCode() {
@@ -132,7 +133,7 @@ describe("VerifyMfaPage", () => {
         await enterCode();
 
         expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Mike couldn't reach the server. Check your connection and try again.",
+            `${brand.productName} couldn't reach the server. Check your connection and try again.`,
         );
     });
 
@@ -147,6 +148,6 @@ describe("VerifyMfaPage", () => {
         );
         expect(
             screen.getByRole("link", { name: "Contact support" }),
-        ).toHaveAttribute("href", expect.stringContaining("will@mikeoss.com"));
+        ).toHaveAttribute("href", expect.stringContaining(brand.supportEmail));
     });
 });

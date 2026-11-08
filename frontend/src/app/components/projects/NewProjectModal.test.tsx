@@ -1,3 +1,4 @@
+import { brand } from "@/shared/brand.generated";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
     fireEvent,
@@ -261,7 +262,7 @@ describe("NewProjectModal sharing", () => {
     expect(screen.getByText("Project memory")).toBeInTheDocument();
     // The label says what it is; no second line explaining it.
     expect(
-      screen.queryByText("Let Mike remember shared project context"),
+      screen.queryByText(`Let ${brand.assistantName} remember shared project context`),
     ).not.toBeInTheDocument();
 
     const memory = screen.getByRole("switch", { name: "Enable project memory" });
@@ -400,7 +401,7 @@ describe("NewProjectModal sharing", () => {
         expect(onCreated).toHaveBeenCalled();
     });
 
-    it("does not add an email that has no Mike account", async () => {
+    it("does not add an email that has no account", async () => {
         vi.mocked(lookupUserByEmail).mockResolvedValueOnce({
             exists: false,
             email: "future@firm.test",
@@ -413,7 +414,7 @@ describe("NewProjectModal sharing", () => {
 
         expect(
             await screen.findByText(
-                "future@firm.test does not belong to a Mike user.",
+                `future@firm.test does not belong to a ${brand.productName} user.`,
             ),
         ).toBeInTheDocument();
         expect(grantProjectAccess).not.toHaveBeenCalled();

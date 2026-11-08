@@ -13,6 +13,7 @@
  * never drift.
  */
 import { describe, expect, it } from "vitest";
+import { brand } from "@/shared/brand.generated";
 import {
     SUPPORT_DRAFT_AND_CLIPBOARD_MESSAGE,
     SUPPORT_DRAFT_MESSAGE,
@@ -21,6 +22,11 @@ import {
     supportHandoffResult,
     type SupportErrorFields,
 } from "../../../word-addin/src/taskpane/lib/supportHandoff";
+
+// The diagnostics block's first line is the product-named header, which the
+// add-in owns and rebrands on its own branch; these tests check its shape
+// rather than the product name so they hold across that rename.
+const DETAILS_HEADER = / support details$/;
 
 const WHEN = new Date("2026-09-17T10:20:30.000Z");
 
@@ -35,17 +41,17 @@ const SERVER_FAILURE: SupportErrorFields = {
 
 describe("buildSupportDiagnostics", () => {
     it("carries everything support needs to find the failure in the logs", () => {
-        expect(
-            buildSupportDiagnostics(SERVER_FAILURE, {
-                page: "Assistant",
-                note: "Applying a tracked change.",
-                product: "word-addin",
-                when: WHEN,
-                userAgent: "Word/16.89 (Macintosh)",
-            }),
-        ).toBe(
+        const block = buildSupportDiagnostics(SERVER_FAILURE, {
+            page: "Assistant",
+            note: "Applying a tracked change.",
+            product: "word-addin",
+            when: WHEN,
+            userAgent: "Word/16.89 (Macintosh)",
+        });
+        const [header, ...body] = block.split("\n");
+        expect(header).toMatch(DETAILS_HEADER);
+        expect(body.join("\n")).toBe(
             [
-                "Mike support details",
                 "What happened: Couldn't save the document",
                 "Message shown: Something went wrong on our side. Try again.",
                 "Details: Applying a tracked change.",
@@ -65,7 +71,7 @@ describe("buildSupportDiagnostics", () => {
         const block = buildSupportDiagnostics(
             {
                 title: "Connection problem",
-                message: "Mike couldn't reach the server.",
+                message: `${brand.productName} couldn't reach the server.`,
                 kind: "network",
                 status: null,
                 code: null,
@@ -73,11 +79,12 @@ describe("buildSupportDiagnostics", () => {
             },
             { when: WHEN, userAgent: "" },
         );
-        expect(block).toBe(
+        const [header, ...body] = block.split("\n");
+        expect(header).toMatch(DETAILS_HEADER);
+        expect(body.join("\n")).toBe(
             [
-                "Mike support details",
                 "What happened: Connection problem",
-                "Message shown: Mike couldn't reach the server.",
+                `Message shown: ${brand.productName} couldn't reach the server.`,
                 "Category: network",
                 "Time: 2026-09-17T10:20:30.000Z",
             ].join("\n"),
@@ -94,7 +101,7 @@ describe("buildSupportDiagnostics", () => {
 });
 
 describe("supportHandoffResult", () => {
-    const details = "Mike support details\nRequest ID: req-abc123";
+    const details = "Support details\nRequest ID: req-abc123";
 
     it("confirms both when the draft opened and the block was copied", () => {
         expect(
@@ -126,7 +133,7 @@ describe("supportHandoffResult", () => {
             message: `Email ${SUPPORT_EMAIL} — the details are on your clipboard`,
         });
         // The address comes from the shared constant, never a literal.
-        expect(result.message).toContain("will@mikeoss.com");
+        expect(result.message).toContain(SUPPORT_EMAIL);
         expect(result.details).toBeUndefined();
     });
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { TextCardUI } from "@/shared/ui/TextCardUI";
 import { useRef, useState, type ReactNode } from "react";
 import type { WebSource } from "@mike/contracts";
@@ -334,7 +335,7 @@ export function AssistantMessage({
             notifyError(err, {
                 action: "copy this answer",
                 fallback:
-                    "Mike couldn't write to the clipboard. Check your browser's clipboard permission, then try again.",
+                    `${brand.productName} couldn't write to the clipboard. Check your browser's clipboard permission, then try again.`,
                 support: false,
             });
         }

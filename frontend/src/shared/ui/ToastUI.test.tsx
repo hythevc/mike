@@ -1,3 +1,4 @@
+import { brand } from "../brand.generated";
 import { act, render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -27,12 +28,12 @@ describe("ToastUI", () => {
             showToast({
                 tone: "error",
                 title: "Couldn't save the document",
-                message: "Mike couldn't reach the server.",
+                message: `${brand.productName} couldn't reach the server.`,
             });
         });
         const alert = screen.getByRole("alert");
         expect(alert).toHaveTextContent("Couldn't save the document");
-        expect(alert).toHaveTextContent("Mike couldn't reach the server.");
+        expect(alert).toHaveTextContent(`${brand.productName} couldn't reach the server.`);
         expect(alert).toHaveClass("liquid-glass-float");
 
         fireEvent.click(
@@ -62,11 +63,11 @@ describe("ToastUI", () => {
             showToast({
                 tone: "error",
                 message: "Failed",
-                supportHref: "mailto:will@mikeoss.com?subject=x",
+                supportHref: `mailto:${brand.supportEmail}?subject=x`,
             });
         });
         const link = screen.getByRole("link", { name: "Contact support" });
-        expect(link).toHaveAttribute("href", "mailto:will@mikeoss.com?subject=x");
+        expect(link).toHaveAttribute("href", `mailto:${brand.supportEmail}?subject=x`);
     });
 
     it("keeps an error with actions until dismissed but auto-dismisses success", () => {

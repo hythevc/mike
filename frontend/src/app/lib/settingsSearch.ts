@@ -16,6 +16,8 @@
  * instant and need no key or network.
  */
 
+import { brand } from "@/shared/brand.generated";
+
 export type SettingsSearchEntry = {
     /** Stable id, also the React key. */
     id: string;
@@ -95,7 +97,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
         tabId: "personalisation",
         tab: "Personalisation",
         title: "Response style",
-        description: "How Mike shapes its answers: verbosity, tone and language.",
+        description: `How ${brand.assistantName} shapes its answers: verbosity, tone and language.`,
         keywords: ["verbosity", "concise", "detailed", "tone", "language", "formal", "casual", "length", "short answers", "long answers", "writing style", "output style", "translate", "locale"],
         href: "/settings/personalisation#response-style-heading",
     },
@@ -106,7 +108,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
         tabId: "memory",
         tab: "Memory",
         title: "Memory",
-        description: "Whether Mike remembers durable information from your conversations.",
+        description: `Whether ${brand.assistantName} remembers durable information from your conversations.`,
         keywords: ["remember", "forget", "memories", "recall", "context", "history", "learn", "retain", "memorise", "memorize"],
         href: "/settings/memory#app-memory-settings-heading",
     },
@@ -115,7 +117,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
         tabId: "memory",
         tab: "Memory",
         title: "Memory file",
-        description: "Read and edit what Mike has remembered about you.",
+        description: `Read and edit what ${brand.assistantName} has remembered about you.`,
         keywords: ["edit memory", "memory notes", "what mike knows", "saved facts", "clear memory", "memory contents"],
         href: "/settings/memory#app-memory-file-heading",
     },
@@ -126,7 +128,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
         tabId: "appearance",
         tab: "Appearance",
         title: "Dark mode",
-        description: "Use a darker color palette throughout Mike.",
+        description: `Use a darker color palette throughout ${brand.productName}.`,
         keywords: ["theme", "dark", "light mode", "night mode", "colour", "color", "palette", "display", "look", "contrast", "black background"],
         href: "/settings/appearance#appearance",
     },
@@ -177,7 +179,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
         tabId: "my-activity",
         tab: "My Activity",
         title: "My Activity",
-        description: "A log of what you have done in Mike.",
+        description: `A log of what you have done in ${brand.productName}.`,
         keywords: ["activity log", "audit", "audit log", "history", "events", "recent actions", "what did i do", "timeline", "sessions"],
         href: "/settings/my-activity",
     },
@@ -235,7 +237,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
         tabId: "models",
         tab: "Model Preferences",
         title: "Subagents",
-        description: "The default model and reasoning effort for the subagents Mike hands work to.",
+        description: `The default model and reasoning effort for the subagents ${brand.assistantName} hands work to.`,
         keywords: ["subagent", "sub-agent", "agents", "reasoning", "reasoning effort", "thinking", "delegate", "parallel", "worker model", "effort level"],
         href: "/settings/models#subagents-heading",
     },

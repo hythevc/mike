@@ -12,6 +12,7 @@
  * global fetch returning genuine ReadableStream SSE bodies, and `useToasts`
  * to read the toast and click its action.
  */
+import { brand } from "@/shared/brand.generated";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@/app/components/shared/types";
@@ -417,7 +418,7 @@ describe("useAssistantChat retry", () => {
 
         const toast = result.current.toasts[0];
         expect(toast?.message).toBe(
-            "Mike couldn't finish this answer. Try again.",
+            `${brand.productName} couldn't finish this answer. Try again.`,
         );
         expect(retryAction(toast)).toBeDefined();
         expect(toast?.supportHref).toMatch(/^mailto:/);

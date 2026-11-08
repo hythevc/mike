@@ -1386,7 +1386,7 @@ test("reports a Templates-tab load failure", async ({ addin, page }) => {
   await modal.getByRole("button", { name: "Templates" }).click();
   // A 5xx body is never echoed; 503 reads as a temporary outage.
   await expect(modal.getByRole("alert")).toContainText(
-    "Mike is temporarily unavailable",
+    "is temporarily unavailable",
   );
 });
 

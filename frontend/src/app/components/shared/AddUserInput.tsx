@@ -1,5 +1,6 @@
 "use client";
 
+import { brand } from "@/shared/brand.generated";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { Loader2, UserPlus } from "lucide-react";
 import {
@@ -81,7 +82,7 @@ export function AddUserInput({
                 ? await lookupUserByEmail(email)
                 : { exists: false, email, display_name: null };
             if (requireExistingUser && !user.exists) {
-                setError(`${email} does not belong to a Mike user.`);
+                setError(`${email} does not belong to a ${brand.productName} user.`);
                 return;
             }
 

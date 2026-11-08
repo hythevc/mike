@@ -87,8 +87,8 @@ describe("classifyApplyFailure", () => {
             mutationApplied: false,
         });
         expect(outcome).toHaveProperty("message");
-        expect(UNVERIFIED_APPLY_MESSAGE).toBe(
-            "Mike couldn't confirm whether this change was applied — check the document before retrying.",
+        expect(UNVERIFIED_APPLY_MESSAGE).toContain(
+            "couldn't confirm whether this change was applied — check the document before retrying.",
         );
         expect(UNVERIFIED_APPLY_MESSAGE).not.toContain("couldn't apply");
     });
