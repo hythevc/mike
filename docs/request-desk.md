@@ -97,9 +97,75 @@ Every table enables RLS and revokes everything from `anon` and
 `authenticated`; `service_role` may read requests and edit their details, and
 read and add comments.
 
+Migration `backend/migrations/20261108_50_request_desk_forms.sql` adds
+`request_desk_forms` (one row per form, holding the SHA-256 digest of its link
+token, never the token), `request_desk_requests.form_id`, and two
+security-definer functions: `request_desk_submit_form_request`, which files a
+public submission through `request_desk_create_request` with source `form`
+and no creator, and `request_desk_delete_expired_form_submissions`, the
+retention sweep. `service_role` may read, insert and update forms and still
+holds no `DELETE` on requests.
+
 Deleting an account keeps the organization's requests and trail and clears
 the links to that person. Deleting a project clears the link to it. Purging
 an organization deletes its requests, trail and counter.
+
+## Request forms
+
+A request form is a link an organization hands to people without a seat, such
+as a client's team or business colleagues. Whoever opens the link sees the
+organization's name and logo, its notices and a short form, and gets back a
+reference and nothing else. No model call runs inside a submission, and a
+requester never sees AI output: lawyers pick the request up on the board,
+where it carries `source: "form"` and no creator, and reply outside the
+product.
+
+Owners and admins manage forms at `/intake/forms` (reached from the board's
+"Request forms" link). Creating a form, or replacing its link, shows the link
+once: the token is random, stored only as a SHA-256 digest, and never shown
+again. A form carries, in the organization's own wording, a title, an
+introduction, a disclaimer (that submitting does not create a lawyer-client
+relationship and that a person replies) and a privacy notice (that the
+organization controls the data entered), with a link to the organization's
+privacy policy, the email domains it accepts senders from (empty: any
+address), and how long a submission is kept. The notices can be reworded but
+not removed. The public page adds the product's own line that no AI-generated
+advice is shown and a person replies, and says how long the submission is
+kept.
+
+| Method and path | Does |
+| --- | --- |
+| `GET /intake/forms?workspace=<org id>` | The organization's forms, without tokens |
+| `POST /intake/forms` | Create a form (`org_id`, and optionally `title`, `intro`, `disclaimer`, `privacy_notice`, `privacy_policy_url`, `allowed_sender_domains`, `retention_days`); answers with the form, its `token` and its `path` |
+| `PATCH /intake/forms/:formId` | Edit the same fields, or `enabled` |
+| `POST /intake/forms/:formId/rotate` | Replace the link; answers with the new token once |
+| `GET /request-forms/:token` | Public: what the form shows (organization name and logo, notices, retention) |
+| `POST /request-forms/:token/submit` | Public: `{ title, details, requester_name, requester_email }`; answers `{ reference }` |
+
+The public routes take no session. They sit behind two rate-limit lanes in
+the shared store that run before any lookup (see `docs/deployment.md`,
+"Rate limits and client addresses"), and a 64 KB body cap. An unknown,
+malformed, disabled or replaced token is answered with one identical
+`404 request_form_not_found`, so a link cannot be probed for its state. A
+hidden field (`website`) that a person never sees is a honeypot: a submission
+that fills it is told it succeeded and writes nothing. Every field has a
+length cap (title 200, details 10,000, name 200, email 320), and a sender
+outside the approved domains is refused with `request_form_sender_not_allowed`
+without the domains being disclosed. Management is refused to members with
+`request_form_admin_only`; all three codes are in `CODE_KINDS`.
+
+Retention: `request_desk_delete_expired_form_submissions` deletes form
+submissions that were not turned into a matter once they are older than their
+form's `retention_days` (365 for a submission whose form is gone), comments
+included; converted submissions stay with their matter. `jobs/maintenance.ts`
+runs it on the maintenance interval through `deleteExpiredFormSubmissions`.
+
+The web app serves a form at `/request/<token>`, a public route prefix the
+onboarding and MFA gates let through. The page shows the organization's name
+and logo, the notices, the form, and after a submission the reference with a
+reminder to keep it, since replies happen outside the product until an email
+provider is approved; it carries the signed-out footer with the Source, Terms
+and Privacy links and is excluded from search engines.
 
 ## Audit and export
 
@@ -108,6 +174,12 @@ Each action records one audit row with surface `intake` and ids only:
 `request.assigned`, `request.unassigned`, `request.commented` and
 `request.matter_created`. Titles, details, requester data, notes and
 comments never reach the audit log.
+
+Request forms add `request.form_created`, `request.form_updated`,
+`request.form_enabled`, `request.form_disabled`, `request.form_link_rotated`
+(ids only: the form) and `request.form_submitted` (the form and the request).
+A submission has no signed-in actor, so its row carries no user and the
+organization's audit log shows the actor as "Requester (form)".
 
 An organization's account export (Settings > Privacy & Data) includes the
 requests the person logged or is assigned, and the trail entries they wrote,
@@ -154,3 +226,14 @@ and every failure is shown through `notifyError`. The client calls live in
   for the organization-only Intake item.
 - `e2e/intake.spec.ts`: an org admin logs, assigns, progresses and converts a
   request, and the board passes the shared axe check.
+- Request forms: `backend/src/modules/intake/__tests__/intake.forms.test.ts`
+  (tokens, parsers, the allowlist and the retention sweep over the fake),
+  `backend/src/__tests__/integration/intakeForms.routes.test.ts` (the one
+  identical 404, the honeypot, the field caps, the reference-only answer with
+  no model call, the ids-only audit rows, and the lanes answering before any
+  lookup across two app instances),
+  `backend/src/__tests__/integration/requestDeskForms.postgres.test.ts` (the
+  SQL, opt-in like the request desk's), the `PublicRequestForm` and
+  `RequestFormsManager` component tests, and `e2e/intake-form.spec.ts` (an
+  anonymous submission reaches the board; the public page and the forms page
+  pass the shared axe check).

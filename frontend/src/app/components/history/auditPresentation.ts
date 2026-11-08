@@ -88,6 +88,12 @@ export const ACTION_LABELS: Record<string, string> = {
   "request.unassigned": "Request unassigned",
   "request.commented": "Request comment added",
   "request.matter_created": "Matter created from request",
+  "request.form_created": "Request form created",
+  "request.form_updated": "Request form edited",
+  "request.form_enabled": "Request form enabled",
+  "request.form_disabled": "Request form disabled",
+  "request.form_link_rotated": "Request form link replaced",
+  "request.form_submitted": "Request submitted through form",
 };
 
 export const SURFACE_LABELS: Record<string, string> = {
@@ -161,7 +167,11 @@ export function auditActor(event: AuditEvent): string {
     (event.action === "org.purged" ||
     event.action === "org.departure.item.expired"
       ? "System"
-      : "Unknown user")
+      : // A public form submission has no signed-in actor: the requester
+        // has no account, and their details stay off the audit log.
+        event.action === "request.form_submitted"
+        ? "Requester (form)"
+        : "Unknown user")
   );
 }
 

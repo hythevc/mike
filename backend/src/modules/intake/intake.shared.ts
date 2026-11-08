@@ -528,7 +528,13 @@ export type RequestDeskAuditAction =
     | "request.assigned"
     | "request.unassigned"
     | "request.commented"
-    | "request.matter_created";
+    | "request.matter_created"
+    | "request.form_created"
+    | "request.form_updated"
+    | "request.form_enabled"
+    | "request.form_disabled"
+    | "request.form_link_rotated"
+    | "request.form_submitted";
 
 /**
  * One audit row per action, carrying ids only: never a title, details,
@@ -604,7 +610,7 @@ export function parseOptionalText(
     return { ok: true, value: text };
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function parseRequesterEmail(value: unknown): Parsed<string | null> {
     const text = parseOptionalText(value, "requester_email", 320);

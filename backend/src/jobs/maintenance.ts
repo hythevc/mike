@@ -9,6 +9,7 @@ import { backfillDocumentText, sweepStaleProcessingDocuments } from "../modules/
 import { sweepStaleGeneratingCells } from "../modules/tabular/tabular.service";
 import { expireDepartureArchives, purgeExpiredOrganizations } from "../modules/orgs/orgs.service";
 import { purgeExpiredSubagentRuns } from "../modules/chat/chat.service";
+import { deleteExpiredFormSubmissions } from "../modules/intake/intake.service";
 
 /** Isolate timer-driven work just as the queue runner isolates each job. */
 function runSweep<T>(operation: Operation, work: () => Promise<T>): Promise<T | undefined> {
@@ -39,5 +40,7 @@ export async function runStaleWorkSweep(
     await runSweep("maintenance.organizations", () => purgeExpiredOrganizations(db));
     await runSweep("maintenance.subagent_runs", () => purgeExpiredSubagentRuns(db));
     await runSweep("maintenance.rate_limits", () => pruneExpiredRateLimitWindows(db));
+    // Request form submissions past their form's retention period (W22).
+    await runSweep("maintenance.request_forms", () => deleteExpiredFormSubmissions(db));
     return { documents: documents ?? 0, cells: cells ?? 0 };
 }

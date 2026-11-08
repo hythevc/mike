@@ -193,6 +193,8 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     // its current members can be assigned a request.
     request_desk_org_only: "validation",
     request_desk_assignee_not_member: "validation",
+    // A public request form accepts senders from approved email domains only.
+    request_form_sender_not_allowed: "validation",
     // Identity
     authentication_failed: "unauthenticated",
     session_expired: "unauthenticated",
@@ -211,6 +213,11 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     // The matter's client has restricted AI use for it; model work on the
     // matter is refused until a project owner or editor turns it back on.
     matter_ai_restricted: "forbidden",
+    // Request forms are managed by an organization's owners and admins.
+    request_form_admin_only: "forbidden",
+    // A request form link that is unknown, disabled or has been replaced:
+    // the public page shows the same notice for all three.
+    request_form_not_found: "not_found",
     // Something else changed first
     review_running: "conflict",
     review_stale: "conflict",

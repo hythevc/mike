@@ -4974,14 +4974,22 @@ export type {
     RequestDeskChange,
     RequestDeskMatterCreated,
     RequestDeskBoardSummary,
+    RequestDeskForm,
+    RequestDeskFormLink,
+    RequestDeskPublicForm,
+    RequestDeskFormReceipt,
 } from "@mike/contracts";
 
 import type {
     RequestDeskBoardSummary,
     RequestDeskChange,
     RequestDeskComment,
+    RequestDeskForm,
+    RequestDeskFormLink,
+    RequestDeskFormReceipt,
     RequestDeskMatterCreated,
     RequestDeskPriority,
+    RequestDeskPublicForm,
     RequestDeskRequest,
     RequestDeskRequestPage,
     RequestDeskStatus,
@@ -5193,6 +5201,114 @@ export async function createIntakeMatter(
     return apiRequest(
         "intake.request.matter",
         `/intake/requests/${encodeURIComponent(requestId)}/matter`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+        },
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Request forms: public submissions into the request desk. Owners and admins
+// manage them; the public endpoints take no session and are reached from the
+// signed-out /request/<token> page.
+// ---------------------------------------------------------------------------
+
+/** The settings an owner or admin sets on a form; every field is optional. */
+export interface RequestFormInput {
+    title?: string;
+    intro?: string;
+    disclaimer?: string;
+    privacy_notice?: string;
+    privacy_policy_url?: string | null;
+    /** Domains, as a list or as one comma- or line-separated text. */
+    allowed_sender_domains?: string[] | string;
+    retention_days?: number;
+    enabled?: boolean;
+}
+
+/** The fields a requester fills in on the public form. */
+export interface RequestFormSubmissionInput {
+    title: string;
+    details: string;
+    requester_name: string;
+    requester_email: string;
+    /** The hidden field a person never fills; sent empty. */
+    website?: string;
+}
+
+/** The organization's request forms, for its owners and admins. */
+export async function listRequestForms(
+    workspace: string,
+    signal?: AbortSignal,
+): Promise<{ forms: RequestDeskForm[] }> {
+    return apiRequest(
+        "intake.forms",
+        `/intake/forms?${new URLSearchParams({ workspace })}`,
+        { signal },
+    );
+}
+
+/** Create a form. The answer carries its link token this once. */
+export async function createRequestForm(
+    workspace: string,
+    input: RequestFormInput = {},
+): Promise<RequestDeskFormLink> {
+    return apiRequest("intake.forms", "/intake/forms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, org_id: workspace }),
+    });
+}
+
+/** Edit a form's notices and settings, or enable and disable it. */
+export async function updateRequestForm(
+    formId: string,
+    input: RequestFormInput,
+): Promise<RequestDeskForm> {
+    return apiRequest(
+        "intake.form",
+        `/intake/forms/${encodeURIComponent(formId)}`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+        },
+    );
+}
+
+/** Replace a form's link; the old one stops working at once. */
+export async function rotateRequestFormLink(
+    formId: string,
+): Promise<RequestDeskFormLink> {
+    return apiRequest(
+        "intake.form.rotate",
+        `/intake/forms/${encodeURIComponent(formId)}/rotate`,
+        { method: "POST" },
+    );
+}
+
+/** What a public form shows, by its link token. No session is needed. */
+export async function getPublicRequestForm(
+    token: string,
+    signal?: AbortSignal,
+): Promise<RequestDeskPublicForm> {
+    return apiRequest(
+        "request_form.read",
+        `/request-forms/${encodeURIComponent(token)}`,
+        { signal },
+    );
+}
+
+/** Submit a request through a public form; the answer is the reference alone. */
+export async function submitPublicRequestForm(
+    token: string,
+    input: RequestFormSubmissionInput,
+): Promise<RequestDeskFormReceipt> {
+    return apiRequest(
+        "request_form.submit",
+        `/request-forms/${encodeURIComponent(token)}/submit`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },

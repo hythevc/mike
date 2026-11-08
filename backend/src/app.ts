@@ -31,7 +31,7 @@ import {
   userMemoryRouter,
 } from "./modules/memory/memory.routes";
 import { playbooksRouter } from "./modules/playbooks/playbooks.routes";
-import { intakeRouter } from "./modules/intake/intake.routes";
+import { intakeRouter, requestFormsRouter } from "./modules/intake/intake.routes";
 import { sourceCodeRouter } from "./modules/source-code/sourceCode.routes";
 import { plansRouter } from "./modules/plans/plans.routes";
 import { installPlanAllowance } from "./lib/entitlements";
@@ -42,6 +42,7 @@ import {
 } from "./middleware/internalErrorResponse";
 import { configuredAllowedOrigins } from "./lib/origins";
 import {
+  publicRateLimit,
   sharedRateLimit,
   type SharedRateLimitOptions,
 } from "./lib/rateLimitStore";
@@ -223,6 +224,29 @@ const authMfaLimiter = sharedAuthLimiter({
   message: "Too many verification attempts. Please try again later.",
 });
 
+// The public request form (modules/intake, mounted at /request-forms) is the
+// one surface an anonymous visitor can write through, so it gets its own
+// strict lanes in the shared store, keyed by client address and refusing
+// requests while the store cannot count: one for every request to the form
+// (reading it included) and a tighter one for submissions. Both are
+// registered below ahead of the router, so an over-limit request is answered
+// before any lookup the route would make.
+const REQUEST_FORM_BODY_LIMIT = "64kb";
+
+const requestFormLimiter = publicRateLimit({
+  lane: "public-request-form",
+  windowMs: minutes(envInt("RATE_LIMIT_REQUEST_FORM_WINDOW_MINUTES", 15)),
+  max: envInt("RATE_LIMIT_REQUEST_FORM_MAX", 30),
+  message: "Too many requests for this form. Please try again later.",
+});
+
+const requestFormSubmitLimiter = publicRateLimit({
+  lane: "public-request-form-submit",
+  windowMs: hours(envInt("RATE_LIMIT_REQUEST_FORM_SUBMIT_WINDOW_HOURS", 1)),
+  max: envInt("RATE_LIMIT_REQUEST_FORM_SUBMIT_MAX", 10),
+  message: "Too many submissions. Please try again later.",
+});
+
 app.disable("x-powered-by");
 // The number of proxies in front of the API whose X-Forwarded-For entries it
 // trusts, counting the one that connects to it (docs/deployment.md, "Rate
@@ -343,6 +367,16 @@ app.delete("/user/tabular-reviews", dataDeleteLimiter);
 // no body parser may consume it first — a .json upload otherwise would be.
 app.put("/download/signed/:token", blobUploadLimiter, blobUploadHandler);
 
+// The anonymous request form: its lanes run first, then a body cap far below
+// the global ceiling (a submission is a few short text fields). This parser
+// runs before the global one, so the smaller limit wins for this path.
+app.use("/request-forms", requestFormLimiter);
+app.post(
+  "/request-forms/:token/submit",
+  requestFormSubmitLimiter,
+  express.json({ limit: REQUEST_FORM_BODY_LIMIT }),
+);
+
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 // Body-aware account throttling complements the per-IP login limiter. The key
@@ -371,6 +405,9 @@ app.use("/documents", sourceDocumentsRouter);
 app.use("/audit", auditRouter);
 app.use("/playbooks", playbooksRouter);
 app.use("/intake", intakeRouter);
+// Unauthenticated: the public request form, read and submitted by people
+// without a seat, behind the lanes registered above.
+app.use("/request-forms", requestFormsRouter);
 app.use("/upload-sessions", uploadSessionsRouter);
 // Unauthenticated: the AGPL-3.0 section 13 corresponding-source offer must be
 // reachable by every network user, signed in or not.

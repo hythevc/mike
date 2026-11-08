@@ -10,7 +10,12 @@ import { reportError } from "./observability/sentry";
 export type AuditStatus = "completed" | "cancelled" | "failed";
 
 export type AuditEventInput = {
-  userId: string;
+  /**
+   * The account that acted, or null for an event with no signed-in actor
+   * (a public request form submission); the row then belongs to its
+   * organization alone, as the purge and expiry rows written in SQL do.
+   */
+  userId: string | null;
   orgId?: string | null;
   userEmail?: string | null;
   action: string;

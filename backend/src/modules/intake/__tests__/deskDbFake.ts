@@ -42,11 +42,20 @@ const OPEN = ["new", "in_progress", "waiting"];
 const TERMINAL = ["closed", "declined"];
 const PRIORITY_RANK: Record<string, number> = { low: 0, normal: 1, high: 2, urgent: 3 };
 
-/** The generated columns of request_desk_requests. */
+/** The generated columns of request_desk_requests, and the defaults of request_desk_forms. */
 function generate(tableName: string, row: Row): Row {
     if (tableName === "request_desk_requests") {
         row.reference = `REQ-${row.reference_number}`;
         row.priority_rank = PRIORITY_RANK[String(row.priority)] ?? 3;
+    }
+    if (tableName === "request_desk_forms") {
+        row.updated_at ??= row.created_at;
+        row.enabled ??= true;
+        row.intro ??= "";
+        row.privacy_policy_url ??= null;
+        row.allowed_sender_domains ??= [];
+        row.retention_days ??= 365;
+        row.token_rotated_at ??= null;
     }
     return row;
 }
@@ -152,13 +161,15 @@ function query(tableName: string) {
 
     function execute(): { data: Row[] | null; error: DbError | null; count?: number } {
         if (op === "insert") {
-            const rows = (Array.isArray(payload) ? payload : [payload as Row]).map((row) => ({
-                id: nextId(),
-                created_at: nextTime(),
-                ...row,
-            }));
+            const rows = (Array.isArray(payload) ? payload : [payload as Row]).map((row) =>
+                generate(tableName, {
+                    id: nextId(),
+                    created_at: nextTime(),
+                    ...row,
+                }),
+            );
             table(tableName).push(...rows);
-            return { data: rows, error: null };
+            return { data: rows.map((row) => ({ ...row })), error: null };
         }
         if (op === "update") {
             const rows = matching();
@@ -403,6 +414,58 @@ const FUNCTIONS: Record<string, (args: Record<string, unknown>) => { data: unkno
             event: "matter_created",
         });
         return { data: { outcome: "changed", request: { ...current }, comment: entry }, error: null };
+    },
+    // A public form submission: the request through request_desk_create_request
+    // with source 'form' and no creator, linked to its form. A form that is
+    // disabled or gone is refused the way the SQL function refuses it.
+    request_desk_submit_form_request(args) {
+        const form = table("request_desk_forms").find(
+            (f) => f.id === args.p_form_id && f.enabled === true,
+        );
+        if (!form) return checkViolation("request desk: the form is not available");
+        const created = FUNCTIONS.request_desk_create_request({
+            p_org_id: form.org_id,
+            p_created_by: null,
+            p_source: "form",
+            p_title: args.p_title,
+            p_details: args.p_details,
+            p_request_type: null,
+            p_priority: "normal",
+            p_requester_name: args.p_requester_name,
+            p_requester_email: args.p_requester_email,
+            p_assignee_user_id: null,
+            p_sla_due_at: null,
+        });
+        if (created.error) return created;
+        const row = table("request_desk_requests").find(
+            (r) => r.id === (created.data as Row).id,
+        )!;
+        row.form_id = args.p_form_id;
+        return { data: { ...row }, error: null };
+    },
+    // Retention: unconverted form submissions older than their form's
+    // retention_days (365 without a form), oldest first, at most p_limit.
+    request_desk_delete_expired_form_submissions(args) {
+        const limit = Math.max(Number(args.p_limit ?? 500), 1);
+        const now = Date.now();
+        const forms = table("request_desk_forms");
+        const expired = table("request_desk_requests")
+            .filter((r) => {
+                if (r.source !== "form" || r.project_id) return false;
+                const form = forms.find((f) => f.id === r.form_id);
+                const days = Number(form?.retention_days ?? 365);
+                return Date.parse(String(r.created_at)) < now - days * 86_400_000;
+            })
+            .sort((a, b) => compare(a.created_at, b.created_at))
+            .slice(0, limit);
+        const ids = new Set(expired.map((r) => r.id));
+        desk.tables.request_desk_requests = table("request_desk_requests").filter(
+            (r) => !ids.has(r.id),
+        );
+        desk.tables.request_desk_comments = table("request_desk_comments").filter(
+            (c) => !ids.has(c.request_id),
+        );
+        return { data: ids.size, error: null };
     },
     request_desk_board_summary(args) {
         const rows = table("request_desk_requests").filter((r) => r.org_id === args.p_org_id);

@@ -449,7 +449,12 @@ starting a chat are limited per signed-in user, after authentication, with one
 budget per user whichever workspace a request is for. People who share an
 office address each get their own budget. Sign-in, MFA, email and public lanes
 are limited per client address; failed sign-ins are also limited per account,
-keyed by a digest of the email address. The general lane and the export,
+keyed by a digest of the email address. The public request form
+(`/request-forms`, reached without signing in) has two such lanes: one for
+every request to a form, reading it included (`RATE_LIMIT_REQUEST_FORM_MAX`,
+30 per 15 minutes by default), and a tighter one for submissions
+(`RATE_LIMIT_REQUEST_FORM_SUBMIT_MAX`, 10 per hour by default); both answer
+before the form is looked up. The general lane and the export,
 import, deletion, signed-upload and Word tool-result lanes are limited per
 client address too, and upload sessions have their own per-user limits (see
 above).
