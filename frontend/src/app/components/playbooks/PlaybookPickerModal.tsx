@@ -159,7 +159,7 @@ function PlaybookPickerModalForWorkspace({
                       type="button"
                       aria-pressed={isSelected}
                       onClick={() => setSelected(isSelected ? null : playbook)}
-                      className={`flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left text-xs transition-all ${
+                      className={`flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left text-xs ${
                         isSelected
                           ? `${LIQUID_GLASS_MODAL_ROW_SELECTED_CLASS} text-gray-900`
                           : LIQUID_GLASS_MODAL_ROW_HOVER_CLASS

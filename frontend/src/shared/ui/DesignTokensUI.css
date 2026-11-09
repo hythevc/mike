@@ -88,6 +88,18 @@
        Tailwind's 12px; its line-height ratio is left at Tailwind's default.
        Shared primitives keep no text below 11px (see noMicroText.test.ts). */
     --text-xs: 0.8125rem;
+
+    /* Motion easing (W26). Declared under Tailwind's `--ease-*` theme namespace
+       so `ease-out-strong`, `ease-out-soft` and `ease-in-out-soft` compile as
+       transition-timing-function utilities. Interface motion eases OUT: it
+       starts fast and settles, so a control answers at once. `ease-in-out-soft`
+       is only for a symmetric move that has to leave and arrive gently (the
+       sidebar width change, a long title sliding to show its end). Raw CSS
+       cannot read these back as `var(--ease-*)` because they are `inline`; use
+       the generated utility class instead. motionTokens.test.ts pins them. */
+    --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-out-soft: cubic-bezier(0.33, 1, 0.68, 1);
+    --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 :root {
@@ -153,6 +165,23 @@
        4.5:1 (the old azure pill was ~3.3:1). */
     --brand-primary-color: var(--brand-primary, #006edc);
     --brand-on-primary-color: var(--brand-on-primary, #ffffff);
+
+    /* Motion duration (W26). Named so a surface writes
+       `duration-(--motion-duration-fast)` instead of an ad-hoc number, and the
+       whole app moves on one budget. Frequent chrome is instant to fast;
+       occasional surfaces take one short standard step; nothing is slower than
+       `slow`. Every value is at most 300ms. An exit is one tier quicker than
+       its entrance, so dismissals never outstay the content: `enter` aliases
+       `base`, `exit` aliases `fast`. These are real custom properties (unlike
+       the easings above), so both raw CSS `var(--motion-duration-*)` and the
+       `duration-(--motion-duration-*)` utility read them. motionTokens.test.ts
+       pins the set and the budget; see docs/design-system.md → Motion. */
+    --motion-duration-instant: 80ms;
+    --motion-duration-fast: 120ms;
+    --motion-duration-base: 180ms;
+    --motion-duration-slow: 300ms;
+    --motion-duration-enter: var(--motion-duration-base);
+    --motion-duration-exit: var(--motion-duration-fast);
 }
 
 .dark {

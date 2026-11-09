@@ -142,7 +142,12 @@
     border: 1px solid var(--liquid-glass-translucent-border);
 }
 
-.liquid-glass-translucent-action:hover {
-    background: var(--liquid-glass-translucent-background-action-hover);
-    box-shadow: var(--liquid-glass-shadow-translucent-action-hover);
+/* Gated to pointers that can truly hover, so the hover fill does not stick on
+   a touch device after a tap. Tailwind v4 already wraps `hover:` utilities this
+   way; this hand-written rule needs the query spelled out. */
+@media (hover: hover) {
+    .liquid-glass-translucent-action:hover {
+        background: var(--liquid-glass-translucent-background-action-hover);
+        box-shadow: var(--liquid-glass-shadow-translucent-action-hover);
+    }
 }

@@ -178,7 +178,7 @@ export function WFEditColumnModal({ column, onClose, onSave, onDelete }: Props) 
                                         <button
                                             type="button"
                                             onClick={() => { update({ name: "", prompt: "", format: "text", tags: [], tagInput: "" }); setPresetsOpen(false); }}
-                                            className="theme-dropdown-item w-full border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-400 transition-all"
+                                            className="theme-dropdown-item w-full border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-400"
                                         >
                                             No Preset
                                         </button>
@@ -190,7 +190,7 @@ export function WFEditColumnModal({ column, onClose, onSave, onDelete }: Props) 
                                                     update({ name: preset.name, prompt: preset.prompt, format: preset.format, tags: preset.tags ?? [], tagInput: "" });
                                                     setPresetsOpen(false);
                                                 }}
-                                                className="theme-dropdown-item w-full px-3 py-2 text-left text-sm text-gray-700 transition-all"
+                                                className="theme-dropdown-item w-full px-3 py-2 text-left text-sm text-gray-700"
                                             >
                                                 {preset.name}
                                             </button>

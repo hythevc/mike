@@ -513,7 +513,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                     isOpen ? "rounded-2xl" : "rounded-[23px]",
                     "my-2 ml-2 mr-0 md:my-3 md:ml-3 md:mr-0 overflow-visible",
                     LIQUID_GLASS_FLOAT_CLASS,
-                    "absolute z-[99] flex shrink-0 flex-col transition-all duration-300 motion-reduce:transition-none md:relative",
+                    "absolute z-[99] flex shrink-0 flex-col transition-[width,border-radius] duration-(--motion-duration-slow) ease-in-out-soft motion-reduce:transition-none md:relative",
                 )}
             >
                 {/* Toggle + Logo */}
@@ -563,7 +563,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                         onPointerLeave={() => setToggleHoverSuppressed(false)}
                         aria-label={isOpen ? "Close sidebar" : "Open sidebar"}
                         className={cn(
-                            "group flex h-8 w-8 shrink-0 items-center justify-center transition-[border-radius] duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40",
+                            "group flex h-8 w-8 shrink-0 items-center justify-center transition-[border-radius] duration-(--motion-duration-slow) ease-in-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40",
                             isOpen ? "rounded-md" : "rounded-[16px]",
                             !toggleHoverSuppressed && LIQUID_GLASS_HOVER_CLASS,
                         )}
@@ -672,7 +672,11 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                             anyRecentProjectExpanded
                                                 ? RECENT_PROJECT_LIST_EXPANDED_HEIGHT_CLASS
                                                 : RECENT_PROJECT_LIST_HEIGHT_CLASS,
-                                            "overflow-y-auto transition-[height] duration-200 motion-reduce:transition-none",
+                                            // Height is not animated (only
+                                            // transform and opacity may move,
+                                            // plus the sidebar's own width): the
+                                            // list grows at once as it fills.
+                                            "overflow-y-auto",
                                         )}
                                         onScroll={handleRecentProjectsScroll}
                                     >
@@ -956,7 +960,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                             <button
                                 type="button"
                                 className={cn(
-                                    "flex h-9 w-full shrink-0 items-center px-[7px] outline-none [transition:border-radius_300ms_cubic-bezier(0.4,0,0.2,1),background-color_150ms,color_150ms] focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2",
+                                    "flex h-9 w-full shrink-0 items-center px-[7px] outline-none transition-[border-radius] duration-(--motion-duration-slow) ease-in-out-soft focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2",
                                     isOpen ? "rounded-xl" : "rounded-[18px]",
                                     !isOpen ? "hidden md:flex" : "",
                                     pathname.startsWith("/settings") ||

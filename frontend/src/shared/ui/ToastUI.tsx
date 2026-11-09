@@ -23,6 +23,7 @@ import {
     useEffect,
     useLayoutEffect,
     useRef,
+    useState,
     useSyncExternalStore,
     type ReactElement,
 } from "react";
@@ -54,6 +55,21 @@ export {
     type ToastRecord,
     type ToastTone,
 } from "../lib/toastStore";
+
+/**
+ * Toast entrance and exit, on transform and opacity only, as one interruptible
+ * transition (not a keyframe): a new toast settles down a couple of pixels and
+ * fades in; the hidden state is both where the entrance starts and where an
+ * exit lands. The travel is a transform, so a toast moving in never nudges the
+ * ones below it. Under reduced motion the transition is dropped and the toast
+ * simply appears.
+ */
+export const TOAST_MOTION_BASE_CLASS =
+    "transition-[transform,opacity] duration-(--motion-duration-base) ease-out-strong motion-reduce:transition-none";
+/** Settled: the entered state, and where an exit transition eases back from. */
+export const TOAST_ENTER_CLASS = "translate-y-0 opacity-100";
+/** Hidden: the entrance's starting point and an exit's destination. */
+export const TOAST_EXIT_CLASS = "-translate-y-1 opacity-0";
 
 const toastNodes = new Map<string, HTMLElement>();
 
@@ -200,6 +216,15 @@ export function useToasts(): readonly ToastRecord[] {
 }
 
 function ToastItemUI({ toast }: { toast: ToastRecord }) {
+    // Mount hidden, then flip on the next frame so the browser transitions the
+    // toast in rather than painting it already settled. The transition is
+    // interruptible: a re-render mid-entrance re-targets it smoothly.
+    const [shown, setShown] = useState(false);
+    useEffect(() => {
+        const frame = requestAnimationFrame(() => setShown(true));
+        return () => cancelAnimationFrame(frame);
+    }, []);
+
     const pausedRef = useRef(false);
     const hoveredRef = useRef(false);
     const focusedRef = useRef(false);
@@ -282,64 +307,73 @@ function ToastItemUI({ toast }: { toast: ToastRecord }) {
             </span>
         ) : null;
 
-    // The card's look lives in NoticeCardUI, shared with WarningPopup. This
-    // wrapper adds only toast behaviour: the timer, hover/focus pause, and
-    // the node registry `focusToast` uses.
+    // The card's look lives in NoticeCardUI, shared with WarningPopup, so the
+    // entrance rides a wrapper rather than the card itself — the card stays
+    // byte-identical to a popup's (WarningPopup.test checks this). This item
+    // adds only toast behaviour: the timer, hover/focus pause, the entrance,
+    // and the node registry `focusToast` uses.
     return (
-        <NoticeCardUI
-            tone={toast.tone}
-            title={toast.title}
-            message={toast.message}
-            onDismiss={() => dismissToast(toast.id)}
-            dismissLabel="Dismiss notification"
-            // The item owns the live semantics: `alert` is implicitly
-            // assertive, `status` polite. The viewport around it is a plain
-            // region, because a live region nested in a live region is
-            // announced unpredictably (or twice).
-            role={isError ? "alert" : "status"}
-            // Not in the tab order, but focusable so `focusToast` can put
-            // the keyboard on a critical failure and its actions.
-            tabIndex={-1}
-            ref={(node) => {
-                if (node) {
-                    toastNodes.set(toast.id, node);
-                    nodeRef.current = node;
-                } else {
-                    toastNodes.delete(toast.id);
+        <div
+            className={clsx(
+                TOAST_MOTION_BASE_CLASS,
+                shown ? TOAST_ENTER_CLASS : TOAST_EXIT_CLASS,
+            )}
+        >
+            <NoticeCardUI
+                tone={toast.tone}
+                title={toast.title}
+                message={toast.message}
+                onDismiss={() => dismissToast(toast.id)}
+                dismissLabel="Dismiss notification"
+                // The item owns the live semantics: `alert` is implicitly
+                // assertive, `status` polite. The viewport around it is a plain
+                // region, because a live region nested in a live region is
+                // announced unpredictably (or twice).
+                role={isError ? "alert" : "status"}
+                // Not in the tab order, but focusable so `focusToast` can put
+                // the keyboard on a critical failure and its actions.
+                tabIndex={-1}
+                ref={(node) => {
+                    if (node) {
+                        toastNodes.set(toast.id, node);
+                        nodeRef.current = node;
+                    } else {
+                        toastNodes.delete(toast.id);
+                    }
+                }}
+                data-testid="toast"
+                onMouseEnter={() => { hoveredRef.current = true; pause(); }}
+                onMouseLeave={() => { hoveredRef.current = false; resume(); }}
+                onFocus={(event) => {
+                    focusedRef.current = true;
+                    pause();
+                    // Tabbing in counts too, not only the focus key.
+                    const from = event.relatedTarget;
+                    if (
+                        from instanceof HTMLElement &&
+                        !event.currentTarget.contains(from) &&
+                        !focusReturnTargets.has(toast.id)
+                    ) {
+                        focusReturnTargets.set(toast.id, from);
+                    }
+                }}
+                onBlur={(event) => {
+                    if (event.currentTarget.contains(event.relatedTarget)) return;
+                    focusedRef.current = false;
+                    // The person moved on; closing later must not pull them back.
+                    focusReturnTargets.delete(toast.id);
+                    resume();
+                }}
+                actions={
+                    toastHasActions(toast) ? (
+                        <>
+                            {focusHint}
+                            <ToastActionsUI toast={toast} />
+                        </>
+                    ) : undefined
                 }
-            }}
-            data-testid="toast"
-            onMouseEnter={() => { hoveredRef.current = true; pause(); }}
-            onMouseLeave={() => { hoveredRef.current = false; resume(); }}
-            onFocus={(event) => {
-                focusedRef.current = true;
-                pause();
-                // Tabbing in counts too, not only the focus key.
-                const from = event.relatedTarget;
-                if (
-                    from instanceof HTMLElement &&
-                    !event.currentTarget.contains(from) &&
-                    !focusReturnTargets.has(toast.id)
-                ) {
-                    focusReturnTargets.set(toast.id, from);
-                }
-            }}
-            onBlur={(event) => {
-                if (event.currentTarget.contains(event.relatedTarget)) return;
-                focusedRef.current = false;
-                // The person moved on; closing later must not pull them back.
-                focusReturnTargets.delete(toast.id);
-                resume();
-            }}
-            actions={
-                toastHasActions(toast) ? (
-                    <>
-                        {focusHint}
-                        <ToastActionsUI toast={toast} />
-                    </>
-                ) : undefined
-            }
-        />
+            />
+        </div>
     );
 }
 

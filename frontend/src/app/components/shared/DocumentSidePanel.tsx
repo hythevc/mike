@@ -835,7 +835,7 @@ export function DocumentSidePanel({
                                                 }}
                                                 aria-disabled={deleted}
                                                 className={cn(
-                                                    `group relative flex w-full flex-col overflow-hidden rounded-lg px-3 py-2 ${LIQUID_GLASS_FLAT_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-all`,
+                                                    `group relative flex w-full flex-col overflow-hidden rounded-lg px-3 py-2 ${LIQUID_GLASS_FLAT_CLASS} ${LIQUID_GLASS_HOVER_CLASS}`,
                                                     deleted
                                                         ? "cursor-not-allowed opacity-55"
                                                         : "cursor-pointer",

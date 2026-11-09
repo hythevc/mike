@@ -124,11 +124,39 @@ describe("MotionUI.css", () => {
         );
     });
 
-    it("declares no rule outside the reduced-motion query", () => {
+    it("stops every animation it defines under reduced motion", () => {
+        // W26 moved the app's hand-written keyframes and the classes that run
+        // them into this file, so it now holds animation utilities as well as
+        // the reduced-motion overrides. Each utility must have a reduced-motion
+        // rule that stops it, or a reduced-motion user keeps that motion.
+        const animated = new Set<string>();
         root.walkRules((rule) => {
-            expect((rule.parent as postcss.AtRule | undefined)?.name).toBe(
-                "media",
-            );
+            // Skip keyframe steps and rules already inside an @media.
+            if (rule.parent?.type === "atrule") return;
+            rule.walkDecls("animation", (decl) => {
+                if (decl.value.trim().startsWith("none")) return;
+                for (const selector of rule.selectors) animated.add(selector);
+            });
         });
+
+        const stopped = new Set<string>();
+        root.walkAtRules("media", (media) => {
+            if (!media.params.includes("prefers-reduced-motion: reduce")) return;
+            media.walkRules((rule) => {
+                let stops = false;
+                rule.walkDecls("animation", (decl) => {
+                    if (decl.value.trim() === "none") stops = true;
+                });
+                if (stops) for (const selector of rule.selectors) stopped.add(selector);
+            });
+        });
+
+        expect(animated.size).toBeGreaterThan(0);
+        for (const selector of animated) {
+            expect(
+                stopped.has(selector),
+                `${selector} keeps animating under reduced motion`,
+            ).toBe(true);
+        }
     });
 });

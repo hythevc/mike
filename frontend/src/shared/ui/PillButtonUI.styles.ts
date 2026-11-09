@@ -27,13 +27,13 @@ const sizeClasses: Record<PillButtonUISize, string> = {
 };
 
 /**
- * `transition`, not `transition-all`: `all` includes `visibility`, which is
- * inherited. The assistant side panel keeps inactive tabs mounted and hides
- * them with `invisible`, so a pill inside one animated that inherited change
- * and stayed on screen for the transition's full duration after the user
- * switched tabs. Tailwind's default property list covers every visual property
- * these tones declare — color, background, border, box-shadow, opacity,
- * transform/scale, filter — and leaves visibility alone.
+ * The pill animates only transform and opacity — the pointer-down press scale
+ * and the disabled fade — on the shared motion tokens. It deliberately leaves
+ * colour, background and shadow to change at once on hover, so a control a
+ * lawyer presses dozens of times a day answers immediately. The press eases
+ * out quickly and backs off under reduced motion; a scoped property list also
+ * avoids animating the inherited `visibility` a hidden-but-mounted tab carries,
+ * which once kept a switched-away pill on screen for a whole transition.
  */
 export function pillButtonUIClassName({
     tone,
@@ -46,7 +46,7 @@ export function pillButtonUIClassName({
 }) {
     return twMerge(
         clsx(
-            "inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100",
+            "inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition-[transform,opacity] duration-(--motion-duration-fast) ease-out-soft active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100",
             toneClasses[tone],
             sizeClasses[size],
             className,

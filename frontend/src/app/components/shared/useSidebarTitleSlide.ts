@@ -14,9 +14,11 @@ const TITLE_SLIDE_MS_PER_PX = 25;
 const TITLE_SLIDE_MIN_MS = 800;
 const TITLE_SLIDE_BACK_MS = 600;
 
-/** Classes for the sliding title; its parent is the box that clips it. */
+/** Classes for the sliding title; its parent is the box that clips it. The
+ *  distance-paced duration stays inline (titleStyle below); only the easing
+ *  moves to the shared token so the glide sits on the motion curve. */
 export const SIDEBAR_TITLE_SLIDE_CLASS =
-    "inline-block transition-transform ease-in-out motion-reduce:transition-none";
+    "inline-block transition-transform ease-in-out-soft motion-reduce:transition-none";
 
 /**
  * Slides a History row's clipped title into view on hover and on keyboard

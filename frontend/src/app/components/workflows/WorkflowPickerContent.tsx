@@ -170,7 +170,7 @@ export function WorkflowPickerContent({
                                                 isSelected ? null : workflow,
                                             )
                                         }
-                                        className={`flex min-w-0 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-xs transition-all ${
+                                        className={`flex min-w-0 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-xs ${
                                             isSelected
                                                 ? `${LIQUID_GLASS_MODAL_ROW_SELECTED_CLASS} text-gray-900`
                                                 : LIQUID_GLASS_MODAL_ROW_HOVER_CLASS
@@ -411,7 +411,7 @@ function WorkflowColumnPreview({ columns }: { columns: ColumnConfig[] }) {
                                         isExpanded ? null : column.index,
                                     )
                                 }
-                                className={`flex min-w-0 w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-xs transition-all ${
+                                className={`flex min-w-0 w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-xs ${
                                     isExpanded
                                         ? LIQUID_GLASS_MODAL_ROW_SELECTED_CLASS
                                         : LIQUID_GLASS_MODAL_ROW_HOVER_CLASS
@@ -427,7 +427,7 @@ function WorkflowColumnPreview({ columns }: { columns: ColumnConfig[] }) {
                                     {formatLabel(column.format ?? "text")}
                                 </span>
                                 <ChevronDown
-                                    className={`h-3 w-3 shrink-0 text-gray-300 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`}
+                                    className={`h-3 w-3 shrink-0 text-gray-300 transition-transform duration-(--motion-duration-fast) ease-out-soft ${isExpanded ? "rotate-180" : ""}`}
                                 />
                             </button>
                             {isExpanded ? (

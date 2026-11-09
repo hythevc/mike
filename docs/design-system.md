@@ -764,6 +764,83 @@ chat removes its row), move focus to a neighbouring control first, as
 The Word add-in has no `WarningPopup`, so there `ToastViewportUI` draws
 errors as toasts in the same top column.
 
+## Motion
+
+Chrome motion is feedback, not decoration. It confirms an action, keeps a
+surface spatially continuous with what opened it, or softens a swap — and it
+never shifts layout. Every interface transition animates `transform` and
+`opacity` only (`clip-path` is allowed); nothing animates width, height,
+position, colour, or blur. The one exception is the sidebar's width, which the
+collapse/expand needs; it rides the same curve as everything else. Nothing
+enters from `scale(0)`.
+
+### Tokens
+
+Easing lives under Tailwind's `--ease-*` namespace in `DesignTokensUI.css`, so
+each is a utility (`ease-out-strong`, `ease-out-soft`, `ease-in-out-soft`).
+Interface motion eases **out** — it starts fast and settles, so a control
+answers at once. Reserve `ease-in-out-soft` for a symmetric move that leaves
+and arrives (the sidebar width, a long title sliding to show its end).
+
+| Easing | Curve | Use |
+| --- | --- | --- |
+| `ease-out-strong` | `cubic-bezier(0.16, 1, 0.3, 1)` | Entrances: a quick settle |
+| `ease-out-soft` | `cubic-bezier(0.33, 1, 0.68, 1)` | Presses and small moves |
+| `ease-in-out-soft` | `cubic-bezier(0.65, 0, 0.35, 1)` | Symmetric moves (sidebar width, title slide) |
+
+Durations are named custom properties on `:root`, used as
+`duration-(--motion-duration-fast)`. Every value is at most 300ms, and an exit
+is a tier quicker than its entrance (`--motion-duration-exit` aliases `fast`,
+`--motion-duration-enter` aliases `base`), so a dismissal never outstays the
+content it closes.
+
+| Token | Value | Budget |
+| --- | --- | --- |
+| `--motion-duration-instant` | 80ms | A press or a hover on a frequent control |
+| `--motion-duration-fast` | 120ms | The default **exit**; small transforms |
+| `--motion-duration-base` | 180ms | The default **entrance** (menus, popovers, toasts) |
+| `--motion-duration-slow` | 300ms | The sidebar width change — the ceiling |
+
+Budget per element size: the smaller and more frequent the element, the quicker
+it moves. A pill or icon button presses in `fast` (120ms); a menu, popover or
+toast enters in `base` (180ms) and leaves in `fast`; only the full-height
+sidebar takes `slow` (300ms). Use `motionTokens.test.ts` as the source of
+truth for the set and the budget.
+
+### Frequency rule
+
+- **Frequent actions are instant.** A control a lawyer presses dozens of times
+  a day (a pill, a tab, the composer send, a glass icon button) animates only
+  its pointer-down press, on `fast`, and lets colour and background change at
+  once on hover. It never animates `transition-all`.
+- **Occasional surfaces get one short standard transition.** A menu, popover or
+  toast fades and travels at most 2px out of its trigger origin at a 0.98 scale,
+  entering on `base` and exiting on `fast`.
+- **No scroll-triggered motion anywhere.** Nothing animates because the page
+  scrolled or an element entered the viewport.
+
+### Reduced motion
+
+Honour `prefers-reduced-motion: reduce`. `MotionUI.css` holds the one
+reduced-motion block: it stops the loaders (pulse, spin, shimmer, the typing
+dots), neutralises tw-animate's enter/exit translate and scale variables so a
+menu or popover becomes a plain fade (gentler, not frozen), and shows the
+sidebar fades at once. A pressable control drops its press scale with a
+`motion-reduce:` variant. `MotionUI.css` also owns the hand-written keyframes
+(the sidebar fade, the uploading ellipsis), each beside the rule that stops it;
+`MaterialLayersUI.test.ts` checks every animation it defines is neutralised.
+
+### Guards
+
+`motionRatchet.json` / `motionRatchet.test.ts` hold the chrome to zero
+`transition-all`, zero bare `ease-in` on interface motion, and zero
+`animate-[…]` keyframe without a reduced-motion rule (the assistant's
+`InitialView` and `ChatView` are the only recorded exceptions, which W29
+clears). The migrated surfaces carry no `duration-<number>` literal — only the
+tokens. `e2e/motion.spec.ts` proves in a real browser that opening the sidebar,
+the account menu and a row menu shifts no layout, and that reduced motion stops
+the account menu's transform.
+
 ## Component catalog
 
 Every primitive in the table above has stories in the Ladle catalog, except

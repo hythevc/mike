@@ -8,7 +8,100 @@
  * `utilities` layer, after Tailwind's own utilities. A rule here has the same
  * specificity as the `animate-*` utility it targets and comes later in the
  * same layer, so it wins. Imported anywhere else it would lose to them.
+ *
+ * This file owns the app's hand-written keyframes and the classes that drive
+ * them (moved here from globals.css so each animation sits beside the
+ * reduced-motion rule that neutralises it), and the one reduced-motion block.
+ * Durations come from the --motion-duration-* custom properties in
+ * DesignTokensUI.css; MaterialLayersUI.test.ts checks every animation defined
+ * here is stopped under reduced motion.
  */
+
+/* ── Keyframes ──────────────────────────────────────────────────────────── */
+
+/* A plain opacity fade. Transform never changes, so there is nothing to
+   neutralise under reduced motion beyond stopping the delay. */
+@keyframes sidebarFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes uploadingEllipsisOne {
+    0%, 32% {
+        opacity: 1;
+    }
+    33%, 100% {
+        opacity: 0;
+    }
+}
+
+@keyframes uploadingEllipsisTwo {
+    0%, 32%, 66%, 100% {
+        opacity: 0;
+    }
+    33%, 65% {
+        opacity: 1;
+    }
+}
+
+@keyframes uploadingEllipsisThree {
+    0%, 65% {
+        opacity: 0;
+    }
+    66%, 100% {
+        opacity: 1;
+    }
+}
+
+/* ── Animation utilities ────────────────────────────────────────────────── */
+
+.sidebar-fade-in {
+    animation: sidebarFadeIn var(--motion-duration-slow) ease-out forwards;
+    animation-delay: 0.1s;
+    opacity: 0;
+}
+
+.sidebar-fade-in-2 {
+    animation: sidebarFadeIn var(--motion-duration-slow) ease-out forwards;
+    animation-delay: 0.2s;
+    opacity: 0;
+}
+
+/* Wait for the sidebar's width change before showing the measured heading, so
+   its compact layout cannot flash while expanding. */
+.sidebar-heading-enter {
+    animation: sidebarFadeIn var(--motion-duration-base) ease-out
+        var(--motion-duration-slow) both;
+}
+
+.uploading-ellipsis {
+    display: inline-grid;
+    width: 1.5em;
+}
+
+.uploading-ellipsis-one,
+.uploading-ellipsis-two,
+.uploading-ellipsis-three {
+    grid-area: 1 / 1;
+}
+
+.uploading-ellipsis-one {
+    animation: uploadingEllipsisOne 1.2s steps(1, end) infinite;
+}
+
+.uploading-ellipsis-two {
+    animation: uploadingEllipsisTwo 1.2s steps(1, end) infinite;
+}
+
+.uploading-ellipsis-three {
+    animation: uploadingEllipsisThree 1.2s steps(1, end) infinite;
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
     /* Skeleton pulses, spinners, shimmer placeholders and the typing dots
@@ -24,5 +117,47 @@
     [class*="animate-[bounce"],
     [class*="animate-[shimmer"] {
         animation: none;
+    }
+
+    /* tw-animate-css drives its enter/exit animations (dropdowns, popovers,
+       the logo) from these custom properties. Zeroing the translate, scale,
+       rotate and blur channels leaves the opacity channel untouched, so an
+       entrance or exit becomes a plain fade instead of a slide-and-zoom:
+       gentler, not frozen. `!important` because the per-side slide utilities
+       set these with a class+attribute selector this layered rule cannot
+       otherwise outrank. motionTokens.test.ts checks this rule exists. */
+    [class*="animate-in"],
+    [class*="animate-out"] {
+        --tw-enter-translate-x: 0 !important;
+        --tw-enter-translate-y: 0 !important;
+        --tw-exit-translate-x: 0 !important;
+        --tw-exit-translate-y: 0 !important;
+        --tw-enter-scale: 1 !important;
+        --tw-exit-scale: 1 !important;
+        --tw-enter-rotate: 0 !important;
+        --tw-exit-rotate: 0 !important;
+        --tw-enter-blur: 0 !important;
+        --tw-exit-blur: 0 !important;
+    }
+
+    /* The sidebar fades are pure opacity, but their delays would still hold
+       content back; show it at once instead. `opacity: 1` overrides the
+       `opacity: 0` the running state carries. */
+    .sidebar-fade-in,
+    .sidebar-fade-in-2,
+    .sidebar-heading-enter {
+        animation: none;
+        opacity: 1;
+    }
+
+    .uploading-ellipsis-one,
+    .uploading-ellipsis-two,
+    .uploading-ellipsis-three {
+        animation: none;
+    }
+
+    .uploading-ellipsis-one,
+    .uploading-ellipsis-two {
+        opacity: 0;
     }
 }
