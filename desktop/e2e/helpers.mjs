@@ -122,6 +122,10 @@ export async function completeOnboardingIfRequired(
           .getByLabel("Organisation", { exact: true })
           .fill(organisation);
       }
+      // New accounts must explicitly accept the current documents before the
+      // profile form can advance. Legacy-exempt accounts have no checkbox.
+      const acceptance = page.getByRole("checkbox");
+      if (await acceptance.count()) await acceptance.first().check();
       await continueButton.click();
       await page.waitForURL(/\/onboarding\/practice/, { timeout: 20_000 });
       await page.getByRole("button", { name: "Skip", exact: true }).click();
