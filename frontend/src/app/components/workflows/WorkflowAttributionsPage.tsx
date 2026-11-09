@@ -13,7 +13,6 @@ import type { WorkflowCatalogAttribution } from "@/app/components/shared/types";
 import { listWorkflowAttributions } from "@/app/lib/mikeApi";
 import { userFacingApiError } from "@/app/lib/userFacingError";
 import { PageHeader } from "@/app/components/shared/PageHeader";
-import { PAGE_HEADER_TITLE_CLASS } from "@/app/components/shared/pageHeaderStyles";
 import { EmptyState } from "@/app/components/ui/empty-state";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { SkeletonLine } from "@/app/components/shared/TablePrimitive";
@@ -119,11 +118,8 @@ export function WorkflowAttributionsPage() {
           { label: "Workflows", onClick: () => router.push("/workflows") },
           { label: "Open-source notices" },
         ]}
-      >
-        <h1 className={`${PAGE_HEADER_TITLE_CLASS} text-gray-900`}>
-          {ATTRIBUTION_TEXT.noticesHeading}
-        </h1>
-      </PageHeader>
+      />
+      <h1 className="sr-only">{ATTRIBUTION_TEXT.noticesHeading}</h1>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-8">
         {state === "loading" ? (

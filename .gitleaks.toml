@@ -43,3 +43,13 @@ regexes = [
 [[allowlists]]
 description = "Sentry scrubber unit-test fixture: a fake AWS access key id (the letters A–P) used to prove redactText strips it from event text (backend/src/lib/observability/sentry.test.ts, frontend/src/shared/lib/sentryEvent.test.ts)"
 regexes = ['''^AKIAABCDEFGHIJKLMNOP$''']
+
+[[allowlists]]
+description = "Stripe mode-validation and mocked-request unit-test fixtures: four deliberately fake literals in billing.stripe.test.ts and runtimeConfig.test.ts (including their historical commits)"
+regexTarget = "secret"
+regexes = [
+    '''^rk_live_placeholder$''',
+    '''^rk_test_placeholder$''',
+    '''^sk_live_placeholder$''',
+    '''^sk_test_placeholder$''',
+]

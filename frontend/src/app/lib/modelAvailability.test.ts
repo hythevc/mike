@@ -32,6 +32,16 @@ const keys = (configured: {
         courtlistener: { configured: false, source: null },
     }) as ApiKeyState;
 
+it("exposes the shared model rules through the web facade without adapting them", async () => {
+    const facade = await import("./modelAvailability");
+    const catalog = await import("@/shared/lib/modelCatalog");
+    expect(facade.getModelProvider).toBe(catalog.getModelProvider);
+    expect(facade.isModelAvailable).toBe(catalog.isModelAvailable);
+    expect(facade.isProviderAvailable).toBe(catalog.isProviderAvailable);
+    expect(facade.modelGroupToProvider).toBe(catalog.modelGroupToProvider);
+    expect(facade.providerLabel).toBe(catalog.providerLabel);
+});
+
 describe("getModelProvider", () => {
     it("maps each settings model to a provider via its group", () => {
         expect(getModelProvider("claude-opus-5-5")).toBe("claude");

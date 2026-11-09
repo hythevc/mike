@@ -81,11 +81,11 @@ export async function signUpThroughUi(page, { email, password }) {
  * The shape is deliberate: OnboardingGate
  * (frontend/src/app/components/auth/OnboardingGate.tsx) pins anyone whose
  * profile.onboardingComplete is false to /onboarding/**, and bounces everyone
- * else off it to /assistant. Both /login and /signup push to
- * /onboarding/profile unconditionally, so a RETURNING account also visits that
- * URL for a moment before the gate replaces it — meaning the URL alone cannot
- * tell the two cases apart. Waiting for "either the step-1 Continue button or
- * the assistant composer" is what disambiguates them.
+ * else off it to /assistant. Password login/signup visit /onboarding/profile;
+ * local guest setup can reach /assistant before the gate checks legal state.
+ * A returning account can also visit onboarding briefly, so the URL alone cannot
+ * tell the cases apart. Wait for the rendered questionnaire, acceptance-only
+ * form, or authenticated Assistant link rather than a transient URL.
  *
  * Step 1 (/onboarding/profile) collects Name + Organisation — the two fields
  * the old signup form used to ask for, which is why they are filled here — and
@@ -102,39 +102,53 @@ export async function completeOnboardingIfRequired(
     timeout: 45_000,
   });
 
-  if (new URL(page.url()).pathname === "/onboarding/profile") {
-    const continueButton = page.getByRole("button", {
-      name: "Continue",
-      exact: true,
-    });
-    const assistantInput = page.getByRole("combobox", {
-      name: "How can I help?",
-    });
-    await continueButton
-      .or(assistantInput)
-      .first()
-      .waitFor({ state: "visible", timeout: 20_000 });
+  const continueButton = page.getByRole("button", {
+    name: "Continue",
+    exact: true,
+  });
+  const acceptButton = page.getByRole("button", {
+    name: "Accept and continue",
+    exact: true,
+  });
+  const assistantLink = page.getByRole("link", {
+    name: "Assistant",
+    exact: true,
+  });
+  await continueButton
+    .or(acceptButton)
+    .or(assistantLink)
+    .first()
+    .waitFor({ state: "visible", timeout: 20_000 });
 
-    if (await continueButton.isVisible()) {
-      if (name) await page.getByLabel("Name", { exact: true }).fill(name);
-      if (organisation) {
-        await page
-          .getByLabel("Organisation", { exact: true })
-          .fill(organisation);
-      }
-      await continueButton.click();
-      await page.waitForURL(/\/onboarding\/practice/, { timeout: 20_000 });
-      await page.getByRole("button", { name: "Skip", exact: true }).click();
-      await page.waitForURL(/\/onboarding\/invitations/, { timeout: 20_000 });
+  if (await acceptButton.isVisible()) {
+    // Local guest setup skips the optional questionnaire, but current
+    // legal documents still require an explicit acceptance.
+    await page.getByRole("checkbox").check();
+    await acceptButton.click();
+  } else if (await continueButton.isVisible()) {
+    if (name) await page.getByLabel("Name", { exact: true }).fill(name);
+    if (organisation) {
       await page
-        .getByRole("button", { name: "Continue", exact: true })
-        .click();
-      await page.waitForURL(/\/onboarding\/models/, { timeout: 20_000 });
-      await page.getByRole("button", { name: "Finish", exact: true }).click();
+        .getByLabel("Organisation", { exact: true })
+        .fill(organisation);
     }
+    // New accounts must explicitly accept the current documents before the
+    // profile form can advance. Legacy-exempt accounts have no checkbox.
+    const acceptance = page.getByRole("checkbox");
+    if (await acceptance.count()) await acceptance.first().check();
+    await continueButton.click();
+    await page.waitForURL(/\/onboarding\/practice/, { timeout: 20_000 });
+    await page.getByRole("button", { name: "Skip", exact: true }).click();
+    await page.waitForURL(/\/onboarding\/invitations/, { timeout: 20_000 });
+    await page
+      .getByRole("button", { name: "Continue", exact: true })
+      .click();
+    await page.waitForURL(/\/onboarding\/models/, { timeout: 20_000 });
+    await page.getByRole("button", { name: "Finish", exact: true }).click();
   }
 
   await page.waitForURL(/\/assistant/, { timeout: 30_000 });
+  await assistantLink.first().waitFor({ state: "visible", timeout: 20_000 });
 }
 
 /**

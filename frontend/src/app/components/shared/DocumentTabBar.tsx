@@ -141,7 +141,7 @@ export function DocumentTabBar({
         <div className="flex min-w-0 shrink-0 items-center">
             <div
                 ref={listRef}
-                role="tablist"
+                role={tabs.length ? "tablist" : "group"}
                 aria-label={label}
                 className={cn(
                     "document-tab-bar flex h-10 flex-1 min-w-0 shrink-0 items-center gap-1 overflow-x-auto px-1 py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",

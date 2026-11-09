@@ -226,7 +226,7 @@ describe("AppSidebar account dropdown", () => {
     (isOpen) => {
       render(<AppSidebar isOpen={isOpen} onToggle={vi.fn()} />);
 
-      expect(screen.getByRole("button", { name: "Account menu" })).toHaveClass(
+      expect(screen.getByRole("button", { name: /^Account menu(?: —|$)/ })).toHaveClass(
         "h-9",
         "shrink-0",
       );

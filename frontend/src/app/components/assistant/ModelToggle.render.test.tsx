@@ -79,7 +79,7 @@ describe("ModelToggle responsive trigger", () => {
             />,
         );
 
-        await user.click(screen.getByRole("button", { name: "Choose model" }));
+        await user.click(screen.getByRole("button", { name: /^Choose model(?: —|$)/ }));
         const reasoning = screen.getByRole("slider", {
             name: "Reasoning level",
         });
@@ -109,7 +109,7 @@ describe("ModelToggle responsive trigger", () => {
         );
 
         await userEvent.click(
-            screen.getByRole("button", { name: "Choose model" }),
+            screen.getByRole("button", { name: /^Choose model(?: —|$)/ }),
         );
         const reasoning = screen.getByRole("slider", {
             name: "Reasoning level",
@@ -135,7 +135,7 @@ describe("ModelToggle responsive trigger", () => {
         );
 
         await userEvent.click(
-            screen.getByRole("button", { name: "Choose model" }),
+            screen.getByRole("button", { name: /^Choose model(?: —|$)/ }),
         );
         const reasoning = screen.getByRole("slider", {
             name: "Reasoning level",
@@ -158,7 +158,7 @@ describe("ModelToggle responsive trigger", () => {
             />,
         );
 
-        await user.click(screen.getByRole("button", { name: "Choose model" }));
+        await user.click(screen.getByRole("button", { name: /^Choose model(?: —|$)/ }));
         await user.keyboard("{End}");
 
         const reasoning = screen.getByRole("slider", {
@@ -179,7 +179,7 @@ describe("ModelToggle responsive trigger", () => {
             />,
         );
 
-        const trigger = screen.getByRole("button", { name: "Choose model" });
+        const trigger = screen.getByRole("button", { name: /^Choose model(?: —|$)/ });
         expect(trigger).toHaveClass("w-8", "rounded-lg");
         expect(trigger).not.toHaveClass("rounded-full");
         expect(trigger).not.toHaveTextContent("No API Key");
@@ -208,7 +208,7 @@ describe("ModelToggle responsive trigger", () => {
             />,
         );
 
-        await user.click(screen.getByRole("button", { name: "Choose model" }));
+        await user.click(screen.getByRole("button", { name: /^Choose model(?: —|$)/ }));
 
         const selectedRow = screen
             .getAllByText("Gemini 3.8 Flash")
@@ -231,7 +231,7 @@ describe("ModelToggle responsive trigger", () => {
         );
 
         await userEvent.click(
-            screen.getByRole("button", { name: "Choose model" }),
+            screen.getByRole("button", { name: /^Choose model(?: —|$)/ }),
         );
 
         const modelRow = screen
@@ -267,10 +267,10 @@ describe("ModelToggle availability states", () => {
         );
 
         expect(
-            screen.getByRole("button", { name: "Choose model" }),
+            screen.getByRole("button", { name: /^Choose model(?: —|$)/ }),
         ).toHaveTextContent("Local Qwen");
         await userEvent.click(
-            screen.getByRole("button", { name: "Choose model" }),
+            screen.getByRole("button", { name: /^Choose model(?: —|$)/ }),
         );
         expect(screen.getByText("Configured")).toBeInTheDocument();
     });
@@ -284,7 +284,7 @@ describe("ModelToggle availability states", () => {
             />,
         );
 
-        const trigger = screen.getByRole("button", { name: "Choose model" });
+        const trigger = screen.getByRole("button", { name: /^Choose model(?: —|$)/ });
         expect(trigger).toBeDisabled();
         // The load-time flash: never claim "No API Key" before we know.
         expect(trigger).not.toHaveTextContent("No API Key");
@@ -296,7 +296,7 @@ describe("ModelToggle availability states", () => {
             <ModelToggle value="gemini-3.8-flash" onChange={vi.fn()} />,
         );
 
-        const trigger = screen.getByRole("button", { name: "Choose model" });
+        const trigger = screen.getByRole("button", { name: /^Choose model(?: —|$)/ });
         expect(trigger).toBeEnabled();
         expect(trigger).not.toHaveTextContent("No API Key");
         expect(trigger).toHaveTextContent("Gemini 3.8 Flash");
@@ -396,7 +396,7 @@ describe("ModelToggle availability states", () => {
         // Claude has no key: the stored selection is not offered, so the
         // trigger falls back to the picker prompt.
         expect(
-            screen.getByRole("button", { name: "Choose model" }),
+            screen.getByRole("button", { name: /^Choose model(?: —|$)/ }),
         ).toHaveTextContent("Select model");
     });
 });
@@ -422,7 +422,7 @@ describe("ModelToggle provider grouping", () => {
             />,
         );
 
-        await user.click(screen.getByRole("button", { name: "Choose model" }));
+        await user.click(screen.getByRole("button", { name: /^Choose model(?: —|$)/ }));
         await user.click(await screen.findByText("Zhipu AI"));
 
         expect(await screen.findByText("Glm 5")).toBeInTheDocument();
@@ -440,7 +440,7 @@ describe("ModelToggle provider grouping", () => {
             />,
         );
 
-        await user.click(screen.getByRole("button", { name: "Choose model" }));
+        await user.click(screen.getByRole("button", { name: /^Choose model(?: —|$)/ }));
 
         expect(screen.queryByText("OpenCode")).not.toBeInTheDocument();
     });
@@ -456,7 +456,7 @@ describe("ModelToggle provider grouping", () => {
             />,
         );
 
-        await user.click(screen.getByRole("button", { name: "Choose model" }));
+        await user.click(screen.getByRole("button", { name: /^Choose model(?: —|$)/ }));
 
         expect(screen.getByText("Direct")).toBeInTheDocument();
         expect(screen.getByText("OpenRouter")).toBeInTheDocument();
@@ -478,7 +478,7 @@ describe("ModelToggle provider grouping", () => {
             />,
         );
 
-        await user.click(screen.getByRole("button", { name: "Choose model" }));
+        await user.click(screen.getByRole("button", { name: /^Choose model(?: —|$)/ }));
         const row = screen.getByRole("menuitem", { name: new RegExp(source) });
         expect(row).toHaveTextContent(source);
         await user.click(row);
@@ -497,7 +497,7 @@ describe("ModelToggle tone", () => {
             />,
         );
 
-        expect(screen.getByRole("button", { name: "Choose model" })).toHaveClass(
+        expect(screen.getByRole("button", { name: /^Choose model(?: —|$)/ })).toHaveClass(
             "text-gray-700",
         );
     });

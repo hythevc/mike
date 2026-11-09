@@ -619,6 +619,25 @@ describe("Playbook decisions", () => {
     }
   });
 
+  it.each([
+    ["attachment; filename=\"Fallback.docx\"; filename*=UTF-8''%ZZ", "Fallback.docx"],
+    ["attachment; filename=\"Plain name.docx\"", "Plain name.docx"],
+    ["attachment", "Decision record.docx"],
+    ["", "Decision record.docx"],
+    [null, "Decision record.docx"],
+  ])("uses a safe fallback filename for disposition %s", async (disposition, filename) => {
+    fetchMock.mockResolvedValueOnce(new Response("PK", {
+      status: 200,
+      headers: disposition === null ? {} : { "content-disposition": disposition },
+    }));
+    const result = await exportPlaybookDecisionRecord("run/1", { saveToProject: false });
+    expect(result.kind).toBe("download");
+    if (result.kind === "download") {
+      expect(result.filename).toBe(filename);
+      expect(await result.blob.text()).toBe("PK");
+    }
+  });
+
   it("raises the server's refusal instead of downloading it", async () => {
     fetchMock.mockResolvedValueOnce(json({ detail: "Run not found." }, 404));
     await expect(

@@ -18,8 +18,9 @@ describe("ModelToggleUI as a form field", () => {
                 modalInput="flat"
             />,
         );
-        const trigger = screen.getByRole("button", { name: "Choose model" });
+        const trigger = screen.getByRole("button", { name: /^Choose model(?: —|$)/ });
         expect(trigger).toHaveTextContent("Claude Opus 5.5");
+        expect(trigger).toHaveAccessibleName("Choose model — Claude Opus 5.5");
         expect(trigger).toHaveClass("w-full", "bg-app-surface-active", "rounded-xl");
     });
 
@@ -34,7 +35,7 @@ describe("ModelToggleUI as a form field", () => {
                 modalInput
             />,
         );
-        expect(screen.getByRole("button", { name: "Choose model" })).not.toHaveClass(
+        expect(screen.getByRole("button", { name: /^Choose model(?: —|$)/ })).not.toHaveClass(
             "bg-app-surface-active",
         );
     });

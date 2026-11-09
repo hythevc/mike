@@ -377,7 +377,7 @@ export function IntakeRequestPanel({
                         request.matter.can_open ? (
                             <Link
                                 href={`/projects/${encodeURIComponent(request.matter.id)}`}
-                                className="text-xs font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                                className="text-xs font-medium text-fg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
                             >
                                 Open matter
                                 {request.matter.name ? `: ${request.matter.name}` : ""}
@@ -516,7 +516,7 @@ function IntakeTrail({
                 <button
                     type="button"
                     onClick={onRetry}
-                    className="mt-1 font-medium text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                    className="mt-1 font-medium text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
                 >
                     Try again
                 </button>

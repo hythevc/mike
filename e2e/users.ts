@@ -2,6 +2,11 @@ import fs from "fs";
 import path from "path";
 import type { APIRequestContext } from "@playwright/test";
 
+/** Same-origin cookie mutations need the browser origin even through APIRequestContext. */
+export const E2E_WEB_ORIGIN = new URL(
+    process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+).origin;
+
 /** Credentials for one E2E account. */
 export interface E2eAccount {
     email: string;
@@ -114,7 +119,10 @@ export async function ensureOrganizationWorkspace(
         const existing = orgs.find((org) => org.name === name);
         if (existing) return { id: existing.id, name };
     }
-    const created = await request.post("/api/orgs", { data: { name } });
+    const created = await request.post("/api/orgs", {
+        headers: { Origin: E2E_WEB_ORIGIN },
+        data: { name },
+    });
     if (!created.ok()) {
         throw new Error(
             `Failed to create E2E organization: ${created.status()} ${await created.text()}`,

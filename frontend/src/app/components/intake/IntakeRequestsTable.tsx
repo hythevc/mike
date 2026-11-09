@@ -258,7 +258,7 @@ function IntakeRequestRow({
                 {request.assignee ? (
                     personName(request.assignee)
                 ) : (
-                    <span className="text-gray-300">Unassigned</span>
+                    <span className="text-fg-muted">Unassigned</span>
                 )}
             </TableCell>
             <TableCell className={DUE_WIDTH}>
@@ -267,7 +267,7 @@ function IntakeRequestRow({
                         {due}
                     </span>
                 ) : (
-                    <span className="text-gray-300">—</span>
+                    <span className="text-fg-muted">—</span>
                 )}
             </TableCell>
         </TableRow>

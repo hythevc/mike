@@ -213,7 +213,8 @@ describe.each(["project", "assistant"] as const)(
                 expect(backgroundColor(docxTab)).toBe(inactive);
                 rerender(<Harness surface={surface} empty />);
                 expect(screen.getByText("Document Viewer")).toBeVisible();
-                expect(backgroundColor(screen.getByRole("tablist"))).toBe(
+                expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+                expect(backgroundColor(screen.getByRole("group", { name: "Project documents" }))).toBe(
                     resting,
                 );
             },

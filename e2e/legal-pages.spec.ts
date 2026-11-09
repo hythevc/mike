@@ -23,6 +23,8 @@ async function expectTermsRendered(page: Page) {
 }
 
 test.describe("legal pages", () => {
+    // Both scenarios start outside the shared authenticated worker session.
+    test.use({ storageState: { cookies: [], origins: [] } });
     test.describe("signed out", () => {
         test.use({ storageState: { cookies: [], origins: [] } });
 

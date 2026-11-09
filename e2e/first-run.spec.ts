@@ -54,7 +54,10 @@ test.describe("first-run activation", () => {
             .click();
         await page.waitForURL(/\/projects\/[0-9a-f-]{36}/, { timeout: 60_000 });
         await expect(
-            page.getByText("Sample matter - public templates, not client data"),
+            page.locator("main").getByRole("button", {
+                name: "Sample matter - public templates, not client data",
+                exact: true,
+            }),
         ).toBeVisible({ timeout: 30_000 });
 
         // A first answer whose citation is matched to the source and marked
@@ -71,7 +74,7 @@ test.describe("first-run activation", () => {
         // Value before setup: the composer opens on a usable model by default,
         // with no manual selection (W14's product default).
         await expect(
-            page.getByRole("button", { name: "Choose model", exact: true }),
+            page.getByRole("button", { name: /^Choose model(?: —|$)/, exact: true }),
         ).toHaveAttribute("title", /Choose model — .+/, { timeout: 15_000 });
 
         const input = page.getByPlaceholder("How can I help?");
@@ -83,9 +86,11 @@ test.describe("first-run activation", () => {
 
         // The answer quotes the PDF's first line and carries a citation that
         // the app matched to the source — a verified marker, with no
-        // "could not verify" badge.
+        // "quote not found" badge.
         await expectSavedAnswer(page, "Test PDF Document");
-        await expect(page.locator('[aria-label="Citation 1"]')).toBeVisible();
-        await expect(page.getByText("Could not verify quote")).toHaveCount(0);
+        const citation = page.locator('div.prose button[data-citation-ref="1"]');
+        await expect(citation).toBeVisible();
+        await expect(citation).toHaveAccessibleName("Citation 1");
+        await expect(page.getByText("Quote not found - check source", { exact: true })).toHaveCount(0);
     });
 });

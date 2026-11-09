@@ -70,6 +70,8 @@ describe("WorkflowAttributionsPage", () => {
     vi.mocked(listWorkflowAttributions).mockResolvedValue([entry()]);
     render(<WorkflowAttributionsPage />);
 
+    expect(screen.getByRole("heading", { level: 1, name: "Open-source notices" })).toBeInTheDocument();
+
     expect(
       await screen.findByRole("heading", { name: "Opposing Counsel Review" }),
     ).toBeVisible();

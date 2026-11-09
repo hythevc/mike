@@ -294,7 +294,7 @@ describe("documents-only answer scope (W25)", () => {
       ...baseParams(),
       docStore: docStoreWithFile(),
       // Even with research and web requested, documents-only wins.
-      webSearch: "mike",
+      webSearch: "brave",
       answerScope: "documents",
     });
     const params = streamChatWithTools.mock.calls[0]![0];
@@ -336,7 +336,7 @@ describe("documents-only answer scope (W25)", () => {
     await runLLMStream({
       ...baseParams(),
       docStore: docStoreWithFile(),
-      webSearch: "mike",
+      webSearch: "brave",
       answerScope: "documents",
       subagentRuns: { save: vi.fn(), load: vi.fn(async () => null) } as never,
     });

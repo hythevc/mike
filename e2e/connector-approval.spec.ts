@@ -237,7 +237,7 @@ for (const liveConnector of [false, "calendar", "drive"] as const) {
         const input = page.getByPlaceholder("How can I help?");
         await expect(
           page
-            .getByRole("button", { name: "Choose model", exact: true })
+            .getByRole("button", { name: /^Choose model(?: —|$)/, exact: true })
             .last(),
         ).toHaveAttribute("title", "Choose model — Test model");
         await input.fill(

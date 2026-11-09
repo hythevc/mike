@@ -20,7 +20,7 @@ test.describe("Intake triage board", () => {
         await expect(page).toHaveURL(/\/assistant/, { timeout: 15_000 });
 
         // Switch into the organization workspace from the account menu.
-        await page.getByRole("button", { name: "Account menu" }).click();
+        await page.getByRole("button", { name: /^Account menu(?: —|$)/ }).click();
         await page
             .getByRole("menuitemradio", { name: org.name })
             .click();

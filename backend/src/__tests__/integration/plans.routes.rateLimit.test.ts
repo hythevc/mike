@@ -7,6 +7,11 @@
 import express from "express";
 import request from "supertest";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { plansRouter } from "../../modules/plans/plans.routes";
+
+vi.hoisted(() => {
+    process.env.RATE_LIMIT_PLANS_PUBLIC_MAX = "2";
+});
 
 // GET /plans/me is not exercised here; a session is never present.
 vi.mock("../../middleware/auth", () => ({
@@ -24,9 +29,6 @@ vi.mock("../../lib/supabase", () => ({
         throw new Error("GET /plans must not touch the database");
     },
 }));
-
-process.env.RATE_LIMIT_PLANS_PUBLIC_MAX = "2";
-const { plansRouter } = await import("../../modules/plans/plans.routes");
 
 afterAll(() => {
     delete process.env.RATE_LIMIT_PLANS_PUBLIC_MAX;

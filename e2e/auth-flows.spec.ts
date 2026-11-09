@@ -183,7 +183,7 @@ test.describe("unauthenticated", () => {
 
 /* ─── Authenticated tests ─────────────────────────────────────────────────── */
 
-/* ── Test 3: logout redirects to /login ─────────────────────────────────── */
+/* ── Test 3: logout returns to the public entry point ───────────────────── */
 
 /* The logout flow calls supabase.auth.signOut(), which defaults to GLOBAL
    scope and revokes the user's session server-side. If this ran against the
@@ -199,7 +199,7 @@ test.describe("logout (isolated user)", () => {
     const logoutPassword =
         process.env.E2E_LOGOUT_PASSWORD ?? "E2eLogoutPass1!";
 
-    test("logout from settings redirects to /login", async ({
+    test("logout from settings returns to the signed-out entry point", async ({
         page,
     }) => {
         /* Log in fresh as the dedicated logout user. */
@@ -217,7 +217,7 @@ test.describe("logout (isolated user)", () => {
 
     // The account menu has the same accessible name with a photo or monogram.
     const userMenuButton = page.getByRole("button", {
-        name: "Account menu",
+        name: /^Account menu(?: —|$)/,
         exact: true,
     });
     await expect(userMenuButton).toBeVisible({ timeout: 10_000 });
@@ -250,9 +250,14 @@ test.describe("logout (isolated user)", () => {
     await expect(signOutButton).toBeVisible({ timeout: 5_000 });
     await signOutButton.click();
 
-    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    // AppSidebar returns to /; the disabled public-site variant redirects to /login.
+    const signedOutPath = process.env.E2E_SITE_ENABLED === "false" ? "/login" : "/";
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe(signedOutPath);
     /* Signing out on purpose leaves no ?next=/settings behind: whoever signs
        in next on this tab starts from the default page. */
     expect(new URL(page.url()).searchParams.get("next")).toBeNull();
+    // The old session must not reopen private settings after this redirect.
+    await page.goto("/settings");
+    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
     });
 });

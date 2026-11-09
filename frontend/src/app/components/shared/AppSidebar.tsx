@@ -955,7 +955,6 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                           <DropdownTrigger asChild>
                             <button
                                 type="button"
-                                aria-label="Account menu"
                                 className={cn(
                                     "flex h-9 w-full shrink-0 items-center px-[7px] outline-none [transition:border-radius_300ms_cubic-bezier(0.4,0,0.2,1),background-color_150ms,color_150ms] focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2",
                                     isOpen ? "rounded-xl" : "rounded-[18px]",
@@ -967,7 +966,10 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                 )}
                                 title={!isOpen ? user.email : undefined}
                             >
-                                <UserAvatar photo={profile?.profilePhoto} name={profile?.displayName} email={user.email} className="h-5.5 w-5.5 text-[10px]" />
+                                <span className="sr-only">Account menu{isOpen ? " — " : ""}</span>
+                                <span aria-hidden="true" className="contents">
+                                    <UserAvatar photo={profile?.profilePhoto} name={profile?.displayName} email={user.email} className="h-5.5 w-5.5 text-[10px]" />
+                                </span>
                                 {isOpen && (
                                     <div
                                         className={`text-left flex-1 min-w-0 pl-2 flex items-center justify-between gap-2 ${

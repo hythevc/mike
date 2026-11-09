@@ -1136,7 +1136,7 @@ describe("finding decisions", () => {
     api.listPlaybookRuns.mockResolvedValue([run()]);
     let fail!: (error: Error) => void;
     api.getPlaybookRunDecisions
-      .mockReturnValueOnce(
+      .mockImplementationOnce(() =>
         new Promise((_resolve, reject) => {
           fail = reject;
         }),
@@ -1153,6 +1153,11 @@ describe("finding decisions", () => {
       screen.getByRole("button", { name: "Download decision record" }),
     ).toBeDisabled();
 
+    // The loading shape is rendered before the effect starts the request.
+    // Reject only after that effect has attached the request's error handler.
+    await waitFor(() =>
+      expect(api.getPlaybookRunDecisions).toHaveBeenCalledWith("run-1"),
+    );
     await act(async () => fail(new Error("offline")));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(

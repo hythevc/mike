@@ -40,6 +40,11 @@ jobs:
           - image: frontend
             context: .
             dockerfile: frontend/Dockerfile
+          - image: frontend-railway
+            context: .
+            dockerfile: frontend/Dockerfile.railway
+            build_args: |
+              SENTRY_UPLOAD_ENABLED=0
           - image: backend
             context: .
             dockerfile: backend/Dockerfile
@@ -65,6 +70,8 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: false
+          load: ${{ matrix.image == 'frontend-railway' || matrix.image == 'backend' }}
+          tags: mike-ci:${{ matrix.image }}
           # GIT_SHA becomes the Sentry release (docs/observability.md); an
           # image without it reports events nobody can map to a commit.
           build-args: |
@@ -72,3 +79,15 @@ jobs:
             ${{ matrix.build_args }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Verify hosted frontend image boundary
+        if: matrix.image == 'frontend-railway'
+        run: |
+          docker run --rm --entrypoint sh mike-ci:frontend-railway -ec \
+            'test -f .next/BUILD_ID; test -f /packages/contracts/index.d.ts; test ! -f schema.sql'
+
+      - name: Verify backend image boundary
+        if: matrix.image == 'backend'
+        run: |
+          docker run --rm --entrypoint sh mike-ci:backend -ec \
+            'test -f dist/index.js; test -f scripts/railway-predeploy.sh; test -f schema.sql; test -d migrations; test -f docker/db-init/adopt-ledger.sh; command -v psql; command -v soffice; command -v flock; test ! -d .next'

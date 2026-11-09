@@ -88,7 +88,7 @@ async function createReview(
     // A model is required before the review can advance. The clean E2E
     // profile does not have a saved tabular-review model, so choose the first
     // model exposed by the configured providers for this environment.
-    await page.getByRole("button", { name: "Choose model" }).click();
+    await page.getByRole("button", { name: /^Choose model(?: —|$)/ }).click();
     const modelMenu = page.getByRole("menu");
     const firstModel = modelMenu
         .locator('[role="menuitem"]:not([aria-expanded])')
