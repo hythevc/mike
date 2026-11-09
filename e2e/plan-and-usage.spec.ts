@@ -14,10 +14,10 @@
  *  - settings/page.tsx: PersonalPlanCard renders under the "Usage Plan"
  *    heading; with plans off it reads "AI use on your workspace is not limited
  *    by a plan." and never the word "Free".
- *  - OrganizationsOverview.tsx: button aria-label "New organization"; each org
- *    has a "Manage <name>" button.
+ *  - OrganizationsOverview.tsx: button aria-label "New organization"; an org
+ *    has "Switch to <name>" until selected, then "Manage <name>".
  *  - OrganizationModals.tsx: name field #new-organization-name (placeholder
- *    "e.g. Elite Law LLP"); primary action "Create", then "Open organization".
+ *    "e.g. Elite Law LLP"); successful creation with no invitations closes it.
  *  - OrganizationSettingsShell.tsx: owners and admins see a "Plan and usage"
  *    tab link; OrganizationPlanSettings renders a "Plan" heading.
  */
@@ -53,8 +53,18 @@ test.describe("plans, seats and usage", () => {
         await page.locator("#new-organization-name").fill(orgName);
         await page.getByRole("button", { name: "Create", exact: true }).click();
         // With no invitations, creation closes the modal immediately.
-        // Back on the overview, manage the new organization.
-        const manage = page.getByRole("button", { name: `Manage ${orgName}` });
+        // The new organization must become the active workspace before its
+        // settings are offered by the overview.
+        const switchWorkspace = page.getByRole("button", {
+            name: `Switch to ${orgName}`,
+            exact: true,
+        });
+        await expect(switchWorkspace).toBeVisible({ timeout: 15_000 });
+        await switchWorkspace.click();
+        const manage = page.getByRole("button", {
+            name: `Manage ${orgName}`,
+            exact: true,
+        });
         await expect(manage).toBeVisible({ timeout: 15_000 });
         await manage.click();
         await expect(page).toHaveURL(/\/organizations\/[^/]+\/settings/, {

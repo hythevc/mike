@@ -230,7 +230,7 @@ try {
       organisation: "Mike Desktop CI",
     });
     await page
-      .getByRole("button", { name: "Assistant", exact: true })
+      .getByRole("link", { name: "Assistant", exact: true })
       .first()
       .waitFor({ timeout: 20_000 });
 

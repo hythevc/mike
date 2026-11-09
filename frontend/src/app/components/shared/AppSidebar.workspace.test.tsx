@@ -252,6 +252,9 @@ describe("AppSidebar workspace switcher", () => {
     expect(
       screen.getByRole("button", { name: /^Account menu(?: —|$)/ }),
     ).toHaveAccessibleName("Account menu — Alice");
+    const accountMenu = screen.getByRole("button", { name: "Account menu — Alice" });
+    expect(accountMenu).not.toHaveAttribute("aria-label");
+    expect(within(accountMenu).queryByRole("img")).not.toBeInTheDocument();
   });
 
   it("lists the workspaces in the account menu and marks the active one", async () => {

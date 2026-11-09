@@ -66,7 +66,7 @@ test("Accept & apply supersedes the occupying revisions and lands the edit", asy
   // the retry action, and nothing has been written to the document.
   const retryButton = page.getByRole("button", { name: "Accept & apply" });
   await retryButton.waitFor();
-  await expect(retryButton).toHaveClass(/bg-blue-600/);
+  await expect(retryButton).toHaveClass(/\bbg-brand-primary\b/);
   const viewButton = page.getByRole("button", { name: "View", exact: true });
   await expect(viewButton).toBeVisible();
   const [retryBounds, viewBounds] = await Promise.all([

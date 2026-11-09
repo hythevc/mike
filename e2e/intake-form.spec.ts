@@ -43,7 +43,9 @@ test.describe("Public request form", () => {
             await expect(
                 visitor.getByRole("heading", { level: 1, name: "Ask the legal team" }),
             ).toBeVisible({ timeout: 20_000 });
-            await expect(visitor.getByText(org.name)).toBeVisible();
+            await expect(
+                visitor.locator("header").getByText(org.name, { exact: true }),
+            ).toBeVisible();
 
             // The notices: the organization's disclaimer and privacy notice,
             // the product's line that no AI advice is shown, the retention.
