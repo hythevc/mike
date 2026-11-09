@@ -71,7 +71,7 @@ test.describe("first-run activation", () => {
         // Value before setup: the composer opens on a usable model by default,
         // with no manual selection (W14's product default).
         await expect(
-            page.getByRole("button", { name: "Choose model", exact: true }),
+            page.getByRole("button", { name: /^Choose model(?: —|$)/, exact: true }),
         ).toHaveAttribute("title", /Choose model — .+/, { timeout: 15_000 });
 
         const input = page.getByPlaceholder("How can I help?");

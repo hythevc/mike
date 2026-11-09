@@ -17,11 +17,12 @@ export const CLAUDE_MODEL_LABEL = "Claude Sonnet 5.5";
 
 /**
  * Select a Claude model in the chat input's ModelToggle. ModelToggle exposes a
- * stable "Choose model" accessible name; its tooltip includes the selection even
+ * "Choose model" action prefix and visible selection in its accessible name;
+ * its tooltip includes the selection even
  * in compact, icon-only project composers.
  */
 export async function selectClaudeModel(page: Page) {
-    const trigger = page.getByRole("button", { name: "Choose model", exact: true });
+    const trigger = page.getByRole("button", { name: /^Choose model(?: —|$)/, exact: true });
     // Cold hydration under the 4x CPU stress profile can outlast 10 seconds
     // before the authenticated composer mounts, even after route warmup.
     await expect(trigger).toBeVisible({

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test, expect } from "./fixtures";
-import { ensureOrganizationWorkspace } from "./users";
+import { E2E_WEB_ORIGIN, ensureOrganizationWorkspace } from "./users";
 import { expectAccessibleInEveryTheme } from "./axe";
 
 /**
@@ -19,6 +19,7 @@ test.describe("Public request form", () => {
         // The admin creates a form through the API; the token is in the
         // answer this once.
         const created = await page.request.post("/api/intake/forms", {
+            headers: { Origin: E2E_WEB_ORIGIN },
             data: {
                 org_id: org.id,
                 title: "Ask the legal team",
@@ -89,7 +90,7 @@ test.describe("Public request form", () => {
         // An org member sees the request on the board.
         await page.goto("/assistant");
         await expect(page).toHaveURL(/\/assistant/, { timeout: 15_000 });
-        await page.getByRole("button", { name: "Account menu" }).click();
+        await page.getByRole("button", { name: /^Account menu(?: —|$)/ }).click();
         await page.getByRole("menuitemradio", { name: org.name }).click();
         await page.goto("/intake");
         await expect(page.getByRole("heading", { level: 1, name: "Intake" })).toBeVisible();

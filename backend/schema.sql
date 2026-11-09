@@ -12366,8 +12366,12 @@ as $$
 declare
   seats integer;
 begin
+  -- Serialize seat decisions for this organization on its own row, the same
+  -- row the last-owner guard locks, so concurrent joins queue here.
   perform 1 from public.organizations where id = p_org_id for update;
 
+  -- Already a member: no seat is taken, whatever the limit. The caller raises
+  -- the role separately; this function only admits a new member.
   if exists (
     select 1 from public.org_members
     where org_id = p_org_id and user_id = p_user_id

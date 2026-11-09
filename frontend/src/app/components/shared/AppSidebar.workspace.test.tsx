@@ -100,7 +100,7 @@ const heading = () =>
   document.querySelector('[data-slot="sidebar-heading"]') as HTMLElement;
 
 const openAccountMenu = (user: ReturnType<typeof userEvent.setup>) =>
-  user.click(screen.getByRole("button", { name: "Account menu" }));
+  user.click(screen.getByRole("button", { name: /^Account menu(?: —|$)/ }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -247,8 +247,11 @@ describe("AppSidebar workspace switcher", () => {
 
     expect(screen.queryByText(/Workspace:/)).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Account menu" }),
+      screen.getByRole("button", { name: /^Account menu(?: —|$)/ }),
     ).not.toHaveTextContent("Acme LLP");
+    expect(
+      screen.getByRole("button", { name: /^Account menu(?: —|$)/ }),
+    ).toHaveAccessibleName("Account menu — Alice");
   });
 
   it("lists the workspaces in the account menu and marks the active one", async () => {

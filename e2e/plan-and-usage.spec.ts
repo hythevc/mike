@@ -52,13 +52,7 @@ test.describe("plans, seats and usage", () => {
         await page.getByRole("button", { name: "New organization" }).click();
         await page.locator("#new-organization-name").fill(orgName);
         await page.getByRole("button", { name: "Create", exact: true }).click();
-        // After creation the primary action becomes "Open organization".
-        const openButton = page.getByRole("button", {
-            name: "Open organization",
-        });
-        await expect(openButton).toBeVisible({ timeout: 15_000 });
-        await openButton.click();
-
+        // With no invitations, creation closes the modal immediately.
         // Back on the overview, manage the new organization.
         const manage = page.getByRole("button", { name: `Manage ${orgName}` });
         await expect(manage).toBeVisible({ timeout: 15_000 });

@@ -116,7 +116,7 @@ for (const scope of ["assistant", "project", "tabular"] as const) {
                     : "/assistant/chat/streaming-regression");
             const input = page.getByPlaceholder("How can I help?");
             await expect(input).toBeVisible();
-            await expect(page.getByRole("button", { name: "Choose model", exact: true }).last()).toHaveAttribute("title", "Choose model — Test model");
+            await expect(page.getByRole("button", { name: /^Choose model(?: —|$)/, exact: true }).last()).toHaveAttribute("title", "Choose model — Test model");
             // Continue beyond the customer's eight messages in the same conversation.
             for (let turn = 1; turn <= (streamKind === "reasoning" ? 8 : 4); turn++) {
                 await test.step(`Stream follow-up ${turn} in the same conversation`, async () => {
@@ -241,7 +241,7 @@ test("scoped document search activity streams, renders mocked history after relo
     // mocked history stays empty until the search has finished.
     await page.goto("/assistant");
     const input = page.getByPlaceholder("How can I help?");
-    await expect(page.getByRole("button", { name: "Choose model", exact: true })).toHaveAttribute("title", "Choose model — Claude Sonnet 5.5");
+    await expect(page.getByRole("button", { name: /^Choose model(?: —|$)/, exact: true })).toHaveAttribute("title", "Choose model — Claude Sonnet 5.5");
     await input.fill("Find documents containing a change of control clause in my document library.");
     await input.press("Enter");
     await expect(page.getByRole("button", { name: /^Searching the document library for “change of control”\s*\.\.\.$/ })).toBeVisible();

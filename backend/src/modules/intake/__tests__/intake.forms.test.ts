@@ -24,6 +24,7 @@ import {
     submitPublicRequestForm,
 } from "../intake.forms";
 import { deleteExpiredFormSubmissions } from "../intake.retention";
+import { createRequest } from "../intake.requests";
 import { FIRM, PEOPLE, auditRows, desk, deskClient, seedFirm, table } from "./deskDbFake";
 
 const db = () => deskClient() as unknown as Db;
@@ -231,7 +232,6 @@ describe("retention of form submissions", () => {
         });
         // A member's own request is never touched, however old.
         const internal = await (async () => {
-            const { createRequest } = await import("../intake.requests");
             const result = await createRequest(db(), {
                 ...as(PEOPLE.member),
                 body: { org_id: FIRM, title: "Internal" },

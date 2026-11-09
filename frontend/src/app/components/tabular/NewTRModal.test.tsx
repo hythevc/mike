@@ -190,7 +190,7 @@ describe("NewTRModal", () => {
 
         const reviewNameInput = screen.getByLabelText("Review name");
         const modelSelect = screen.getByRole("button", {
-            name: "Choose model",
+            name: /^Choose model(?: —|$)/,
         });
         expect(
             reviewNameInput.compareDocumentPosition(modelSelect) &

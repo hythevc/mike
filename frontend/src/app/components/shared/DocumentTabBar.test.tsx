@@ -48,6 +48,21 @@ function renderBar(activeTabId: string) {
 describe("DocumentTabBar active tab", () => {
     afterEach(() => vi.restoreAllMocks());
 
+    it("exposes an empty viewer as a group rather than a tablist with no tabs", () => {
+        render(
+            <DocumentTabBar
+                tabs={[]}
+                activeTabId={null}
+                label="Documents"
+                idPrefix="doc"
+                onActivate={vi.fn()}
+                onClose={vi.fn()}
+            />,
+        );
+        expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+        expect(screen.getByRole("group", { name: "Documents" })).toHaveTextContent("Document Viewer");
+    });
+
     it("scrolls its own strip to a tab hidden past the end, never the page", () => {
         layOut({ a: [0, 120], b: [124, 260] });
         const { scrollBy, scrollIntoView } = renderBar("b");

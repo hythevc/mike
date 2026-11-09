@@ -73,7 +73,7 @@ test("a quote cited to the wrong page is corrected to the page it was found on",
     await expectSavedAnswer(page, "The clause is quoted below");
     // The quote is really on page 2; the server moved its target there, so the
     // citation's status reports the correction rather than its cited page 1.
-    const pill = page.getByRole("button", { name: "Citation 1" });
+    const pill = page.locator('div.prose button[data-citation-ref="1"]');
     await expect(pill).toBeVisible({ timeout: 60_000 });
     await expect(pill).toHaveAttribute(
         "title",

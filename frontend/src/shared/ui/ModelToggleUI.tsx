@@ -263,7 +263,7 @@ export function ModelToggleUI({
       <DropdownTrigger asChild>
         <TriggerButton
           type="button"
-          aria-label="Choose model"
+          aria-label={compact ? "Choose model" : `Choose model — ${label}`}
           title={
             loading
               ? "Checking API keys"

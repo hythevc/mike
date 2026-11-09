@@ -3,6 +3,39 @@
 Use this path when connecting Mike to managed Supabase and S3-compatible
 storage instead of the infrastructure bundled with Docker Compose.
 
+## Railway service boundaries
+
+Keep the build context at the repository root for both services. The frontend
+copies `frontend/` and `packages/contracts/`; the backend copies `backend/`,
+`packages/contracts/` and `docker/db-init/adopt-ledger.sh`. Setting the service
+Root Directory to `/frontend` or `/backend` breaks these Dockerfiles.
+
+Select each Dockerfile in that Railway service's build settings:
+
+| Service | Root Directory | Dockerfile path |
+| --- | --- | --- |
+| Web | `/` (or unset) | `frontend/Dockerfile.railway` |
+| Backend | `/` | `backend/Dockerfile` |
+
+Do not add a root `railway.json` that selects the frontend Dockerfile: when
+consumed, configuration in code overrides the backend's service setting too.
+A service's Root Directory does not select a separate Railway config file.
+
+The Railway frontend variant disables Sentry source-map uploads; keep
+`SENTRY_UPLOAD_ENABLED=0`. CI builds it separately from `frontend/Dockerfile`,
+with `context: .` and `push: false`, and checks both application image boundaries.
+
+Set the service variable `GIT_SHA=${{RAILWAY_GIT_COMMIT_SHA}}` on both services
+so GitHub-triggered builds and runtime validation use the deployed commit.
+The backend also requires `SUPABASE_SECRET_KEY` for the intended Supabase project;
+keep it in backend service secrets and out of the frontend.
+
+Keep the backend pre-deploy command `bash scripts/railway-predeploy.sh`. It
+requires `DATABASE_URL` for the intended database and exits with an error if
+that variable is missing. CI validates initialization, repeated execution and
+baseline upgrades against a disposable Supabase-compatible database, including
+its auth schema and roles, before a hosted deployment.
+
 ## Prerequisites
 
 - Node.js 22 or newer

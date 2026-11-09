@@ -137,6 +137,7 @@ jobs:
             echo "::error::migrate.sh's pending list differs from the migrations added since $BASELINE_REF."
             exit 1
           fi
+
           backend/scripts/migrate.sh up
           fingerprint /tmp/upgraded.txt
           echo "::endgroup::"
@@ -185,5 +186,43 @@ jobs:
             echo "update schema.sql. If schema.sql was edited without a migration, add a"
             echo "new dated migration so existing deployments receive the change too."
             echo "Never edit an already-shipped migration to make this check pass."
+            exit 1
+          fi
+
+      - name: Verify hosted pre-deploy initialization and replay
+        run: |
+          # This URL belongs to the disposable Supabase stack above.
+          test -n "$SUPABASE_TEST_DB_URL"
+          export DATABASE_URL="$SUPABASE_TEST_DB_URL"
+          reset_public() {
+            psql "$DATABASE_URL" -X --set ON_ERROR_STOP=1 \
+              -c 'drop schema public cascade;' \
+              -c 'create schema public;' \
+              -c 'grant usage on schema public to anon, authenticated, service_role;'
+          }
+          fingerprint() {
+            psql "$DATABASE_URL" -XAtq --set ON_ERROR_STOP=1 \
+              -f backend/scripts/schema-fingerprint.sql > "$1"
+          }
+
+          reset_public
+          bash backend/scripts/railway-predeploy.sh
+          fingerprint /tmp/hosted-fresh.txt
+          diff -u /tmp/fresh.txt /tmp/hosted-fresh.txt
+          bash backend/scripts/railway-predeploy.sh
+          fingerprint /tmp/hosted-repeat.txt
+          diff -u /tmp/hosted-fresh.txt /tmp/hosted-repeat.txt
+
+          reset_public
+          git show "$BASELINE_REF:backend/schema.sql" > /tmp/hosted-baseline.sql
+          psql "$DATABASE_URL" -X --set ON_ERROR_STOP=1 --file /tmp/hosted-baseline.sql
+          baseline_last="$(git ls-tree --name-only "$BASELINE_REF" backend/migrations/ | sed 's#.*/##' | LC_ALL=C sort | tail -n 1)"
+          backend/scripts/migrate.sh baseline "$baseline_last"
+          bash backend/scripts/railway-predeploy.sh
+          fingerprint /tmp/hosted-upgraded.txt
+          diff -u /tmp/fresh.txt /tmp/hosted-upgraded.txt
+
+          if env -u DATABASE_URL bash backend/scripts/railway-predeploy.sh; then
+            echo "::error::Hosted pre-deploy unexpectedly accepted a missing DATABASE_URL."
             exit 1
           fi
