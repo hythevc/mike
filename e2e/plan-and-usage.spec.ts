@@ -19,7 +19,7 @@
  *  - OrganizationModals.tsx: name field #new-organization-name (placeholder
  *    "e.g. Elite Law LLP"); successful creation with no invitations closes it.
  *  - OrganizationSettingsShell.tsx: owners and admins see a "Plan and usage"
- *    tab link; OrganizationPlanSettings renders a "Plan" heading.
+ *    section button; OrganizationPlanSettings renders a "Plan" heading.
  */
 import { test, expect } from "./fixtures";
 import { expectAccessible } from "./axe";
@@ -72,13 +72,13 @@ test.describe("plans, seats and usage", () => {
         });
 
         // The owner sees the tab, opens it, and the plan page renders.
-        const planTab = page.getByRole("link", { name: "Plan and usage" });
+        const planTab = page.getByRole("button", { name: "Plan and usage", exact: true });
         await expect(planTab).toBeVisible();
         await planTab.click();
         await expect(page).toHaveURL(/\/settings\/plan$/, { timeout: 15_000 });
-        await expect(page.getByRole("heading", { name: "Plan" })).toBeVisible();
+        await expect(page.getByRole("heading", { level: 2, name: "Plan", exact: true })).toBeVisible();
         await expect(
-            page.getByRole("heading", { name: "AI usage this month" }),
+            page.getByRole("heading", { level: 2, name: "AI usage this month", exact: true }),
         ).toBeVisible();
 
         await expectAccessible(page, {
