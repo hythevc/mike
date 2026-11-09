@@ -94,6 +94,19 @@ describe("IntakeRequestsTable", () => {
         expect(onOpenRequest).toHaveBeenCalledWith(request);
     });
 
+    it("keeps missing assignee and due date visible with theme-aware muted text", () => {
+        render(
+            <IntakeRequestsTable {...baseProps} requests={[makeRequest()]} />,
+        );
+
+        const unassigned = screen.getByText("Unassigned");
+        const noDueDate = screen.getByText("—", { exact: true });
+        expect(unassigned).toBeVisible();
+        expect(noDueDate).toBeVisible();
+        expect(unassigned).toHaveClass("text-fg-muted");
+        expect(noDueDate).toHaveClass("text-fg-muted");
+    });
+
     it("renders a skeleton whose columns match the table while loading", () => {
         const { container } = render(
             <IntakeRequestsTable {...baseProps} loading requests={[]} />,
