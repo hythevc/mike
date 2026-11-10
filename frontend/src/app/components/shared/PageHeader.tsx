@@ -256,7 +256,7 @@ function PageHeaderButtonActionControl({
                 {action.label}
             </HeaderButtonUI>
             {action.tooltip && (
-                <div className="pointer-events-none absolute right-0 top-full mt-1.5 z-10 hidden items-center whitespace-nowrap rounded-lg bg-gray-900 px-2.5 py-1.5 text-xs text-white shadow-lg group-hover:flex">
+                <div className="pointer-events-none absolute right-0 top-full mt-1.5 z-10 hidden items-center whitespace-nowrap rounded-lg bg-fg px-2.5 py-1.5 text-xs text-background shadow-lg group-hover:flex">
                     {action.tooltip}
                 </div>
             )}
@@ -319,12 +319,12 @@ function PageHeaderSearchActionControl({
                     className={cn(
                         headerButtonClassName({
                             className:
-                                "cursor-text justify-start gap-2 px-3 text-gray-700 hover:text-gray-700",
+                                "cursor-text justify-start gap-2 px-3 text-fg hover:text-fg",
                         }),
                         `w-56 sm:w-80 ${LIQUID_GLASS_SELECTED_CLASS}`,
                     )}
                 >
-                    <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                    <Search className="h-3.5 w-3.5 text-fg-muted shrink-0" />
                     <input
                         autoFocus={open}
                         type="text"
@@ -332,7 +332,7 @@ function PageHeaderSearchActionControl({
                         value={action.value}
                         onChange={(e) => action.onChange(e.target.value)}
                         onFocus={() => setOpen(true)}
-                        className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 outline-none bg-transparent"
+                        className="flex-1 text-sm text-fg placeholder:text-fg-muted outline-none bg-transparent"
                     />
                     {hasValue && (
                         <button
@@ -343,7 +343,7 @@ function PageHeaderSearchActionControl({
                             }}
                             disabled={disabled}
                             aria-label="Clear search"
-                            className="shrink-0 rounded-full p-0.5 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600"
+                            className="shrink-0 rounded-full p-0.5 text-fg-muted transition-colors hover:bg-black/5 hover:text-fg-subtle"
                         >
                             <X className="h-3.5 w-3.5" />
                         </button>
@@ -438,7 +438,7 @@ function PageHeaderBreadcrumbs({ items }: { items: PageHeaderBreadcrumb[] }) {
             {parent?.onClick && (
                 <button
                     onClick={parent.onClick}
-                    className="shrink-0 text-gray-400 transition-colors hover:text-gray-600 sm:hidden"
+                    className="shrink-0 text-fg-muted transition-colors hover:text-fg-subtle sm:hidden"
                     title={parent.title ?? "Back"}
                     aria-label={parent.title ?? "Back"}
                 >
@@ -484,7 +484,7 @@ function PageHeaderBreadcrumbs({ items }: { items: PageHeaderBreadcrumb[] }) {
                     className="hidden shrink-0 items-center gap-1.5 sm:flex"
                 >
                     <span>…</span>
-                    <span className="text-gray-300">›</span>
+                    <span className="text-border-strong">›</span>
                 </span>
             </div>
         </div>
@@ -592,7 +592,7 @@ function CollapsedBreadcrumbGroup({
                 <DropdownTrigger asChild>
                     <button
                         type="button"
-                        className="text-gray-500 transition-colors hover:text-gray-700"
+                        className="text-fg-muted transition-colors hover:text-fg-subtle"
                         aria-label="Show collapsed breadcrumbs"
                         title="Show path"
                     >
@@ -621,7 +621,7 @@ function CollapsedBreadcrumbGroup({
                     ))}
                 </DropdownContent>
             </Dropdown>
-            <span className="text-gray-300">›</span>
+            <span className="text-border-strong">›</span>
         </span>
     );
 }
@@ -638,7 +638,7 @@ function BreadcrumbItem({
             className={cn(
                 // The height of a line of the title, so the header does not
                 // shift when the name arrives.
-                "h-5 rounded bg-gray-100 animate-pulse",
+                "h-5 rounded bg-app-surface-active animate-pulse",
                 item.skeletonClassName ?? "w-32",
             )}
         />
@@ -660,12 +660,12 @@ function BreadcrumbItem({
         item.cursor === "text" && "cursor-text",
         current
             ? cn(
-                  "text-gray-900",
-                  item.onClick && "cursor-pointer hover:text-gray-600",
+                  "text-fg",
+                  item.onClick && "cursor-pointer hover:text-fg-subtle",
               )
             : item.onClick
-              ? "text-gray-500 hover:text-gray-700"
-              : "text-gray-500",
+              ? "text-fg-muted hover:text-fg-subtle"
+              : "text-fg-muted",
     );
     const wrapperClassName = cn(
         "min-w-0 items-center gap-1.5",
@@ -708,7 +708,7 @@ function BreadcrumbItem({
             ) : (
                 <span className={className}>{content}</span>
             )}
-            {!current && <span className="shrink-0 text-gray-300">›</span>}
+            {!current && <span className="shrink-0 text-border-strong">›</span>}
         </span>
     );
 }

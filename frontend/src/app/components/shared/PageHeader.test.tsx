@@ -5,6 +5,7 @@ import {
     PAGE_HEADER_ROW_CLASS,
     PAGE_HEADER_TITLE_CLASS,
 } from "./pageHeaderStyles";
+import { HEADING_SIZE_CLASSES } from "@/shared/ui/HeadingUI";
 
 // A page's title is one size wherever it appears: as a plain title, as
 // breadcrumbs, and as the placeholder shown while a name loads.
@@ -14,6 +15,10 @@ describe("PageHeader title size", () => {
             expect.arrayContaining(["font-serif", "text-xl", "font-medium"]),
         );
         expect(PAGE_HEADER_TITLE_CLASS).not.toContain("text-2xl");
+    });
+
+    it("is exactly the shared HeadingUI page size", () => {
+        expect(PAGE_HEADER_TITLE_CLASS).toBe(HEADING_SIZE_CLASSES.page);
     });
 
     it("sets the breadcrumbs at the title's size", () => {

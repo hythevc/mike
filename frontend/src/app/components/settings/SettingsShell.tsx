@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { settingsTabButtonClassName } from "@/app/(pages)/settings/settingsStyles";
+import { HeadingUI } from "@/shared/ui/HeadingUI";
 
 export interface SettingsShellTab {
     id: string;
@@ -43,9 +44,9 @@ export function SettingsShell({
     return (
         <div className="flex h-full flex-col overflow-y-auto">
             <header className="mx-auto flex h-16 w-full max-w-5xl shrink-0 items-end justify-between gap-4 px-6 pb-2 md:h-24 md:pb-4">
-                <h1 className="shrink-0 text-3xl font-medium font-eb-garamond">
+                <HeadingUI as="h1" size="settings" className="shrink-0">
                     {title}
-                </h1>
+                </HeadingUI>
                 {/* The search sits at the right end of the heading's row, so the
                     sections and the open page keep their places. */}
                 {search ? (

@@ -10,14 +10,14 @@ describe("settings primitives", () => {
 
     expect(
       screen.getByRole("heading", { name: "Appearance", level: 2 }),
-    ).toHaveClass("font-sans", "text-xl", "font-medium", "text-gray-900");
+    ).toHaveClass("font-sans", "text-xl", "font-medium", "text-fg");
   });
 
   it("supports the danger heading tone", () => {
     render(<SettingsHeading tone="danger">Danger Zone</SettingsHeading>);
 
     expect(screen.getByRole("heading", { name: "Danger Zone" })).toHaveClass(
-      "text-red-600",
+      "text-danger",
     );
   });
 

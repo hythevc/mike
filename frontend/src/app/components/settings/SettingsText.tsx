@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
+import { TextUI } from "@/shared/ui/TextUI";
 
 export function SettingsLabel({ children }: { children: ReactNode }) {
     return (
-        <p className="text-sm font-medium text-gray-700">{children}</p>
+        <TextUI variant="subtle" weight="medium">
+            {children}
+        </TextUI>
     );
 }
 
 export function SettingsDescription({ children }: { children: ReactNode }) {
-    return <p className="text-sm text-gray-500">{children}</p>;
+    return <TextUI variant="muted">{children}</TextUI>;
 }
