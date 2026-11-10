@@ -65,7 +65,10 @@ create table if not exists public.user_profiles (
   -- Whether each response and subagent shows the model, reasoning effort and
   -- token count it used (Settings > Features).
   response_details_visible boolean not null default false,
-  dark_mode boolean not null default false,
+  -- Appearance preference. NULL means System (follow the device), true Dark,
+  -- false Light. Nullable with no default so a new account starts on System;
+  -- existing rows keep their explicit true/false (20261110_50_theme_system).
+  dark_mode boolean,
   -- Whether projects this user creates start with shared memory enabled. Any
   -- project owner can still turn a given project's memory on or off later.
   project_memory_default boolean not null default true,
@@ -12658,5 +12661,6 @@ insert into public.schema_migrations (filename) values
   ('20261107_50_org_subscriptions.sql'),
   ('20261107_51_matter_ai_controls.sql'),
   ('20261108_50_request_desk_forms.sql'),
-  ('20261108_51_billing_events.sql')
+  ('20261108_51_billing_events.sql'),
+  ('20261110_50_theme_system.sql')
 on conflict (filename) do nothing;

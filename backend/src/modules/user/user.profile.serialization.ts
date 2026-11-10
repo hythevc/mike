@@ -76,6 +76,11 @@ export function serializeProfile(
         courtlistenerBulkData: courtlistenerBulkDataEnabled(),
         quickActionsVisible: row.quick_actions_visible !== false,
         responseDetailsVisible: row.response_details_visible === true,
+        // Three-valued appearance preference stored in dark_mode: null means
+        // System (follow the device), true Dark, false Light. `darkMode` stays
+        // for the Word add-in's own theme path; System resolves to light there.
+        theme:
+            row.dark_mode == null ? "system" : row.dark_mode ? "dark" : "light",
         darkMode: row.dark_mode === true,
         projectMemoryDefault: row.project_memory_default !== false,
         ...Object.fromEntries(
