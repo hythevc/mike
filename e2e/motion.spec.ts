@@ -51,8 +51,12 @@ interface AnimationRecord {
 }
 
 interface MotionLog {
-    /** Every `layout-shift` entry, with whether it followed input within 500ms. */
-    shifts: Array<{ value: number; hadRecentInput: boolean }>;
+    /** Every `layout-shift` entry: its size, when it happened on the page's
+     *  own clock, and whether it followed input within 500ms. */
+    shifts: Array<{ value: number; at: number; hadRecentInput: boolean }>;
+    /** The spans, on the same clock, in which the sidebar's width was in
+     *  transition; `to` is null while one is still running. */
+    sidebarResizes: Array<{ from: number; to: number | null }>;
     /** Every CSS animation that started. */
     animations: AnimationRecord[];
     /** Every CSS transition that started: its property, and the element's
@@ -78,6 +82,7 @@ function installMotionRecorder(page: Page) {
     return page.addInitScript(() => {
         const log: MotionLog = {
             shifts: [],
+            sidebarResizes: [],
             animations: [],
             transitions: [],
             presses: [],
@@ -93,12 +98,56 @@ function installMotionRecorder(page: Page) {
                     };
                     log.shifts.push({
                         value: shift.value,
+                        at: shift.startTime,
                         hadRecentInput: shift.hadRecentInput,
                     });
                 }
             }).observe({ type: "layout-shift", buffered: true });
         } catch {
             // `layout-shift` entries are Chromium-only, and so is this suite.
+        }
+
+        // The sidebar's width is the one size that animates, so the page
+        // beside it moves for as long as that transition runs. The browser
+        // attributes a shift to a click for 500ms only; on a slow machine the
+        // transition starts late and outlasts that, so its span is recorded
+        // here and a shift inside it is explained by it.
+        const isSidebar = (target: EventTarget | null) =>
+            target instanceof Element &&
+            target.querySelector(
+                '[aria-label="Close sidebar"], [aria-label="Open sidebar"]',
+            ) !== null;
+        let sidebarWidthsRunning = 0;
+        document.addEventListener(
+            "transitionrun",
+            (event) => {
+                if (event.propertyName !== "width" || !isSidebar(event.target)) return;
+                if (sidebarWidthsRunning === 0) {
+                    log.sidebarResizes.push({ from: performance.now(), to: null });
+                }
+                sidebarWidthsRunning += 1;
+            },
+            true,
+        );
+        for (const type of ["transitionend", "transitioncancel"] as const) {
+            document.addEventListener(
+                type,
+                (event) => {
+                    if (
+                        event.propertyName !== "width" ||
+                        !isSidebar(event.target) ||
+                        sidebarWidthsRunning === 0
+                    ) {
+                        return;
+                    }
+                    sidebarWidthsRunning -= 1;
+                    const span = log.sidebarResizes[log.sidebarResizes.length - 1];
+                    if (sidebarWidthsRunning === 0 && span && span.to === null) {
+                        span.to = performance.now();
+                    }
+                },
+                true,
+            );
         }
 
         /** A keyframe's transform as one matrix; null when it cannot be read. */
@@ -260,6 +309,7 @@ const resetMotion = (page: Page) =>
     page.evaluate(() => {
         const log = (window as unknown as MotionWindow).__motion;
         log.shifts.length = 0;
+        log.sidebarResizes.length = 0;
         log.animations.length = 0;
         log.transitions.length = 0;
         log.presses.length = 0;
@@ -278,13 +328,20 @@ const menuAnimations = async (page: Page, name: "enter" | "exit") =>
 const SIDEBAR_SETTLE_MS = 700;
 /** Longer than a menu's entrance, so a late nudge is on record before reading. */
 const MENU_SETTLE_MS = 400;
+/**
+ * A few frames either side of a recorded span: a shift is stamped with its
+ * frame's time, a transition's start and end with the time its event ran.
+ */
+const FRAME_SLACK_MS = 50;
 /** Room for a keyframe value that went through a float on its way back. */
 const ROUNDING = 1e-4;
 
 /**
- * Wait until the page and the sidebar have stopped loading, then forget what
- * was recorded. A row that arrives late moves the list beneath it, and that
- * is loading, not motion; it must not land inside a measurement.
+ * Wait until the page and the sidebar have stopped loading and nothing has
+ * moved for a full settle window, then forget what was recorded. Content that
+ * arrives late moves what sits beneath it, whether or not a placeholder came
+ * first. That is loading, not motion, and it must not land inside a
+ * measurement.
  */
 async function startMeasuring(page: Page) {
     await waitForSettledPage(page);
@@ -299,7 +356,16 @@ async function startMeasuring(page: Page) {
             { message: "the sidebar is still loading", timeout: 20_000 },
         )
         .toBe(0);
-    await page.waitForTimeout(SIDEBAR_SETTLE_MS);
+    await expect
+        .poll(
+            async () => {
+                await resetMotion(page);
+                await page.waitForTimeout(SIDEBAR_SETTLE_MS);
+                return (await readMotion(page)).shifts.length;
+            },
+            { message: "the page keeps moving on its own" },
+        )
+        .toBe(0);
     await resetMotion(page);
 }
 
@@ -314,9 +380,9 @@ test.describe("motion", () => {
         await startMeasuring(page);
 
         // The sidebar's width is the one size that animates, so the page
-        // beside it does move while the click is fresh. What must not happen
-        // is a shift the click does not explain: one that arrives after the
-        // width has settled.
+        // beside it does move while the click is fresh and for as long as
+        // the width is changing. What must not happen is a shift that
+        // neither explains: one that arrives after the width has settled.
         await close.click();
         await expect(open).toBeVisible();
         await page.waitForTimeout(SIDEBAR_SETTLE_MS);
@@ -324,8 +390,19 @@ test.describe("motion", () => {
         await expect(close).toBeVisible();
         await page.waitForTimeout(SIDEBAR_SETTLE_MS);
 
-        const unexplained = (await readMotion(page)).shifts.filter(
-            (shift) => !shift.hadRecentInput,
+        const log = await readMotion(page);
+        // Every width change had ended by now, so each span below is closed
+        // and none can excuse a shift that came after it.
+        expect(log.sidebarResizes.filter((span) => span.to === null)).toEqual([]);
+        const whileResizing = (at: number) =>
+            log.sidebarResizes.some(
+                ({ from, to }) =>
+                    to !== null &&
+                    at >= from - FRAME_SLACK_MS &&
+                    at <= to + FRAME_SLACK_MS,
+            );
+        const unexplained = log.shifts.filter(
+            (shift) => !shift.hadRecentInput && !whileResizing(shift.at),
         );
         expect(unexplained).toEqual([]);
     });
