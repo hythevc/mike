@@ -880,7 +880,7 @@ export function DocumentSidePanel({
                                                     </div>
                                                         <div
                                                             className={cn(
-                                                                "flex h-5 shrink-0 items-center gap-0.5 transition-opacity",
+                                                                "flex h-5 shrink-0 items-center gap-0.5 transition-opacity duration-(--motion-duration-fast) ease-out-soft",
                                                                 deleted ||
                                                                     selected
                                                                     ? "opacity-100"

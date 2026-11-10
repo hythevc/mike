@@ -167,15 +167,21 @@
     --brand-on-primary-color: var(--brand-on-primary, #ffffff);
 
     /* Motion duration (W26). Named so a surface writes
-       `duration-(--motion-duration-fast)` instead of an ad-hoc number, and the
-       whole app moves on one budget. Frequent chrome is instant to fast;
-       occasional surfaces take one short standard step; nothing is slower than
-       `slow`. Every value is at most 300ms. An exit is one tier quicker than
-       its entrance, so dismissals never outstay the content: `enter` aliases
-       `base`, `exit` aliases `fast`. These are real custom properties (unlike
-       the easings above), so both raw CSS `var(--motion-duration-*)` and the
-       `duration-(--motion-duration-*)` utility read them. motionTokens.test.ts
-       pins the set and the budget; see docs/design-system.md → Motion. */
+       `duration-(--motion-duration-fast)` instead of an ad-hoc number, and
+       new motion shares one budget: `instant` for the press of a frequent
+       control, `fast` for exits and small state changes, `base` for
+       entrances, `slow` for the sidebar's width. No token is longer than
+       300ms. An exit is one tier quicker than its entrance, so a dismissal
+       never outstays the content: `enter` aliases `base`, `exit` aliases
+       `fast`. These are real custom properties (unlike the easings above), so
+       raw CSS `var(--motion-duration-*)`, the `duration-(--motion-duration-*)`
+       utility and tw-animate's `animation-duration-(--motion-duration-*)` all
+       read them. motionTokens.test.ts pins the set and the budget.
+
+       The tokens are the rule for new and migrated motion, not a description
+       of every transition in the app: docs/design-system.md ("Motion") lists
+       the exceptions, among them the sidebar's long-title slide, whose
+       duration is set inline from the distance it covers and is longer. */
     --motion-duration-instant: 80ms;
     --motion-duration-fast: 120ms;
     --motion-duration-base: 180ms;

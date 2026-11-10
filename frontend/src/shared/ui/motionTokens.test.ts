@@ -111,23 +111,46 @@ describe("motion tokens", () => {
         expect(ms("--motion-duration-exit")).toBeLessThan(
             ms("--motion-duration-enter"),
         );
+        // `instant` is the press of a frequent control: over before the
+        // pointer lifts.
+        expect(ms("--motion-duration-instant")).toBeLessThanOrEqual(80);
     });
 });
 
 describe("MotionUI.css reduced motion", () => {
-    const motionCss = read(MOTION);
-    const motionRoot = postcss.parse(motionCss);
+    const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
+    const isReducedMotion = (node: postcss.Container | postcss.Document | undefined) =>
+        node?.type === "atrule" &&
+        (node as postcss.AtRule).name === "media" &&
+        (node as postcss.AtRule).params === REDUCED_MOTION;
+    const isKeyframes = (node: postcss.Container | postcss.Document | undefined) =>
+        node?.type === "atrule" && (node as postcss.AtRule).name === "keyframes";
 
-    // The reduced-motion block, as text.
-    let reducedBlock = "";
+    const motionRoot = postcss.parse(read(MOTION));
+
+    // The rules of the reduced-motion block, parsed: comments are not rules,
+    // and a selector is matched whole, so `.sidebar-fade-in-2` does not stand
+    // in for `.sidebar-fade-in`, nor a word in a comment for a keyframe.
+    const reducedRules: postcss.Rule[] = [];
     motionRoot.walkAtRules("media", (media) => {
-        if (media.params.includes("prefers-reduced-motion: reduce")) {
-            reducedBlock += media.toString();
-        }
+        if (!isReducedMotion(media)) return;
+        media.walkRules((rule) => {
+            reducedRules.push(rule);
+        });
     });
+    /** Selectors whose reduced-motion rule declares `animation: none`. */
+    const stopped = new Set<string>();
+    for (const rule of reducedRules) {
+        let stops = false;
+        rule.walkDecls("animation", (decl) => {
+            if (decl.value.trim() === "none") stops = true;
+        });
+        if (stops) for (const selector of rule.selectors) stopped.add(selector);
+    }
 
-    // Every keyframe declared anywhere in frontend/src, and the class selectors
-    // that run it (so the test can find the rule that stops it).
+    // Every keyframe declared anywhere in frontend/src, and the selectors of
+    // the CSS rules that run it, at any depth (inside `@layer` too). Rules in
+    // a reduced-motion block and keyframe steps are not runners.
     const keyframeNames = new Set<string>();
     const runningSelectors = new Map<string, string[]>();
     const allCss = cssFiles(SRC).map((path) => postcss.parse(read(path)));
@@ -138,7 +161,7 @@ describe("MotionUI.css reduced motion", () => {
     }
     for (const root of allCss) {
         root.walkRules((rule) => {
-            if (rule.parent?.type === "atrule") return;
+            if (isKeyframes(rule.parent) || isReducedMotion(rule.parent)) return;
             rule.walkDecls(/^animation(-name)?$/, (decl) => {
                 for (const name of keyframeNames) {
                     if (new RegExp(`\\b${name}\\b`).test(decl.value)) {
@@ -152,33 +175,88 @@ describe("MotionUI.css reduced motion", () => {
     }
 
     it("has a reduced-motion block", () => {
-        expect(reducedBlock).toContain("prefers-reduced-motion: reduce");
+        expect(reducedRules.length).toBeGreaterThan(0);
+        expect(stopped.size).toBeGreaterThan(0);
         expect(keyframeNames.size).toBeGreaterThan(0);
     });
 
     it("neutralises every @keyframes in frontend/src", () => {
         for (const name of keyframeNames) {
-            const bySelector = (runningSelectors.get(name) ?? []).some((sel) =>
-                reducedBlock.includes(sel),
-            );
-            const byName = reducedBlock.includes(name);
+            // Each CSS rule that runs the keyframe is stopped by a rule with
+            // the same selector...
+            const runners = runningSelectors.get(name) ?? [];
             expect(
-                bySelector || byName,
-                `MotionUI.css has no reduced-motion rule for @keyframes ${name}`,
-            ).toBe(true);
+                runners.filter((selector) => !stopped.has(selector)),
+                `these run @keyframes ${name} and are not stopped under reduced motion`,
+            ).toEqual([]);
+            // ...and a keyframe no CSS rule runs is one a Tailwind
+            // `animate-[name …]` utility runs, stopped through its own
+            // attribute selector.
+            if (runners.length === 0) {
+                expect(
+                    stopped.has(`[class*="animate-[${name}"]`),
+                    `MotionUI.css has no reduced-motion rule for @keyframes ${name}`,
+                ).toBe(true);
+            }
+        }
+    });
+
+    it("stops the sidebar fades and the uploading ellipsis by their own selectors", () => {
+        // The keyframes this item moved into MotionUI.css, by name, so the
+        // loop above cannot pass by finding nothing to check.
+        expect([...keyframeNames].sort()).toEqual(
+            expect.arrayContaining([
+                "shimmer",
+                "sidebarFadeIn",
+                "uploadingEllipsisOne",
+                "uploadingEllipsisThree",
+                "uploadingEllipsisTwo",
+            ]),
+        );
+        expect(runningSelectors.get("sidebarFadeIn")?.sort()).toEqual([
+            ".sidebar-fade-in",
+            ".sidebar-fade-in-2",
+            ".sidebar-heading-enter",
+        ]);
+        for (const selector of [
+            ".sidebar-fade-in",
+            ".sidebar-fade-in-2",
+            ".sidebar-heading-enter",
+            ".uploading-ellipsis-one",
+            ".uploading-ellipsis-two",
+            ".uploading-ellipsis-three",
+        ]) {
+            expect(stopped.has(selector), selector).toBe(true);
         }
     });
 
     it("neutralises the tw-animate enter/exit translate and scale variables", () => {
-        for (const variable of [
-            "--tw-enter-translate-x",
-            "--tw-enter-translate-y",
-            "--tw-exit-translate-x",
-            "--tw-exit-translate-y",
-            "--tw-enter-scale",
-            "--tw-exit-scale",
+        // One rule, on every element that runs a tw-animate entrance or exit,
+        // sets each channel to its resting value. `!important`, because the
+        // per-side slide utilities carry a class and an attribute selector.
+        const rule = reducedRules.find(
+            (candidate) =>
+                candidate.selectors.includes('[class*="animate-in"]') &&
+                candidate.selectors.includes('[class*="animate-out"]'),
+        );
+        expect(rule, "no reduced-motion rule for tw-animate surfaces").toBeDefined();
+        const declared = new Map<string, postcss.Declaration>();
+        rule?.walkDecls((decl) => {
+            declared.set(decl.prop, decl);
+        });
+        for (const [variable, resting] of [
+            ["--tw-enter-translate-x", "0"],
+            ["--tw-enter-translate-y", "0"],
+            ["--tw-exit-translate-x", "0"],
+            ["--tw-exit-translate-y", "0"],
+            ["--tw-enter-scale", "1"],
+            ["--tw-exit-scale", "1"],
         ]) {
-            expect(reducedBlock).toContain(variable);
+            expect(declared.get(variable)?.value, variable).toBe(resting);
+            expect(declared.get(variable)?.important, variable).toBe(true);
         }
+        // The fade is the gentler motion that stays: opacity is left alone.
+        expect(declared.has("--tw-enter-opacity")).toBe(false);
+        expect(declared.has("--tw-exit-opacity")).toBe(false);
     });
 });

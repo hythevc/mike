@@ -18,7 +18,7 @@ export type GlassIconButtonUIProps = Omit<
 };
 
 const BASE_CLASS =
-    `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-500 ${LIQUID_GLASS_SUBTLE_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-[transform,opacity] duration-(--motion-duration-fast) ease-out-soft active:scale-[0.98] motion-reduce:active:scale-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2`;
+    `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-500 ${LIQUID_GLASS_SUBTLE_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-[scale,opacity] duration-(--motion-duration-instant) ease-out-soft active:scale-[0.98] motion-reduce:active:scale-100 motion-reduce:active:opacity-70 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2`;
 
 export function glassIconButtonUIClassName(className?: string) {
     return twMerge(clsx(BASE_CLASS, className));

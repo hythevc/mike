@@ -13,8 +13,14 @@
  * them (moved here from globals.css so each animation sits beside the
  * reduced-motion rule that neutralises it), and the one reduced-motion block.
  * Durations come from the --motion-duration-* custom properties in
- * DesignTokensUI.css; MaterialLayersUI.test.ts checks every animation defined
- * here is stopped under reduced motion.
+ * DesignTokensUI.css.
+ *
+ * Because a rule here outranks a Tailwind utility of the same specificity,
+ * nothing else belongs in it. MaterialLayersUI.test.ts holds the rules outside
+ * the reduced-motion query to a closed list (the keyframes and the utilities
+ * below) and checks every animation defined here is stopped under reduced
+ * motion. Adding a keyframe means adding its utility to that list and its
+ * reduced-motion rule to the block at the end.
  */
 
 /* ── Keyframes ──────────────────────────────────────────────────────────── */

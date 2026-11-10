@@ -94,6 +94,33 @@ describe("material stylesheet layers", () => {
     );
 });
 
+/**
+ * The animation utilities W26 moved into MotionUI.css from globals.css, so
+ * each sits beside the reduced-motion rule that stops it. A closed list: see
+ * the structural test below.
+ */
+const MOTION_UTILITIES = [
+    ".sidebar-fade-in",
+    ".sidebar-fade-in-2",
+    ".sidebar-heading-enter",
+    ".uploading-ellipsis",
+    ".uploading-ellipsis-one",
+    ".uploading-ellipsis-two",
+    ".uploading-ellipsis-three",
+];
+
+/** What those utilities declare: an animation and the box that holds it. */
+const MOTION_UTILITY_PROPERTIES = [
+    "animation",
+    "animation-delay",
+    "opacity",
+    "display",
+    "width",
+    "grid-area",
+];
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
 describe("MotionUI.css", () => {
     const root = postcss.parse(read(MOTION));
 
@@ -157,6 +184,50 @@ describe("MotionUI.css", () => {
                 stopped.has(selector),
                 `${selector} keeps animating under reduced motion`,
             ).toBe(true);
+        }
+    });
+
+    it("declares nothing outside the reduced-motion query but its keyframes and the utilities that run them", () => {
+        // This file sits in the utilities layer after Tailwind's own, so an
+        // unconditional rule here outranks every utility of the same
+        // specificity. Before W26 the file held the reduced-motion query and
+        // nothing else, and this test said so. It now also holds the
+        // keyframes and animation utilities that moved in from globals.css,
+        // and nothing more: any other rule (a restyled `.animate-spin`, a
+        // stray declaration) belongs in a components-layer stylesheet.
+        root.walkAtRules((rule) => {
+            if (rule.parent?.type !== "root") {
+                throw new Error(`@${rule.name} is nested in MotionUI.css`);
+            }
+            if (rule.name === "keyframes") return;
+            expect(`@${rule.name} ${rule.params}`).toBe(
+                `@media ${REDUCED_MOTION_QUERY}`,
+            );
+        });
+
+        const unconditional: postcss.Rule[] = [];
+        root.walkRules((rule) => {
+            const parent = rule.parent;
+            if (parent?.type === "atrule") {
+                // A keyframe step, or a rule of the reduced-motion query.
+                expect(["keyframes", "media"]).toContain(
+                    (parent as postcss.AtRule).name,
+                );
+                return;
+            }
+            unconditional.push(rule);
+        });
+
+        expect(
+            [...new Set(unconditional.flatMap((rule) => rule.selectors))].sort(),
+        ).toEqual([...MOTION_UTILITIES].sort());
+        for (const rule of unconditional) {
+            rule.walkDecls((decl) => {
+                expect(
+                    MOTION_UTILITY_PROPERTIES,
+                    `${rule.selector} declares ${decl.prop}`,
+                ).toContain(decl.prop);
+            });
         }
     });
 });

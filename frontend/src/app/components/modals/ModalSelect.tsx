@@ -134,7 +134,7 @@ export function ModalSelect({
                     </span>
                     <ChevronDown
                         className={cn(
-                            "ml-2 h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform",
+                            "ml-2 h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-(--motion-duration-fast) ease-out-soft motion-reduce:transition-none",
                             isOpen && "rotate-180",
                         )}
                     />

@@ -526,7 +526,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                         <div className="min-w-0 flex-1 px-1.5">
                             <Link
                                 href="/assistant"
-                                className="flex min-w-0 items-center gap-1.5 hover:opacity-80 transition-opacity"
+                                className="flex min-w-0 items-center gap-1.5 hover:opacity-80 transition-opacity duration-(--motion-duration-fast) ease-out-soft"
                             >
                                 <span className="flex shrink-0 px-px">
                                     <SidebarLogo
@@ -563,7 +563,9 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                         onPointerLeave={() => setToggleHoverSuppressed(false)}
                         aria-label={isOpen ? "Close sidebar" : "Open sidebar"}
                         className={cn(
-                            "group flex h-8 w-8 shrink-0 items-center justify-center transition-[border-radius] duration-(--motion-duration-slow) ease-in-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40",
+                            // The corner radius morphs with the sidebar's
+                            // width and stops with it under reduced motion.
+                            "group flex h-8 w-8 shrink-0 items-center justify-center transition-[border-radius] duration-(--motion-duration-slow) ease-in-out-soft motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40",
                             isOpen ? "rounded-md" : "rounded-[16px]",
                             !toggleHoverSuppressed && LIQUID_GLASS_HOVER_CLASS,
                         )}
@@ -658,7 +660,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                 >
                                     <span>Recent Projects</span>
                                     <ChevronDown
-                                        className={`h-3.5 w-3.5 transition-transform ${
+                                        className={`h-3.5 w-3.5 transition-transform duration-(--motion-duration-fast) ease-out-soft motion-reduce:transition-none ${
                                             projectsCollapsed ? "-rotate-90" : ""
                                         }`}
                                     />
@@ -771,7 +773,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                 >
                                     <span>History</span>
                                     <ChevronDown
-                                        className={`h-3.5 w-3.5 transition-transform ${
+                                        className={`h-3.5 w-3.5 transition-transform duration-(--motion-duration-fast) ease-out-soft motion-reduce:transition-none ${
                                             historyCollapsed ? "-rotate-90" : ""
                                         }`}
                                     />
@@ -960,7 +962,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                             <button
                                 type="button"
                                 className={cn(
-                                    "flex h-9 w-full shrink-0 items-center px-[7px] outline-none transition-[border-radius] duration-(--motion-duration-slow) ease-in-out-soft focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2",
+                                    "flex h-9 w-full shrink-0 items-center px-[7px] outline-none transition-[border-radius] duration-(--motion-duration-slow) ease-in-out-soft motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2",
                                     isOpen ? "rounded-xl" : "rounded-[18px]",
                                     !isOpen ? "hidden md:flex" : "",
                                     pathname.startsWith("/settings") ||

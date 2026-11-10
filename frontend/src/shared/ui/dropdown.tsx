@@ -38,6 +38,11 @@ const DROPDOWN_CHROME_CLASS = `theme-dropdown-surface rounded-2xl ${LIQUID_GLASS
  * outstays the menu. Radix mounts and unmounts the surface, so this is a
  * tw-animate keyframe pair rather than a transition. Under reduced motion the
  * scale is dropped here and the translate in MotionUI.css, leaving the fade.
+ *
+ * The timing is set with `animation-duration-*`, not `duration-*`. Both feed
+ * the keyframe, but `duration-*` also sets `transition-duration`, and on an
+ * element with no transition property list that turns every later style
+ * change (the Radix available-height variable included) into a transition.
  */
 export const DROPDOWN_CONTENT_MOTION_CLASS =
     "origin-(--radix-dropdown-menu-content-transform-origin) " +
@@ -46,7 +51,7 @@ export const DROPDOWN_CONTENT_MOTION_CLASS =
     "data-[state=open]:zoom-in-[0.98] data-[state=closed]:zoom-out-[0.98] " +
     "data-[side=bottom]:slide-in-from-top-[2px] data-[side=left]:slide-in-from-right-[2px] " +
     "data-[side=right]:slide-in-from-left-[2px] data-[side=top]:slide-in-from-bottom-[2px] " +
-    "data-[state=open]:duration-(--motion-duration-enter) data-[state=closed]:duration-(--motion-duration-exit) " +
+    "data-[state=open]:animation-duration-(--motion-duration-enter) data-[state=closed]:animation-duration-(--motion-duration-exit) " +
     "data-[state=open]:ease-out-strong data-[state=closed]:ease-out-strong " +
     "motion-reduce:data-[state=open]:zoom-in-100 motion-reduce:data-[state=closed]:zoom-out-100";
 

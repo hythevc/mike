@@ -171,7 +171,7 @@ export function WFEditColumnModal({ column, onClose, onSave, onDelete }: Props) 
                                     title="Column presets"
                                     className="mt-1.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100/70 hover:text-gray-700"
                                 >
-                                    <ChevronDown className={`h-4 w-4 transition-transform ${presetsOpen ? "rotate-180" : ""}`} />
+                                    <ChevronDown className={`h-4 w-4 transition-transform duration-(--motion-duration-fast) ease-out-soft motion-reduce:transition-none ${presetsOpen ? "rotate-180" : ""}`} />
                                 </button>
                                 {presetsOpen && (
                                     <div className={`absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl ${LIQUID_GLASS_FLOAT_CLASS}`}>

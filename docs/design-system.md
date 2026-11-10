@@ -767,79 +767,173 @@ errors as toasts in the same top column.
 ## Motion
 
 Chrome motion is feedback, not decoration. It confirms an action, keeps a
-surface spatially continuous with what opened it, or softens a swap — and it
-never shifts layout. Every interface transition animates `transform` and
-`opacity` only (`clip-path` is allowed); nothing animates width, height,
-position, colour, or blur. The one exception is the sidebar's width, which the
-collapse/expand needs; it rides the same curve as everything else. Nothing
-enters from `scale(0)`.
+surface spatially continuous with what opened it, or softens a swap, and it
+never shifts layout.
+
+This section is the rule for new motion and for the surfaces already moved
+onto it (`MIGRATED_FILES` in `frontend/src/app/motionRatchet.test.ts` is the
+list). It is not yet a description of every transition in the app; the
+exceptions are listed below.
+
+- **What may move.** `transform`, the individual transform properties
+  (`translate`, `scale`, `rotate`) and `opacity`; `clip-path` is allowed. Not
+  width, height, position, padding, colour or blur. Nothing enters from
+  `scale(0)`.
+- **Name the property the class sets.** Tailwind v4 writes `scale-*`,
+  `translate-*` and `rotate-*` as the individual CSS properties, not as
+  `transform`. A transition has to list those: `transition-[scale,opacity]`
+  beside `active:scale-[0.98]`, or `transition-transform`, which lists all
+  four. `transition-[transform,opacity]` compiles, reads as animated, and
+  snaps.
+- **Write a transition whole.** Its property list, a
+  `duration-(--motion-duration-*)`, a token easing and, when it moves or
+  resizes something, a `motion-reduce:` variant go in one class string.
+- **Never `transition-all`**, and never a bare `transition`: both include
+  layout properties and the inherited `visibility`.
 
 ### Tokens
 
 Easing lives under Tailwind's `--ease-*` namespace in `DesignTokensUI.css`, so
 each is a utility (`ease-out-strong`, `ease-out-soft`, `ease-in-out-soft`).
-Interface motion eases **out** — it starts fast and settles, so a control
-answers at once. Reserve `ease-in-out-soft` for a symmetric move that leaves
-and arrives (the sidebar width, a long title sliding to show its end).
+Interface motion eases **out**: it starts fast and settles, so a control
+answers at once. Reserve `ease-in-out-soft` for a move that both leaves and
+arrives (the sidebar width, a long title sliding to show its end). The theme
+block is `inline`, so raw CSS cannot read the curves back as `var(--ease-*)`;
+use the utility.
 
 | Easing | Curve | Use |
 | --- | --- | --- |
-| `ease-out-strong` | `cubic-bezier(0.16, 1, 0.3, 1)` | Entrances: a quick settle |
+| `ease-out-strong` | `cubic-bezier(0.16, 1, 0.3, 1)` | Entrances and exits: a quick settle |
 | `ease-out-soft` | `cubic-bezier(0.33, 1, 0.68, 1)` | Presses and small moves |
-| `ease-in-out-soft` | `cubic-bezier(0.65, 0, 0.35, 1)` | Symmetric moves (sidebar width, title slide) |
+| `ease-in-out-soft` | `cubic-bezier(0.65, 0, 0.35, 1)` | Moves that leave and arrive (sidebar width, title slide) |
 
-Durations are named custom properties on `:root`, used as
-`duration-(--motion-duration-fast)`. Every value is at most 300ms, and an exit
-is a tier quicker than its entrance (`--motion-duration-exit` aliases `fast`,
-`--motion-duration-enter` aliases `base`), so a dismissal never outstays the
-content it closes.
+Durations are custom properties on `:root`, used as
+`duration-(--motion-duration-fast)` or, in raw CSS,
+`var(--motion-duration-fast)`. No token is longer than 300ms, and the smaller
+and more frequent the element, the shorter its budget.
 
 | Token | Value | Budget |
 | --- | --- | --- |
-| `--motion-duration-instant` | 80ms | A press or a hover on a frequent control |
-| `--motion-duration-fast` | 120ms | The default **exit**; small transforms |
-| `--motion-duration-base` | 180ms | The default **entrance** (menus, popovers, toasts) |
-| `--motion-duration-slow` | 300ms | The sidebar width change — the ceiling |
+| `--motion-duration-instant` | 80ms | The press of a frequent control: pill, tab pill, composer send, glass icon button |
+| `--motion-duration-fast` | 120ms | Exits; small state changes (a chevron turning, a hover fade) |
+| `--motion-duration-base` | 180ms | Entrances: menu, popover, toast |
+| `--motion-duration-slow` | 300ms | The sidebar's width; the longest token |
 
-Budget per element size: the smaller and more frequent the element, the quicker
-it moves. A pill or icon button presses in `fast` (120ms); a menu, popover or
-toast enters in `base` (180ms) and leaves in `fast`; only the full-height
-sidebar takes `slow` (300ms). Use `motionTokens.test.ts` as the source of
-truth for the set and the budget.
+`--motion-duration-enter` and `--motion-duration-exit` alias `base` and
+`fast`. A surface that both enters and exits uses the aliases, so its
+dismissal is always a tier quicker than its entrance and never outstays the
+content it closes.
+
+Two utilities set a duration, and they are not interchangeable.
+`duration-*` sets `transition-duration`; `animation-duration-*` (from
+tw-animate) sets only an animation's. An element that animates with
+tw-animate keyframes and has no transition property list takes
+`animation-duration-(--motion-duration-*)`: a `duration-*` there would make
+the browser transition every property that later changes on it, the menu's
+available height included.
+
+### What each surface does
+
+| Surface | Motion | Purpose | Under reduced motion |
+| --- | --- | --- | --- |
+| `PillButtonUI`, `TabPillButtonUI`, composer send, `GlassIconButtonUI` | On pointer-down, `scale` to 0.98 (0.95 on send) in `instant` on `ease-out-soft`. Colour, fill and shadow change at once on hover. | Feedback | No scale; the control dims to 70% for as long as it is held. |
+| `DropdownContent`, `PopoverContent` | A fade, at most 2px of travel out of the Radix transform origin and a 0.98 scale; in on `enter`, out on `exit`, on `ease-out-strong`. | Spatial continuity with the trigger | A plain fade. |
+| Toast | A fade while it settles 4px down into the column on `enter`; closing, a fade while it lifts 4px on `exit`. One interruptible transition on `translate` and `opacity`. A toast has no trigger, so no origin and no scale. | Softening a swap | The fade only. |
+| Sidebar | Width and corner radius on `slow`, `ease-in-out-soft`; its contents fade in on `slow` after a 100 to 200ms stagger, the heading on `base` once the width has settled. | Spatial continuity | No transition; contents shown at once. |
+| Chevrons (sidebar sections, pickers) | `rotate` on `fast`, `ease-out-soft`. | State change | Turns at once. |
+| Logo link, version actions in the document panel | `opacity` on `fast`, `ease-out-soft`. | Feedback | Unchanged: a fade is not movement. |
+| Picker rows, directory rows, the header actions trigger | None. The hover fill changes at once. | | |
+
+A menu's entrance and exit are tw-animate keyframes, because Radix mounts and
+unmounts the surface. The Word add-in does not load tw-animate, so its menus
+open without the entrance; the tokens, the press and the toast are shared.
+
+A toast closes at once and fades afterwards. The store drops it and runs its
+`onClose` immediately; `ToastViewportUI` keeps drawing it, `inert` and hidden
+from assistive technology, until the fade ends, and hands keyboard focus back
+as the exit starts. A toast replaced through its `dedupeKey` swaps in place
+with no exit, and a toast whose element has no transition (a unit test with
+no stylesheet) is removed at once.
 
 ### Frequency rule
 
-- **Frequent actions are instant.** A control a lawyer presses dozens of times
-  a day (a pill, a tab, the composer send, a glass icon button) animates only
-  its pointer-down press, on `fast`, and lets colour and background change at
-  once on hover. It never animates `transition-all`.
-- **Occasional surfaces get one short standard transition.** A menu, popover or
-  toast fades and travels at most 2px out of its trigger origin at a 0.98 scale,
-  entering on `base` and exiting on `fast`.
+- **Frequent actions are instant.** A control pressed dozens of times a day
+  animates only its pointer-down press, on `instant`, and lets colour and
+  background change at once on hover.
+- **Occasional surfaces get one short standard transition.** A menu, popover
+  or toast enters on `base` and leaves on `fast`.
 - **No scroll-triggered motion anywhere.** Nothing animates because the page
   scrolled or an element entered the viewport.
 
+### Exceptions
+
+- **The sidebar's width, with its corner radius.** Collapsing and expanding
+  the sidebar has to resize it. The width is the one layout property that
+  transitions, and the corner radius of the sidebar and of the two buttons at
+  its ends transitions with it, so the corners do not pop while the width
+  moves. Both stop under reduced motion.
+- **The long-title slide.** A History row whose title is clipped slides it
+  into view on hover or keyboard focus. It is a transform on
+  `ease-in-out-soft`, but its duration is set inline from the distance (25ms
+  a pixel, 800ms at least, 600ms back), well past 300ms, because the title
+  has to stay readable while it moves. It does not run under reduced motion.
+- **Legacy colour transitions.** About 200 `transition-colors` uses predate
+  these rules and remain, including in files this section otherwise covers
+  (sidebar rows, the document side panel, menu items). Leave them when
+  passing through; do not add one to a frequent control.
+- **Screens not yet migrated.** Outside the migrated files, about 40
+  transform and opacity transitions still run on Tailwind's default timing.
+  They move onto the tokens when their screens are next worked on.
+- **Loaders.** Spinners, skeleton pulses, shimmer, the typing dots and the
+  uploading ellipsis loop for as long as something loads. They are not chrome
+  motion and have no token; under reduced motion they stop.
+
 ### Reduced motion
 
-Honour `prefers-reduced-motion: reduce`. `MotionUI.css` holds the one
-reduced-motion block: it stops the loaders (pulse, spin, shimmer, the typing
-dots), neutralises tw-animate's enter/exit translate and scale variables so a
-menu or popover becomes a plain fade (gentler, not frozen), and shows the
-sidebar fades at once. A pressable control drops its press scale with a
-`motion-reduce:` variant. `MotionUI.css` also owns the hand-written keyframes
-(the sidebar fade, the uploading ellipsis), each beside the rule that stops it;
-`MaterialLayersUI.test.ts` checks every animation it defines is neutralised.
+Honour `prefers-reduced-motion: reduce` with something gentler, not frozen: a
+fade in place of a move, a dim in place of a press. `MotionUI.css` holds the
+one reduced-motion block. It stops the loaders, neutralises tw-animate's
+enter and exit translate, scale, rotate and blur variables so a menu or
+popover becomes a plain fade, shows the sidebar's fades at once and leaves
+the uploading ellipsis as three still dots. Everything else carries its own
+`motion-reduce:` variant, as in the table above.
+
+`MotionUI.css` also owns the app's hand-written keyframes and the utilities
+that run them (the sidebar fade, the uploading ellipsis), each beside the
+rule that stops it. The file sits after Tailwind's utilities in the same
+layer, so an unconditional rule there outranks a utility of the same
+specificity; `MaterialLayersUI.test.ts` therefore holds its unconditional
+rules to a closed list and checks every animation it defines is stopped under
+reduced motion. A new keyframe goes here, with its reduced-motion rule and an
+entry in that list.
 
 ### Guards
 
-`motionRatchet.json` / `motionRatchet.test.ts` hold the chrome to zero
-`transition-all`, zero bare `ease-in` on interface motion, and zero
-`animate-[…]` keyframe without a reduced-motion rule (the assistant's
-`InitialView` and `ChatView` are the only recorded exceptions, which W29
-clears). The migrated surfaces carry no `duration-<number>` literal — only the
-tokens. `e2e/motion.spec.ts` proves in a real browser that opening the sidebar,
-the account menu and a row menu shifts no layout, and that reduced motion stops
-the account menu's transform.
+- `motionTokens.test.ts` pins the token set and its budget, and checks that
+  every `@keyframes` in `frontend/src` has a reduced-motion rule, matched by
+  selector.
+- `motionRatchet.json` with `motionRatchet.test.ts` holds `frontend/src` to
+  zero `transition-all`, zero bare `ease-in` and zero `animate-[…]` keyframe
+  without a reduced-motion rule. The assistant's `InitialView` and `ChatView`
+  are the only recorded exceptions, one `transition-all` each, until those
+  screens are migrated; an entry may only be lowered. In the migrated files
+  the same test allows token timing only and checks that each transition is
+  written whole.
+- `motionPrimitives.test.tsx` and `popover.motion.test.tsx` hold the
+  contracts in the table for the pressables, the menu, the popover and the
+  toast, including that a transition lists the property its classes set.
+  `ToastUI.exit.test.tsx` covers the toast's exit. The class-string checks
+  they share are in `frontend/src/__tests__/helpers/motionClasses.ts`.
+- `e2e/motion.spec.ts` asks a real browser: toggling the sidebar leaves no
+  layout shift behind once its width has settled; opening the account menu
+  or a row menu shifts nothing at all; the account menu travels at most 2px
+  at no less than 0.98 scale and leaves quicker than it came; a pressed pill
+  starts a transition on `scale`; and under reduced motion the account menu
+  is on screen a frame after the press and its entrance changes opacity
+  only.
+
+The `Motion` story in the component catalog shows the curves and durations in
+both themes.
 
 ## Component catalog
 

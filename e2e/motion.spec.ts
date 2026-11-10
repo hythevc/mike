@@ -1,92 +1,354 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /**
- * Motion (W26). The shared motion tokens migrate the chrome to transform- and
- * opacity-only interactions. These checks prove the two properties that matter
- * in a real browser:
+ * Motion. The chrome moves on transform and opacity only, on shared tokens.
+ * Class-name unit tests cannot tell whether the browser really animates what
+ * they name, so these checks ask the browser:
  *
- *  - Opening the sidebar, the account menu and a row ··· menu shifts no layout
- *    (a `layout-shift` PerformanceObserver records zero cumulative shift for
- *    entries without recent input — motion that moved layout would register).
- *  - Under `prefers-reduced-motion: reduce`, the account menu starts no
- *    animation whose keyframes change `transform`, and it is visible at once.
+ *  - Toggling the sidebar leaves no layout shift behind once its width has
+ *    settled, and opening the account menu or a row ··· menu shifts nothing
+ *    at all.
+ *  - The account menu enters over at most 2px at no less than 0.98 scale, and
+ *    leaves quicker than it came.
+ *  - A pressed pill eases: the browser starts a transition on `scale`.
+ *  - Under `prefers-reduced-motion: reduce` the account menu is on screen one
+ *    frame after the press that opens it, and its entrance changes opacity
+ *    and nothing else.
+ *
+ * The page records its own motion from before first paint (see
+ * `installMotionRecorder`), so an assertion never depends on how soon after
+ * an interaction the test gets to look.
  *
  * Auth: the storageState fixture signs this worker in; see e2e/fixtures.ts.
  */
+import { waitForSettledPage } from "./axe";
 import { test, expect, type Page } from "./fixtures";
 import { createProject } from "./helpers";
 
-/** Accumulate layout shift (excluding shifts within 500ms of an input) on the
- *  window, from before first paint, surviving each navigation. */
-function installLayoutShiftObserver(page: Page) {
+/** What a CSS animation's keyframes change, worked out in the page. */
+interface AnimationRecord {
+    /** The `@keyframes` name: tw-animate's are `enter` and `exit`. */
+    name: string;
+    /** The animated element's ARIA role, to tell a menu from anything else. */
+    role: string | null;
+    durationMs: number;
+    /** The farthest a keyframe sits from the element's resting place, in px. */
+    travelPx: number;
+    /** The smallest scale a keyframe holds; 1 when it never scales. */
+    smallestScale: number;
+    /** Whether opacity differs between keyframes. */
+    fades: boolean;
+    /** Properties other than transform and opacity that differ between keyframes. */
+    others: string[];
+    /** The raw keyframes, for a failure message. */
+    frames: Array<Record<string, string>>;
+}
+
+interface MotionLog {
+    /** Every `layout-shift` entry, with whether it followed input within 500ms. */
+    shifts: Array<{ value: number; hadRecentInput: boolean }>;
+    /** Every CSS animation that started. */
+    animations: AnimationRecord[];
+    /** Every CSS transition that started: its property, and the element's
+     *  ARIA role and `data-motion-probe` to tell which element it ran on. */
+    transitions: Array<{
+        property: string;
+        role: string | null;
+        probe: string | null;
+    }>;
+}
+
+type MotionWindow = Window & { __motion: MotionLog };
+
+/**
+ * Record layout shifts, animation starts and transition starts on `window`,
+ * from before first paint. Events are recorded as they happen, so a check
+ * cannot pass because it looked after an animation had already finished.
+ */
+function installMotionRecorder(page: Page) {
     return page.addInitScript(() => {
-        (window as unknown as { __cls: number }).__cls = 0;
+        const log: MotionLog = { shifts: [], animations: [], transitions: [] };
+        (window as unknown as MotionWindow).__motion = log;
+
         try {
-            const observer = new PerformanceObserver((list) => {
+            new PerformanceObserver((list) => {
                 for (const entry of list.getEntries()) {
                     const shift = entry as PerformanceEntry & {
                         value: number;
                         hadRecentInput: boolean;
                     };
-                    if (!shift.hadRecentInput) {
-                        (window as unknown as { __cls: number }).__cls +=
-                            shift.value;
-                    }
+                    log.shifts.push({
+                        value: shift.value,
+                        hadRecentInput: shift.hadRecentInput,
+                    });
                 }
-            });
-            observer.observe({ type: "layout-shift", buffered: true });
+            }).observe({ type: "layout-shift", buffered: true });
         } catch {
-            // layout-shift is Chromium-only; the suite runs there.
+            // `layout-shift` entries are Chromium-only, and so is this suite.
         }
+
+        /** A keyframe's transform as one matrix; null when it cannot be read. */
+        const matrixOf = (frame: Record<string, string>) => {
+            const parts: string[] = [];
+            if (frame.translate && frame.translate !== "none") {
+                parts.push(`translate(${frame.translate.split(/\s+/).slice(0, 2).join(", ")})`);
+            }
+            if (frame.rotate && frame.rotate !== "none") {
+                parts.push(`rotate(${frame.rotate})`);
+            }
+            if (frame.scale && frame.scale !== "none") {
+                parts.push(`scale(${frame.scale.split(/\s+/).slice(0, 2).join(", ")})`);
+            }
+            if (frame.transform && frame.transform !== "none") {
+                parts.push(frame.transform);
+            }
+            try {
+                return new DOMMatrixReadOnly(parts.join(" "));
+            } catch {
+                // A length the matrix cannot resolve (a percentage, say).
+                return null;
+            }
+        };
+
+        document.addEventListener(
+            "animationstart",
+            (event) => {
+                const target = event.target;
+                if (!(target instanceof Element)) return;
+                for (const animation of target.getAnimations()) {
+                    const effect = animation.effect;
+                    if (
+                        !(animation instanceof CSSAnimation) ||
+                        animation.animationName !== event.animationName ||
+                        !(effect instanceof KeyframeEffect)
+                    ) {
+                        continue;
+                    }
+                    const frames = effect.getKeyframes().map((keyframe) => {
+                        const values: Record<string, string> = {};
+                        for (const [property, value] of Object.entries(keyframe)) {
+                            if (
+                                property === "offset" ||
+                                property === "computedOffset" ||
+                                property === "easing" ||
+                                property === "composite"
+                            ) {
+                                continue;
+                            }
+                            values[property] = String(value);
+                        }
+                        return values;
+                    });
+
+                    let travelPx = 0;
+                    let smallestScale = 1;
+                    for (const frame of frames) {
+                        const matrix = matrixOf(frame);
+                        if (!matrix) {
+                            // Unreadable counts as movement, never as stillness.
+                            travelPx = Number.POSITIVE_INFINITY;
+                            continue;
+                        }
+                        travelPx = Math.max(travelPx, Math.hypot(matrix.m41, matrix.m42));
+                        smallestScale = Math.min(
+                            smallestScale,
+                            Math.hypot(matrix.m11, matrix.m12),
+                            Math.hypot(matrix.m21, matrix.m22),
+                        );
+                    }
+
+                    const transformProperties = ["transform", "translate", "scale", "rotate"];
+                    const differs = (property: string) =>
+                        new Set(
+                            frames.map((frame) => {
+                                const value = frame[property] ?? "";
+                                // tw-animate always writes `filter: blur(0px)`
+                                // on one side; that is no filter at all.
+                                return property === "filter" && value === "blur(0px)"
+                                    ? "none"
+                                    : value;
+                            }),
+                        ).size > 1;
+                    const properties = new Set(frames.flatMap((frame) => Object.keys(frame)));
+
+                    const duration = effect.getTiming().duration;
+                    log.animations.push({
+                        name: event.animationName,
+                        role: target.getAttribute("role"),
+                        durationMs: typeof duration === "number" ? duration : Number.NaN,
+                        travelPx,
+                        smallestScale,
+                        fades: differs("opacity"),
+                        others: [...properties].filter(
+                            (property) =>
+                                property !== "opacity" &&
+                                !transformProperties.includes(property) &&
+                                differs(property),
+                        ),
+                        frames,
+                    });
+                }
+            },
+            true,
+        );
+
+        document.addEventListener(
+            "transitionrun",
+            (event) => {
+                const target = event.target;
+                if (!(target instanceof Element)) return;
+                log.transitions.push({
+                    property: event.propertyName,
+                    role: target.getAttribute("role"),
+                    probe: target.getAttribute("data-motion-probe"),
+                });
+            },
+            true,
+        );
     });
 }
 
-const readShift = (page: Page) =>
-    page.evaluate(() => (window as unknown as { __cls: number }).__cls);
-const resetShift = (page: Page) =>
+const readMotion = (page: Page) =>
+    page.evaluate(() => (window as unknown as MotionWindow).__motion);
+
+/** Forget what was recorded so far: loading the page is not under test. */
+const resetMotion = (page: Page) =>
     page.evaluate(() => {
-        (window as unknown as { __cls: number }).__cls = 0;
+        const log = (window as unknown as MotionWindow).__motion;
+        log.shifts.length = 0;
+        log.animations.length = 0;
+        log.transitions.length = 0;
     });
 
-/** Let the layout-shift observer flush its frame callbacks before reading. */
-async function settle(page: Page) {
-    await page.evaluate(
-        () => new Promise((resolve) => requestAnimationFrame(() => resolve(null))),
+const menuAnimations = async (page: Page, name: "enter" | "exit") =>
+    (await readMotion(page)).animations.filter(
+        (animation) => animation.role === "menu" && animation.name === name,
     );
-    await page.waitForTimeout(150);
+
+const nextFrame = (page: Page) =>
+    page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+
+/**
+ * Long enough for the sidebar's 300ms width change to end and for the 500ms
+ * in which the browser still attributes a shift to the click to run out, so
+ * anything that moves after the transition is counted.
+ */
+const SIDEBAR_SETTLE_MS = 700;
+/** Longer than a menu's entrance, so a late nudge is on record before reading. */
+const MENU_SETTLE_MS = 400;
+/** Room for a keyframe value that went through a float on its way back. */
+const ROUNDING = 1e-4;
+
+/**
+ * Wait until the page and the sidebar have stopped loading, then forget what
+ * was recorded. A row that arrives late moves the list beneath it, and that
+ * is loading, not motion; it must not land inside a measurement.
+ */
+async function startMeasuring(page: Page) {
+    await waitForSettledPage(page);
+    await expect
+        .poll(
+            () =>
+                page
+                    .locator(
+                        '[id^="sidebar-"] .animate-pulse, [data-slot="sidebar-heading-loading"]',
+                    )
+                    .count(),
+            { message: "the sidebar is still loading", timeout: 20_000 },
+        )
+        .toBe(0);
+    await page.waitForTimeout(SIDEBAR_SETTLE_MS);
+    await resetMotion(page);
 }
 
 test.describe("motion", () => {
-    test("opening the sidebar and account menu shifts no layout", async ({
-        page,
-    }) => {
-        await installLayoutShiftObserver(page);
+    test("toggling the sidebar leaves no layout shift behind", async ({ page }) => {
+        await installMotionRecorder(page);
         await page.goto("/assistant");
-        await expect(page.locator("h1, h2").first()).toBeVisible();
-        await settle(page);
-        await resetShift(page);
+        const close = page.getByRole("button", { name: "Close sidebar" });
+        const open = page.getByRole("button", { name: "Open sidebar" });
+        await expect(close).toBeVisible();
+        await expect(page.getByRole("button", { name: "Account menu" })).toBeVisible();
+        await startMeasuring(page);
 
-        // Collapse, then expand the sidebar (its width is the one allowed
-        // size transition; it must not shift layout without recent input).
-        await page.getByRole("button", { name: "Close sidebar" }).click();
-        await expect(
-            page.getByRole("button", { name: "Open sidebar" }),
-        ).toBeVisible();
-        await page.waitForTimeout(400);
-        await page.getByRole("button", { name: "Open sidebar" }).click();
-        await expect(
-            page.getByRole("button", { name: "Close sidebar" }),
-        ).toBeVisible();
-        await page.waitForTimeout(400);
+        // The sidebar's width is the one size that animates, so the page
+        // beside it does move while the click is fresh. What must not happen
+        // is a shift the click does not explain: one that arrives after the
+        // width has settled.
+        await close.click();
+        await expect(open).toBeVisible();
+        await page.waitForTimeout(SIDEBAR_SETTLE_MS);
+        await open.click();
+        await expect(close).toBeVisible();
+        await page.waitForTimeout(SIDEBAR_SETTLE_MS);
 
-        // The account menu is a portalled overlay; it must not nudge the page.
-        await page.getByRole("button", { name: "Account menu" }).click();
-        await expect(page.getByRole("menu")).toBeVisible();
-        await settle(page);
-
-        expect(await readShift(page)).toBe(0);
+        const unexplained = (await readMotion(page)).shifts.filter(
+            (shift) => !shift.hadRecentInput,
+        );
+        expect(unexplained).toEqual([]);
     });
 
-    test("opening a row ··· menu shifts no layout", async ({ page }) => {
-        await installLayoutShiftObserver(page);
+    test("the account menu opens and closes without moving the page", async ({
+        page,
+    }) => {
+        await installMotionRecorder(page);
+        await page.goto("/assistant");
+        const trigger = page.getByRole("button", { name: "Account menu" });
+        await expect(trigger).toBeVisible();
+        await startMeasuring(page);
+
+        await trigger.click();
+        const menu = page.getByRole("menu");
+        await expect(menu).toBeVisible();
+        await expect
+            .poll(async () => (await menuAnimations(page, "enter")).length)
+            .toBeGreaterThan(0);
+        await page.waitForTimeout(MENU_SETTLE_MS);
+
+        // The menu is a portalled overlay: nothing on the page may move for
+        // it, whether or not a click came first.
+        expect((await readMotion(page)).shifts).toEqual([]);
+
+        // It grows out of its trigger: a fade, a short travel, a slight scale.
+        const entrances = await menuAnimations(page, "enter");
+        for (const enter of entrances) {
+            const keyframes = JSON.stringify(enter.frames);
+            expect(enter.fades, keyframes).toBe(true);
+            expect(enter.travelPx, keyframes).toBeGreaterThan(0);
+            expect(enter.travelPx, keyframes).toBeLessThanOrEqual(2 + ROUNDING);
+            expect(enter.smallestScale, keyframes).toBeLessThan(1);
+            expect(enter.smallestScale, keyframes).toBeGreaterThanOrEqual(
+                0.98 - ROUNDING,
+            );
+            expect(enter.others, keyframes).toEqual([]);
+        }
+
+        await page.keyboard.press("Escape");
+        await expect(menu).toBeHidden();
+        await page.waitForTimeout(MENU_SETTLE_MS);
+
+        // The dismissal is quicker than the entrance, and moves nothing either.
+        const exits = await menuAnimations(page, "exit");
+        expect(exits.length).toBeGreaterThan(0);
+        for (const exit of exits) {
+            expect(exit.durationMs).toBeGreaterThan(0);
+            expect(exit.durationMs).toBeLessThan(entrances[0].durationMs);
+            expect(exit.others, JSON.stringify(exit.frames)).toEqual([]);
+        }
+        const log = await readMotion(page);
+        expect(log.shifts).toEqual([]);
+
+        // The surface moves by its keyframes alone. A transition on it would
+        // mean something else is animating as Radix places and sizes the
+        // menu: its available height, for one.
+        expect(
+            log.transitions.filter((transition) => transition.role === "menu"),
+        ).toEqual([]);
+    });
+
+    test("a row ··· menu opens without moving the page", async ({ page }) => {
+        await installMotionRecorder(page);
         // A row menu needs a row; create one, then view the list.
         await createProject(page, `Motion ${Date.now()}`);
         await page.goto("/projects");
@@ -94,64 +356,82 @@ test.describe("motion", () => {
             .getByRole("button", { name: "Open row actions" })
             .first();
         await expect(rowMenu).toBeVisible();
-        await settle(page);
-        await resetShift(page);
+        await startMeasuring(page);
 
         await rowMenu.click();
         await expect(page.getByRole("menu")).toBeVisible();
-        await settle(page);
+        await expect
+            .poll(async () => (await menuAnimations(page, "enter")).length)
+            .toBeGreaterThan(0);
+        await page.waitForTimeout(MENU_SETTLE_MS);
 
-        expect(await readShift(page)).toBe(0);
+        expect((await readMotion(page)).shifts).toEqual([]);
     });
 
-    test("reduced motion: the account menu does not animate transform", async ({
+    test("a pressed pill eases its scale", async ({ page }) => {
+        await installMotionRecorder(page);
+        await page.goto("/projects");
+        // The active filter: pressing it again changes nothing on the page.
+        const pill = page
+            .locator('[data-slot="tab-pill-button"][aria-pressed="true"]')
+            .first();
+        await expect(pill).toBeVisible();
+        await pill.evaluate((element) =>
+            element.setAttribute("data-motion-probe", "pill"),
+        );
+        const box = await pill.boundingBox();
+        if (!box) throw new Error("The filter pill has no box to press.");
+        await resetMotion(page);
+
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        try {
+            // The press is a transition on `scale`, not a jump: Tailwind
+            // writes `scale-*` as the `scale` property, and the pill's
+            // property list has to name that property for it to ease.
+            await expect
+                .poll(async () =>
+                    (await readMotion(page)).transitions
+                        .filter((transition) => transition.probe === "pill")
+                        .map((transition) => transition.property),
+                )
+                .toContain("scale");
+            await expect
+                .poll(() => pill.evaluate((element) => getComputedStyle(element).scale))
+                .toBe("0.98");
+        } finally {
+            await page.mouse.up();
+        }
+    });
+
+    test("reduced motion: the account menu appears at once and only fades", async ({
         page,
     }) => {
         await page.emulateMedia({ reducedMotion: "reduce" });
+        await installMotionRecorder(page);
         await page.goto("/assistant");
         const trigger = page.getByRole("button", { name: "Account menu" });
         await expect(trigger).toBeVisible();
+        await resetMotion(page);
+
         await trigger.click();
+        // One frame after the press, read once with no retry: the menu is on
+        // screen, not held back until an entrance has finished.
+        await nextFrame(page);
+        expect(await page.getByRole("menu").isVisible()).toBe(true);
 
-        const menu = page.getByRole("menu");
-        // Visible at once — not gated on an entrance finishing.
-        await expect(menu).toBeVisible();
-
-        // No running animation on the surface (or its children) changes
-        // transform: reduced motion leaves only the opacity fade.
-        const animatesTransform = await menu.evaluate((root) => {
-            const identity = (value: string | undefined) =>
-                !value ||
-                value === "none" ||
-                value === "matrix(1, 0, 0, 1, 0, 0)" ||
-                /^matrix3d\(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1\)$/.test(
-                    value,
-                );
-            const nodes = [root, ...root.querySelectorAll("*")];
-            for (const node of nodes) {
-                for (const animation of node.getAnimations()) {
-                    const effect = animation.effect;
-                    const frames =
-                        effect && "getKeyframes" in effect
-                            ? (effect.getKeyframes() as Array<
-                                  Record<string, string | undefined>
-                              >)
-                            : [];
-                    for (const frame of frames) {
-                        if (!identity(frame.transform)) return true;
-                        if (frame.translate && frame.translate !== "none") return true;
-                        if (
-                            frame.scale &&
-                            frame.scale !== "none" &&
-                            frame.scale !== "1"
-                        ) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        });
-        expect(animatesTransform).toBe(false);
+        // Its entrance ran, and changed opacity and nothing else: gentler,
+        // not frozen. Recorded when it started, so this cannot pass by
+        // looking after the fade is over.
+        await expect
+            .poll(async () => (await menuAnimations(page, "enter")).length)
+            .toBeGreaterThan(0);
+        for (const enter of await menuAnimations(page, "enter")) {
+            const keyframes = JSON.stringify(enter.frames);
+            expect(enter.fades, keyframes).toBe(true);
+            expect(enter.travelPx, keyframes).toBe(0);
+            expect(enter.smallestScale, keyframes).toBe(1);
+            expect(enter.others, keyframes).toEqual([]);
+        }
     });
 });
