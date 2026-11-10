@@ -49,6 +49,7 @@ import {
     SignOutSkeuoIcon,
 } from "@/app/components/shared/AppSidebarSkeuoIcons";
 import { isNavItemCurrent, navItemsForWorkspace } from "@/app/components/shared/navItems";
+import { CommandMenuTrigger } from "@/app/components/shared/CommandMenuTrigger";
 import { listProjectsPage } from "@/app/lib/mikeApi";
 import { notifyError, notifyPartialFailure } from "@/app/lib/userFacingError";
 import { dismissToast, showToast } from "@/shared/lib/toastStore";
@@ -640,6 +641,8 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                             })}
                         </ul>
                     </nav>
+
+                    <CommandMenuTrigger isOpen={isOpen} />
 
                     {isOpen && (
                         <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">

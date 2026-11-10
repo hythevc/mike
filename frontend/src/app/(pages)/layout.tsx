@@ -9,6 +9,7 @@ import { WorkspaceProvider } from "@/app/contexts/WorkspaceContext";
 import { SidebarContext } from "@/app/contexts/SidebarContext";
 import { PageChromeContext } from "@/app/contexts/PageChromeContext";
 import { AppSidebar } from "@/app/components/shared/AppSidebar";
+import { CommandMenuProvider } from "@/app/components/shared/CommandMenu";
 import { preloadSidebarIcons } from "@/app/components/shared/AppSidebarSkeuoIcons";
 import { FullScreenLoader } from "@/app/components/shared/FullScreenLoader";
 import { HeaderButtonUI, HeaderButtonsUI } from "@/shared/ui/HeaderButtonsUI";
@@ -137,6 +138,7 @@ export default function MikeLayout({
             <ChatHistoryProvider>
                 <PageChromeContext.Provider value={pageChromeValue}>
                     <SidebarContext.Provider value={sidebarValue}>
+                      <CommandMenuProvider onToggleSidebar={handleSidebarToggle}>
                         <div className="h-dvh flex flex-col bg-app-background">
                             <div className="flex-1 flex min-w-0 overflow-visible">
                                 <AppSidebar
@@ -182,6 +184,7 @@ export default function MikeLayout({
                                 </div>
                             </div>
                         </div>
+                      </CommandMenuProvider>
                     </SidebarContext.Provider>
                 </PageChromeContext.Provider>
             </ChatHistoryProvider>
