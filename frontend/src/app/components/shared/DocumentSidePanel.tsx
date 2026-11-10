@@ -1048,8 +1048,13 @@ export function DocumentSidePanel({
                             disabled={deletingDocument}
                             loading={deletingDocument}
                             className={cn(
+                                // Not allowed, but still pressable so it
+                                // can say why: it gives no press feedback,
+                                // neither the scale nor, under reduced
+                                // motion, the dim (which here would lift it
+                                // above its own 45%).
                                 !canDelete &&
-                                    "cursor-not-allowed opacity-45 active:scale-100",
+                                    "cursor-not-allowed opacity-45 active:scale-100 motion-reduce:active:opacity-45",
                             )}
                             title={
                                 canDelete
