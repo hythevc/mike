@@ -310,8 +310,8 @@ export function menuSurfaceProblems(
 /**
  * Where a pressable control's class string departs from the contract: it
  * lists exactly `scale` and `opacity`, presses on pointer-down with a scale on
- * the `instant` token, and under reduced motion swaps the scale for a cue that
- * does not move.
+ * the `instant` token, under reduced motion swaps the scale for a cue that
+ * does not move, and shows neither while it is disabled.
  */
 export function pressProblems(classes: string): string[] {
     const parsed = parsedClasses(classes);
@@ -340,6 +340,27 @@ export function pressProblems(classes: string): string[] {
     }
     if (!pressed(true, (utility) => /^opacity-/.test(utility))) {
         problems.push("reduced motion leaves the press with no cue at all");
+    }
+
+    // A disabled control answers a press with nothing. Each press class is
+    // either for an enabled control only (`active:enabled:`, which suits a
+    // real button), or undone by a `disabled:active:` class on the same
+    // property (which also suits a link styled as a pill).
+    for (const { token, variants, utility } of parsed) {
+        if (!variants.includes("active") || variants.includes("disabled")) {
+            continue;
+        }
+        const property = /^(scale|opacity)-/.exec(utility)?.[1];
+        if (!property || variants.includes("enabled")) continue;
+        const undone = parsed.some(
+            (other) =>
+                other.variants.includes("disabled") &&
+                other.variants.includes("active") &&
+                other.utility.startsWith(`${property}-`),
+        );
+        if (!undone) {
+            problems.push(`${token} also shows on a disabled control`);
+        }
     }
 
     const base = parsed

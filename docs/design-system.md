@@ -836,7 +836,7 @@ available height included.
 
 | Surface | Motion | Purpose | Under reduced motion |
 | --- | --- | --- | --- |
-| `PillButtonUI`, `TabPillButtonUI`, composer send, `GlassIconButtonUI` | On pointer-down, `scale` to 0.98 (0.95 on send) in `instant` on `ease-out-soft`. Colour, fill and shadow change at once on hover. | Feedback | No scale; the control dims to 70% for as long as it is held. |
+| `PillButtonUI`, `TabPillButtonUI`, composer send, `GlassIconButtonUI` | On pointer-down, `scale` to 0.98 (0.95 on send) in `instant` on `ease-out-soft`. Colour, fill and shadow change at once on hover. A disabled control does not press. | Feedback | No scale; the control dims to 70% for as long as it is held. |
 | `DropdownContent`, `PopoverContent` | A fade, at most 2px of travel out of the Radix transform origin and a 0.98 scale; in on `enter`, out on `exit`, on `ease-out-strong`. | Spatial continuity with the trigger | A plain fade. |
 | Toast | A fade while it settles 4px down into the column on `enter`; closing, a fade while it lifts 4px on `exit`. One interruptible transition on `translate` and `opacity`. A toast has no trigger, so no origin and no scale. | Softening a swap | The fade only. |
 | Sidebar | Width and corner radius on `slow`, `ease-in-out-soft`; its contents fade in on `slow` after a 100 to 200ms stagger, the heading on `base` once the width has settled. | Spatial continuity | No transition; contents shown at once. |
@@ -929,8 +929,8 @@ entry in that list.
   or a row menu shifts nothing at all; the account menu travels at most 2px
   at no less than 0.98 scale and leaves quicker than it came; a pressed pill
   starts a transition on `scale`; and under reduced motion the account menu
-  is on screen a frame after the press and its entrance changes opacity
-  only.
+  is on screen in the first frame after the press, its entrance changes
+  opacity only, and no animation the press starts moves anything.
 
 The `Motion` story in the component catalog shows the curves and durations in
 both themes.

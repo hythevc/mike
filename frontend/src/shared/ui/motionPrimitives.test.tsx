@@ -121,6 +121,48 @@ describe("pressable primitives", () => {
         expect(tokens).toContain("disabled:active:scale-100");
     });
 
+    it("a disabled control answers a press with nothing", () => {
+        // The icon button and the send button are always real buttons, so
+        // their press is written for an enabled control only.
+        for (const classes of [
+            glassIconButtonUIClassName(),
+            COMPOSER_SEND_BUTTON_CLASS,
+        ]) {
+            const press = classTokens(classes)
+                .map((token) => parseClass(token))
+                .filter(({ variants }) => variants.includes("active"));
+            expect(press.length).toBeGreaterThan(0);
+            for (const { variants, utility } of press) {
+                expect(variants, utility).toContain("enabled");
+            }
+        }
+        // The contract notices a press a disabled control would show too.
+        expect(
+            pressProblems(
+                glassIconButtonUIClassName().replaceAll(
+                    "active:enabled:",
+                    "active:",
+                ),
+            ),
+        ).toEqual([
+            "active:scale-[0.98] also shows on a disabled control",
+            "motion-reduce:active:scale-100 also shows on a disabled control",
+            "motion-reduce:active:opacity-70 also shows on a disabled control",
+        ]);
+        // A pill may be a link, which is never `:enabled`; it undoes the
+        // press with `disabled:active:` instead.
+        expect(
+            pressProblems(
+                pillButtonUIClassName({ tone: "black" }).replace(
+                    " disabled:active:opacity-40",
+                    "",
+                ),
+            ),
+        ).toEqual([
+            "motion-reduce:active:opacity-70 also shows on a disabled control",
+        ]);
+    });
+
     it("the contract notices the press this item first shipped", () => {
         // `transition-[transform,opacity]` beside `active:scale-[0.98]`: the
         // list named a property the press never sets, so it snapped.

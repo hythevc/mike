@@ -38,9 +38,14 @@ const SETTLED: ComputedMotion = {
     opacity: "1",
 };
 
-/** Report `motion` as the computed style of every toast's motion element. */
-function computeToastsAs(motion: Partial<ComputedMotion> = {}) {
-    const computed: Record<string, string> = { ...SETTLED, ...motion };
+/**
+ * Report `motion` as the computed style of every toast's motion element.
+ * Returns the values it reports, so a test can change them as a browser would
+ * over the length of a transition.
+ */
+function computeToastsAs(motion: Partial<ComputedMotion> = {}): ComputedMotion {
+    const computed: ComputedMotion = { ...SETTLED, ...motion };
+    const reported: Record<string, string> = computed;
     const real = window.getComputedStyle.bind(window);
     vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
         const actual = real(element, pseudo);
@@ -52,14 +57,15 @@ function computeToastsAs(motion: Partial<ComputedMotion> = {}) {
         }
         return new Proxy(actual, {
             get(target, property) {
-                if (typeof property === "string" && property in computed) {
-                    return computed[property];
+                if (typeof property === "string" && property in reported) {
+                    return reported[property];
                 }
                 const value: unknown = Reflect.get(target, property);
                 return typeof value === "function" ? value.bind(target) : value;
             },
         });
     });
+    return computed;
 }
 
 /** What the browser sends when a transition on `element` has finished. */
@@ -69,6 +75,12 @@ function endTransition(element: Element, propertyName: string) {
     act(() => {
         element.dispatchEvent(event);
     });
+}
+
+/** The exit's fade finishing: the toast has faded to nothing, and says so. */
+function endFade(item: Element, computed: ComputedMotion) {
+    computed.opacity = "0";
+    endTransition(item, "opacity");
 }
 
 const itemOf = (card: HTMLElement) => {
@@ -105,7 +117,7 @@ describe("ToastUI exit", () => {
     });
 
     it("keeps a closed toast on the page, out of reach, until its fade ends", () => {
-        computeToastsAs();
+        const computed = computeToastsAs();
         const onClose = vi.fn();
         render(<ToastViewportUI />);
         let id = "";
@@ -136,16 +148,18 @@ describe("ToastUI exit", () => {
             expect(item).toHaveClass(token);
         }
 
-        // The travel finishing is not the end; the fade is.
+        // The travel finishing is not the end; the fade is, even when both
+        // finish in the same frame and the travel reports first.
+        computed.opacity = "0";
         endTransition(item, "translate");
         expect(item).toBeInTheDocument();
-        endTransition(item, "opacity");
+        endFade(item, computed);
         expect(item).not.toBeInTheDocument();
         expect(toastItems()).toHaveLength(0);
     });
 
     it("is not ended by a transition inside the card", () => {
-        computeToastsAs();
+        const computed = computeToastsAs();
         render(<ToastViewportUI />);
         let id = "";
         act(() => {
@@ -161,9 +175,35 @@ describe("ToastUI exit", () => {
         });
 
         // A pill in the card eases its own opacity, and the event bubbles.
+        // Even with the toast itself already faded, that is not its end.
+        computed.opacity = "0";
         endTransition(undo, "opacity");
         expect(item).toBeInTheDocument();
+        endFade(item, computed);
+        expect(item).not.toBeInTheDocument();
+    });
+
+    it("is not ended by its own entrance finishing as it closes", () => {
+        const computed = computeToastsAs();
+        render(<ToastViewportUI />);
+        let id = "";
+        act(() => {
+            id = showToast({ message: "Saved" });
+        });
+        const item = itemOf(screen.getByRole("status"));
+        act(() => {
+            dismissToast(id);
+        });
+
+        // Closed in the frame its entrance ended: the browser still reports
+        // that entrance's end, on opacity, with the toast fully drawn. Taking
+        // it for the exit's end would cut the fade.
+        expect(computed.opacity).toBe("1");
         endTransition(item, "opacity");
+        expect(item).toBeInTheDocument();
+        expect(item).toHaveAttribute("inert");
+
+        endFade(item, computed);
         expect(item).not.toBeInTheDocument();
     });
 
@@ -192,7 +232,7 @@ describe("ToastUI exit", () => {
     });
 
     it("fades a toast whose time ran out, after telling its owner", () => {
-        computeToastsAs();
+        const computed = computeToastsAs();
         const onClose = vi.fn();
         render(<ToastViewportUI />);
         act(() => {
@@ -209,13 +249,13 @@ describe("ToastUI exit", () => {
         expect(item).toBeInTheDocument();
         expect(item).toHaveAttribute("inert");
 
-        endTransition(item, "opacity");
+        endFade(item, computed);
         expect(item).not.toBeInTheDocument();
         expect(onClose).toHaveBeenCalledOnce();
     });
 
     it("hands the keyboard back when the exit starts, not when it ends", () => {
-        computeToastsAs();
+        const computed = computeToastsAs();
         render(
             <>
                 <button type="button">Elsewhere</button>
@@ -246,7 +286,8 @@ describe("ToastUI exit", () => {
         expect(item).toHaveAttribute("inert");
         expect(document.activeElement).toBe(outside);
 
-        endTransition(item, "opacity");
+        endFade(item, computed);
+        expect(item).not.toBeInTheDocument();
         expect(document.activeElement).toBe(outside);
     });
 
@@ -281,7 +322,7 @@ describe("ToastUI exit", () => {
     });
 
     it("fades every toast out when the stack is cleared", () => {
-        computeToastsAs();
+        const computed = computeToastsAs();
         render(<ToastViewportUI />);
         act(() => {
             showToast({ message: "One" });
@@ -296,9 +337,9 @@ describe("ToastUI exit", () => {
         expect(screen.queryAllByRole("status")).toHaveLength(0);
         for (const item of items) expect(item).toHaveAttribute("inert");
 
-        endTransition(items[0], "opacity");
+        endFade(items[0], computed);
         expect(toastItems()).toHaveLength(1);
-        endTransition(items[1], "opacity");
+        endFade(items[1], computed);
         expect(toastItems()).toHaveLength(0);
     });
 

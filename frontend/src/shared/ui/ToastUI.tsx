@@ -534,11 +534,15 @@ function ToastItemUI({
             aria-hidden={leaving || undefined}
             onTransitionEnd={(event) => {
                 // Only this element's own fade ends the exit. The pills inside
-                // the card have transitions too, and their events bubble.
+                // the card have transitions too, and their events bubble. And
+                // only a fade that has reached nothing: an entrance finishing
+                // in the frame the toast closed reports an end as well, with
+                // the toast still fully drawn.
                 if (
                     leaving &&
                     event.target === event.currentTarget &&
-                    event.propertyName === "opacity"
+                    event.propertyName === "opacity" &&
+                    getComputedStyle(event.currentTarget).opacity === "0"
                 ) {
                     finishToastExit(toast.id);
                 }
