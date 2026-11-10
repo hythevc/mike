@@ -30,6 +30,7 @@ import {
 } from "@/shared/ui/dropdown";
 import { notifyError } from "@/app/lib/userFacingError";
 import { LIQUID_GLASS_HOVER_CLASS } from "@/app/components/ui/liquid-surface";
+import { Tooltip } from "@/app/components/ui/tooltip";
 
 export { CLOSE_ROW_ACTIONS_EVENT, closeRowActionMenus };
 
@@ -301,18 +302,20 @@ export function RowActions({
 
     return (
         <Dropdown open={open} onOpenChange={setOpen}>
-            <DropdownTrigger asChild>
-                <button
-                    type="button"
-                    aria-label={ariaLabel}
-                    // The row itself is clickable; opening its menu must not
-                    // also activate the row.
-                    onClick={(event) => event.stopPropagation()}
-                    className={`flex h-6 w-6 items-center justify-center rounded leading-none text-gray-700 transition-colors hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${LIQUID_GLASS_HOVER_CLASS}`}
-                >
-                    <span aria-hidden className="text-xs tracking-widest">···</span>
-                </button>
-            </DropdownTrigger>
+            <Tooltip content={ariaLabel}>
+                <DropdownTrigger asChild>
+                    <button
+                        type="button"
+                        aria-label={ariaLabel}
+                        // The row itself is clickable; opening its menu must not
+                        // also activate the row.
+                        onClick={(event) => event.stopPropagation()}
+                        className={`flex h-6 w-6 items-center justify-center rounded leading-none text-gray-700 transition-colors hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${LIQUID_GLASS_HOVER_CLASS}`}
+                    >
+                        <span aria-hidden className="text-xs tracking-widest">···</span>
+                    </button>
+                </DropdownTrigger>
+            </Tooltip>
             <DropdownContent
                 align="end"
                 className={ROW_ACTION_MENU_CLASS}

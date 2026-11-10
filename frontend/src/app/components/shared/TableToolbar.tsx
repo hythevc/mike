@@ -9,6 +9,7 @@ import {
     DropdownContent,
     DropdownTrigger,
 } from "@/shared/ui/dropdown";
+import { Tooltip } from "@/app/components/ui/tooltip";
 import {
     LIQUID_GLASS_HOVER_CLASS,
     LIQUID_GLASS_SUBTLE_CLASS,
@@ -95,16 +96,17 @@ export function TableToolbar<T extends string>({
             )}
             {actions && !isDesktop && (
                 <Dropdown>
-                    <DropdownTrigger asChild>
-                        <button
-                            type="button"
-                            title="Toolbar actions"
-                            aria-label="Toolbar actions"
-                            className={`ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-700 ${LIQUID_GLASS_SUBTLE_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-colors hover:text-gray-900 active:scale-[0.98]`}
-                        >
-                            <Settings2 className="h-3.5 w-3.5" />
-                        </button>
-                    </DropdownTrigger>
+                    <Tooltip content="Toolbar actions">
+                        <DropdownTrigger asChild>
+                            <button
+                                type="button"
+                                aria-label="Toolbar actions"
+                                className={`ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-700 ${LIQUID_GLASS_SUBTLE_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-colors hover:text-gray-900 active:scale-[0.98]`}
+                            >
+                                <Settings2 className="h-3.5 w-3.5" />
+                            </button>
+                        </DropdownTrigger>
+                    </Tooltip>
                     <DropdownContent
                         align="end"
                         className="min-w-40 p-1"

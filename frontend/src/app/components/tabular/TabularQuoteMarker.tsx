@@ -11,6 +11,7 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { Tooltip } from "@/app/components/ui/tooltip";
 import {
     QUOTE_MARKER_DESCRIPTIONS,
     QUOTE_MARKER_LABELS,
@@ -31,23 +32,24 @@ const MARKER_ICON: Record<QuoteMarkerKind, LucideIcon> = {
 };
 
 /**
- * Text colour per marker. Each class is remapped for the dark theme in
- * globals.css, so the marker stays legible in both themes; the paired icon and
- * text mean colour is a reinforcement, not the signal.
+ * Text colour per marker, drawn from the semantic status tokens so both themes
+ * are handled by the token definitions rather than a per-class dark remap. The
+ * paired icon and text carry the status, so colour only reinforces it.
  */
 const MARKER_TEXT_CLASS: Record<QuoteMarkerKind, string> = {
-    found: "text-emerald-700",
-    partly_found: "text-amber-800",
-    not_found: "text-red-700",
-    no_quote: "text-gray-600",
-    no_text: "text-gray-600",
-    stale: "text-amber-800",
+    found: "text-success",
+    partly_found: "text-warning",
+    not_found: "text-danger",
+    no_quote: "text-fg-subtle",
+    no_text: "text-fg-subtle",
+    stale: "text-warning",
 };
 
 /**
  * A tabular quote-check marker: an icon paired with plain text, e.g.
- * "Quote found". The text is the accessible name; the longer description is
- * the tooltip. Presentational only.
+ * "Quote found". The text is the accessible name; the longer description is a
+ * tooltip (shown on hover, on W26's tokens) rather than the browser's native
+ * `title`, which never surfaces on keyboard focus. Presentational only.
  */
 export function TabularQuoteMarker({
     kind,
@@ -58,17 +60,18 @@ export function TabularQuoteMarker({
 }) {
     const Icon = MARKER_ICON[kind];
     return (
-        <span
-            data-quote-marker={kind}
-            title={QUOTE_MARKER_DESCRIPTIONS[kind]}
-            className={cn(
-                "inline-flex items-center gap-1 font-medium leading-none",
-                MARKER_TEXT_CLASS[kind],
-                className,
-            )}
-        >
-            <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-            <span>{QUOTE_MARKER_LABELS[kind]}</span>
-        </span>
+        <Tooltip content={QUOTE_MARKER_DESCRIPTIONS[kind]}>
+            <span
+                data-quote-marker={kind}
+                className={cn(
+                    "inline-flex items-center gap-1 font-medium leading-none",
+                    MARKER_TEXT_CLASS[kind],
+                    className,
+                )}
+            >
+                <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                <span>{QUOTE_MARKER_LABELS[kind]}</span>
+            </span>
+        </Tooltip>
     );
 }

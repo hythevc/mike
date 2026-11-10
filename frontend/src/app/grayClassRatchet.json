@@ -1,4 +1,4 @@
 {
     "$comment": "SPDX-License-Identifier: AGPL-3.0-only. Ratchet for raw Tailwind gray-* utility uses in frontend/src component source (.ts/.tsx, excluding tests). Screens predate the semantic colour tokens; this count may only fall. When a screen moves its raw grays to the fg/surface/border tokens (see docs/design-system.md), lower max in the same change. grayClassRatchet.test.ts fails if the count rises above max.",
-    "max": 1645
+    "max": 1640
 }
