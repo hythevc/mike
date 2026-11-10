@@ -10,6 +10,7 @@ import { SidebarContext } from "@/app/contexts/SidebarContext";
 import { PageChromeContext } from "@/app/contexts/PageChromeContext";
 import { AppSidebar } from "@/app/components/shared/AppSidebar";
 import { CommandMenuProvider } from "@/app/components/shared/CommandMenu";
+import { HelpMenu } from "@/app/components/shared/HelpMenu";
 import { preloadSidebarIcons } from "@/app/components/shared/AppSidebarSkeuoIcons";
 import { FullScreenLoader } from "@/app/components/shared/FullScreenLoader";
 import { HeaderButtonUI, HeaderButtonsUI } from "@/shared/ui/HeaderButtonsUI";
@@ -173,6 +174,7 @@ export default function MikeLayout({
                                                 <PanelLeft className="h-4 w-4" />
                                             </HeaderButtonUI>
                                         </HeaderButtonsUI>
+                                        <HelpMenu triggerClassName="pointer-events-auto" />
                                         <div
                                             ref={handleMobileActionsContainerRef}
                                             className="pointer-events-auto ml-auto flex min-w-0 flex-1 items-center justify-end"

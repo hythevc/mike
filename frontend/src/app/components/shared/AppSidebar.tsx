@@ -50,6 +50,7 @@ import {
 } from "@/app/components/shared/AppSidebarSkeuoIcons";
 import { isNavItemCurrent, navItemsForWorkspace } from "@/app/components/shared/navItems";
 import { CommandMenuTrigger } from "@/app/components/shared/CommandMenuTrigger";
+import { HelpMenuItems } from "@/app/components/shared/HelpMenu";
 import { listProjectsPage } from "@/app/lib/mikeApi";
 import { notifyError, notifyPartialFailure } from "@/app/lib/userFacingError";
 import { dismissToast, showToast } from "@/shared/lib/toastStore";
@@ -1068,6 +1069,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                       Organization
                                   </DropdownItem>
                               ) : null}
+                              <HelpMenuItems leadingSeparator />
                               <DropdownItem
                                   onSelect={() => {
                                       void handleSignOut();
