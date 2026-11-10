@@ -27,12 +27,17 @@ const doc: Document = {
 
 function renderPanel(
     onClose = vi.fn(),
-    options: { readOnly?: boolean; versions?: DocumentVersion[] } = {},
+    options: {
+        readOnly?: boolean;
+        versions?: DocumentVersion[];
+        canDelete?: boolean;
+    } = {},
 ) {
     render(
         <DocumentSidePanel
             doc={doc}
             readOnly={options.readOnly ?? true}
+            canDelete={options.canDelete}
             versions={options.versions ?? []}
             versionsLoading={false}
             onClose={onClose}
@@ -88,4 +93,21 @@ it("titles the document view and lists the latest version first", () => {
         "Download Version 2",
         "Download Version 1",
     ]);
+});
+
+it("gives no press feedback on a Delete the person may not use", () => {
+    renderPanel(vi.fn(), { readOnly: false, canDelete: false });
+    const remove = screen.getByRole("button", { name: "Delete" });
+    // It stays pressable, so it can say why it is not allowed.
+    expect(remove).toBeEnabled();
+    // But it answers a press with nothing: no scale, and under reduced motion
+    // no dim either. The pill's own 70% dim would lift this one above the 45%
+    // it rests at, so pressing it would make it look more available.
+    expect(remove).toHaveClass(
+        "opacity-45",
+        "active:scale-100",
+        "motion-reduce:active:opacity-45",
+    );
+    expect(remove).not.toHaveClass("active:scale-[0.98]");
+    expect(remove).not.toHaveClass("motion-reduce:active:opacity-70");
 });

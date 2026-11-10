@@ -102,7 +102,7 @@ export function ProjectPickerModal({
                                 return (
                                     <label
                                         key={project.id}
-                                        className={`w-full flex cursor-pointer rounded-md items-center gap-2 px-2 py-2 text-xs transition-all text-left ${isSelected ? LIQUID_GLASS_MODAL_ROW_SELECTED_CLASS : LIQUID_GLASS_MODAL_ROW_HOVER_CLASS}`}
+                                        className={`w-full flex cursor-pointer rounded-md items-center gap-2 px-2 py-2 text-xs text-left ${isSelected ? LIQUID_GLASS_MODAL_ROW_SELECTED_CLASS : LIQUID_GLASS_MODAL_ROW_HOVER_CLASS}`}
                                     >
                                         <SelectionCheckbox
                                             checked={isSelected}

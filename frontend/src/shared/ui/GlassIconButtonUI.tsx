@@ -17,8 +17,14 @@ export type GlassIconButtonUIProps = Omit<
     "aria-label": string;
 };
 
+/*
+ * The press is the shared one (see PillButtonUI.styles.ts): a `scale` on the
+ * `instant` token, and a dim in its place under reduced motion. It is written
+ * for an enabled control only, which suits an element that is always a real
+ * button: a disabled one answers a press with nothing.
+ */
 const BASE_CLASS =
-    `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-500 ${LIQUID_GLASS_SUBTLE_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-colors hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2`;
+    `flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-500 ${LIQUID_GLASS_SUBTLE_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-[scale,opacity] duration-(--motion-duration-instant) ease-out-soft active:enabled:scale-[0.98] motion-reduce:active:enabled:scale-100 motion-reduce:active:enabled:opacity-70 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2`;
 
 export function glassIconButtonUIClassName(className?: string) {
     return twMerge(clsx(BASE_CLASS, className));

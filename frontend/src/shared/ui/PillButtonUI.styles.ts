@@ -27,13 +27,21 @@ const sizeClasses: Record<PillButtonUISize, string> = {
 };
 
 /**
- * `transition`, not `transition-all`: `all` includes `visibility`, which is
- * inherited. The assistant side panel keeps inactive tabs mounted and hides
- * them with `invisible`, so a pill inside one animated that inherited change
- * and stayed on screen for the transition's full duration after the user
- * switched tabs. Tailwind's default property list covers every visual property
- * these tones declare — color, background, border, box-shadow, opacity,
- * transform/scale, filter — and leaves visibility alone.
+ * The pill transitions two properties on the shared motion tokens: `scale`,
+ * for the pointer-down press, and `opacity`, for the disabled fade. Colour,
+ * background and shadow change at once on hover, so a control a lawyer presses
+ * dozens of times a day answers immediately.
+ *
+ * The list names `scale`, not `transform`: Tailwind v4 writes `scale-*` (and
+ * `translate-*`, `rotate-*`) as the individual CSS properties, so a
+ * `transition-[transform,…]` list would leave the press to snap.
+ * motionPrimitives.test.tsx checks the two stay in step.
+ *
+ * Under reduced motion the press stops scaling and dims the pill instead, for
+ * as long as it is held: a cue that does not move. A scoped list also keeps
+ * the inherited `visibility` of a hidden-but-mounted tab out of the
+ * transition, which once kept a switched-away pill on screen for its whole
+ * duration.
  */
 export function pillButtonUIClassName({
     tone,
@@ -46,7 +54,7 @@ export function pillButtonUIClassName({
 }) {
     return twMerge(
         clsx(
-            "inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100",
+            "inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition-[scale,opacity] duration-(--motion-duration-instant) ease-out-soft active:scale-[0.98] motion-reduce:active:scale-100 motion-reduce:active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100 disabled:active:opacity-40",
             toneClasses[tone],
             sizeClasses[size],
             className,

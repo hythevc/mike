@@ -616,7 +616,7 @@ function WorkspaceFileDirectory({
             <label
                 key={doc.id}
                 style={{ paddingLeft: indentedRowPadding(depth) }}
-                className={`w-full rounded-md ${DIRECTORY_GRID_CLASS} py-2 pr-2 text-left text-xs transition-all ${
+                className={`w-full rounded-md ${DIRECTORY_GRID_CLASS} py-2 pr-2 text-left text-xs ${
                     disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
                 } ${
           selected
@@ -677,7 +677,7 @@ function WorkspaceFileDirectory({
                 <div key={folder.id}>
                     <div
                         style={{ paddingLeft: indentedRowPadding(depth) }}
-                        className={`w-full rounded-md ${DIRECTORY_GRID_CLASS} py-2 pr-2 text-xs transition-all ${LIQUID_GLASS_MODAL_ROW_HOVER_CLASS}`}
+                        className={`w-full rounded-md ${DIRECTORY_GRID_CLASS} py-2 pr-2 text-xs ${LIQUID_GLASS_MODAL_ROW_HOVER_CLASS}`}
                     >
                         <DirectorySelectionCheckbox
                             checked={allSelected}
@@ -1113,7 +1113,7 @@ function WorkspaceFileDirectory({
                             return (
                                 <div key={project.id}>
                                     <div
-                                        className={`w-full rounded-md ${DIRECTORY_GRID_CLASS} px-2 py-2 text-xs transition-all text-left ${LIQUID_GLASS_MODAL_ROW_HOVER_CLASS}`}
+                                        className={`w-full rounded-md ${DIRECTORY_GRID_CLASS} px-2 py-2 text-xs text-left ${LIQUID_GLASS_MODAL_ROW_HOVER_CLASS}`}
                                     >
                                         <DirectorySelectionCheckbox
                                             checked={allProjectDocsSelected}

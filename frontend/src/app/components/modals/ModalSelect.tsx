@@ -134,7 +134,7 @@ export function ModalSelect({
                     </span>
                     <ChevronDown
                         className={cn(
-                            "ml-2 h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform",
+                            "ml-2 h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-(--motion-duration-fast) ease-out-soft motion-reduce:transition-none",
                             isOpen && "rotate-180",
                         )}
                     />
@@ -165,7 +165,7 @@ export function ModalSelect({
                             selected={option.value === value}
                             onSelect={() => handleSelect(option.value)}
                             className={cn(
-                                "w-full rounded-md py-2 text-left transition-all",
+                                "w-full rounded-md py-2 text-left",
                                 option.value === value
                                     ? "text-gray-900"
                                     : "text-gray-700",

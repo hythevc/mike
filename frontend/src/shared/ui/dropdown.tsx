@@ -30,6 +30,31 @@ const DROPDOWN_INSET_RINGS_CLASS =
 
 const DROPDOWN_CHROME_CLASS = `theme-dropdown-surface rounded-2xl ${LIQUID_GLASS_FLOAT_CLASS} ${DROPDOWN_INSET_RINGS_CLASS}`;
 
+/**
+ * Enter and exit for a menu surface: a fade, at most 2px of travel out of the
+ * trigger origin and a 0.98 scale — feedback and spatial continuity, nothing
+ * that shifts layout. The exit runs a tier quicker than the enter
+ * (`--motion-duration-exit` vs `--motion-duration-enter`) so a dismissal never
+ * outstays the menu. Radix mounts and unmounts the surface, so this is a
+ * tw-animate keyframe pair rather than a transition. Under reduced motion the
+ * scale is dropped here and the translate in MotionUI.css, leaving the fade.
+ *
+ * The timing is set with `animation-duration-*`, not `duration-*`. Both feed
+ * the keyframe, but `duration-*` also sets `transition-duration`, and on an
+ * element with no transition property list that turns every later style
+ * change (the Radix available-height variable included) into a transition.
+ */
+export const DROPDOWN_CONTENT_MOTION_CLASS =
+    "origin-(--radix-dropdown-menu-content-transform-origin) " +
+    "data-[state=open]:animate-in data-[state=closed]:animate-out " +
+    "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 " +
+    "data-[state=open]:zoom-in-[0.98] data-[state=closed]:zoom-out-[0.98] " +
+    "data-[side=bottom]:slide-in-from-top-[2px] data-[side=left]:slide-in-from-right-[2px] " +
+    "data-[side=right]:slide-in-from-left-[2px] data-[side=top]:slide-in-from-bottom-[2px] " +
+    "data-[state=open]:animation-duration-(--motion-duration-enter) data-[state=closed]:animation-duration-(--motion-duration-exit) " +
+    "data-[state=open]:ease-out-strong data-[state=closed]:ease-out-strong " +
+    "motion-reduce:data-[state=open]:zoom-in-100 motion-reduce:data-[state=closed]:zoom-out-100";
+
 // Rows sit 4px apart. Anything that wraps rows inside a menu (a radio group,
 // a scrolling list) uses this too, so spacing is the same at every level and
 // call sites do not add their own `space-y-*`.
@@ -122,7 +147,8 @@ export const DropdownContent = React.forwardRef<
                     DROPDOWN_CHROME_CLASS,
                     DROPDOWN_Z_INDEX_CLASS,
                     DROPDOWN_ROWS_CLASS,
-                    "max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto p-1 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+                    "max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] overflow-x-hidden overflow-y-auto p-1",
+                    DROPDOWN_CONTENT_MOTION_CLASS,
                     className,
                 )}
                 {...props}

@@ -171,14 +171,14 @@ export function WFEditColumnModal({ column, onClose, onSave, onDelete }: Props) 
                                     title="Column presets"
                                     className="mt-1.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100/70 hover:text-gray-700"
                                 >
-                                    <ChevronDown className={`h-4 w-4 transition-transform ${presetsOpen ? "rotate-180" : ""}`} />
+                                    <ChevronDown className={`h-4 w-4 transition-transform duration-(--motion-duration-fast) ease-out-soft motion-reduce:transition-none ${presetsOpen ? "rotate-180" : ""}`} />
                                 </button>
                                 {presetsOpen && (
                                     <div className={`absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl ${LIQUID_GLASS_FLOAT_CLASS}`}>
                                         <button
                                             type="button"
                                             onClick={() => { update({ name: "", prompt: "", format: "text", tags: [], tagInput: "" }); setPresetsOpen(false); }}
-                                            className="theme-dropdown-item w-full border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-400 transition-all"
+                                            className="theme-dropdown-item w-full border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-400"
                                         >
                                             No Preset
                                         </button>
@@ -190,7 +190,7 @@ export function WFEditColumnModal({ column, onClose, onSave, onDelete }: Props) 
                                                     update({ name: preset.name, prompt: preset.prompt, format: preset.format, tags: preset.tags ?? [], tagInput: "" });
                                                     setPresetsOpen(false);
                                                 }}
-                                                className="theme-dropdown-item w-full px-3 py-2 text-left text-sm text-gray-700 transition-all"
+                                                className="theme-dropdown-item w-full px-3 py-2 text-left text-sm text-gray-700"
                                             >
                                                 {preset.name}
                                             </button>

@@ -1,0 +1,8 @@
+{
+    "$comment": "SPDX-License-Identifier: AGPL-3.0-only. Interface-motion ratchet (W26). motionRatchet.test.ts counts three anti-patterns in frontend/src source: `transition-all` (animates layout and colour on every hover), a bare `ease-in` timing on interface motion (entrances must ease out, not in), and an `animate-[name …]` keyframe utility with no reduced-motion rule in MotionUI.css. Every file must hold zero except the ones listed below, which the assistant chrome still owns; the recorded `max` is the total left in those files. W29 migrates InitialView.tsx and ChatView.tsx and lowers their entries to nothing (max 0). Lower an entry when its motion is migrated; never raise one, and never add a file.",
+    "max": 2,
+    "files": {
+        "src/app/components/assistant/InitialView.tsx": { "transitionAll": 1 },
+        "src/app/components/assistant/ChatView.tsx": { "transitionAll": 1 }
+    }
+}

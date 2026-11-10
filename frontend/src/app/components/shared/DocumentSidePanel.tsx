@@ -835,7 +835,7 @@ export function DocumentSidePanel({
                                                 }}
                                                 aria-disabled={deleted}
                                                 className={cn(
-                                                    `group relative flex w-full flex-col overflow-hidden rounded-lg px-3 py-2 ${LIQUID_GLASS_FLAT_CLASS} ${LIQUID_GLASS_HOVER_CLASS} transition-all`,
+                                                    `group relative flex w-full flex-col overflow-hidden rounded-lg px-3 py-2 ${LIQUID_GLASS_FLAT_CLASS} ${LIQUID_GLASS_HOVER_CLASS}`,
                                                     deleted
                                                         ? "cursor-not-allowed opacity-55"
                                                         : "cursor-pointer",
@@ -880,7 +880,7 @@ export function DocumentSidePanel({
                                                     </div>
                                                         <div
                                                             className={cn(
-                                                                "flex h-5 shrink-0 items-center gap-0.5 transition-opacity",
+                                                                "flex h-5 shrink-0 items-center gap-0.5 transition-opacity duration-(--motion-duration-fast) ease-out-soft",
                                                                 deleted ||
                                                                     selected
                                                                     ? "opacity-100"
@@ -1048,8 +1048,13 @@ export function DocumentSidePanel({
                             disabled={deletingDocument}
                             loading={deletingDocument}
                             className={cn(
+                                // Not allowed, but still pressable so it
+                                // can say why: it gives no press feedback,
+                                // neither the scale nor, under reduced
+                                // motion, the dim (which here would lift it
+                                // above its own 45%).
                                 !canDelete &&
-                                    "cursor-not-allowed opacity-45 active:scale-100",
+                                    "cursor-not-allowed opacity-45 active:scale-100 motion-reduce:active:opacity-45",
                             )}
                             title={
                                 canDelete

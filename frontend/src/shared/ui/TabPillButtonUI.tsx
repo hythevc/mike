@@ -42,7 +42,7 @@ export function TabPillButtonUI({
             aria-pressed={active}
             className={twMerge(
                 clsx(
-                    `inline-flex h-7 items-center justify-center gap-1.5 rounded-full px-3 text-xs font-medium ${flat ? LIQUID_GLASS_FLAT_CLASS : LIQUID_GLASS_SUBTLE_CLASS} transition-all active:scale-[0.98] focus-visible:outline-solid focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40 disabled:active:scale-100`,
+                    `inline-flex h-7 items-center justify-center gap-1.5 rounded-full px-3 text-xs font-medium ${flat ? LIQUID_GLASS_FLAT_CLASS : LIQUID_GLASS_SUBTLE_CLASS} transition-[scale,opacity] duration-(--motion-duration-instant) ease-out-soft active:scale-[0.98] motion-reduce:active:scale-100 motion-reduce:active:opacity-70 focus-visible:outline-solid focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40 disabled:active:scale-100 disabled:active:opacity-40`,
                     stateClass,
                     className,
                 ),
