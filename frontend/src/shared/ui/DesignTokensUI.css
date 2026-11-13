@@ -230,9 +230,10 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
 
-    /* Semantic colour roles (dark). --surface/--surface-elevated and the brand
-       slots inherit the :root definitions, which resolve to the dark
-       app-surface family and the brand fallback respectively. */
+    /* Semantic colour roles (dark). --surface/--surface-elevated inherit the
+       :root definitions, which resolve to the dark app-surface family. The
+       brand fill is overridden below, because the navy brand primary fails the
+       3:1 boundary against the dark surface. */
     --text-primary: #f3f4f6;
     --text-secondary: #d1d5db;
     --text-muted: #9ca3af;

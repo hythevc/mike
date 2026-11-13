@@ -150,10 +150,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["primary", "onPrimary"],
-      "description": "Brand colours. onPrimary on primary must reach a 4.5:1 contrast ratio (checked by the generator).",
+      "description": "Brand colours. onPrimary on primary must reach a 4.5:1 contrast ratio, and on primaryDark too when it is set (checked by the generator).",
       "properties": {
         "primary": { "$ref": "#/$defs/hexColor", "description": "Main brand colour." },
-        "onPrimary": { "$ref": "#/$defs/hexColor", "description": "Text and icon colour placed on primary." }
+        "onPrimary": { "$ref": "#/$defs/hexColor", "description": "Text and icon colour placed on primary, and on primaryDark." },
+        "primaryDark": { "$ref": "#/$defs/hexColor", "description": "Optional lighter brand fill for dark surfaces, so a brand fill keeps a 3:1 boundary there; onPrimary must still reach 4.5:1 on it. Omit to keep brand fills off dark surfaces." }
       }
     },
     "displayFace": {

@@ -37,7 +37,8 @@
   },
   "palette": {
     "primary": "#1F3A5F",
-    "onPrimary": "#FFFFFF"
+    "onPrimary": "#FFFFFF",
+    "primaryDark": "#3E6AA6"
   },
   "displayFace": "inter"
 }
