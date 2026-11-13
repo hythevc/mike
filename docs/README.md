@@ -19,6 +19,9 @@
   account deletion, shared-work transfer and owner-only recovery
 - [Request desk](request-desk.md) — an organization's queue of legal requests:
   roles, statuses, API, data and tests
+- [Matter jurisdiction profile](request-desk.md#jurisdiction-profile) — a
+  project's jurisdictions, governing law and working language: codes, API,
+  organization defaults and what the model is told
 - [MCP connectors](connectors.md) — hosted presets, custom servers, OAuth,
   redirect URIs, and Slack/Google deployment setup
 - [Scoped memory](memory.md) — app and project Markdown memory, permissions,

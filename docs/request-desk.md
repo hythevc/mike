@@ -79,6 +79,80 @@ owns it, and it is private unless they open it to the organization. The
 request shows the matter's name only to people who can open the matter;
 everyone else sees that one exists.
 
+### Jurisdiction profile
+
+Every project, whether or not it came from a request, can record which law
+its work is about. The profile is three optional fields on the project:
+
+| Field | Holds |
+| --- | --- |
+| `jurisdictions` | Up to 10 codes from the jurisdiction registry, in the order they were chosen |
+| `governing_law` | One registry code |
+| `working_language` | One tag from the response-language list in `backend/src/lib/responseLanguages.ts`. `auto` is not a working language |
+
+A code is two capital letters for a country (`GB`), with a suffix for a
+subdivision (`US_CA`). `EU` stands for European Union law and `ZZ` for
+international law that belongs to no single state. The registry is
+`backend/src/lib/jurisdictions.ts`; the rules for a valid profile, shared by
+the projects module, the orgs module and the chat engine, are in
+`backend/src/lib/jurisdictionProfile.ts`.
+
+| Method and path | Does |
+| --- | --- |
+| `GET /projects/jurisdictions` | The registry for pickers, for any signed-in user: each jurisdiction's `code`, `name`, `kind`, `parent` and `languages`, the working languages, and the limit of 10 |
+| `POST /projects`, `PATCH /projects/:projectId` | Accept the three fields. In a `PATCH`, a field left out is unchanged, and `[]` or `null` clears it |
+| `GET /orgs/:orgId/matter-defaults` | The organization's `default_jurisdictions` and `default_working_language`, for any member |
+| `PUT /orgs/:orgId/matter-defaults` | Set either default. Owners and admins only; another member gets `403` |
+
+Every read of a project returns the three fields, and a project with nothing
+recorded returns an empty list and two nulls. Changing a project's profile
+needs the owner role on the project, as its other settings do. A value
+outside the registry or the language list is refused with `400` and one of
+these codes, all listed in `CODE_KINDS`:
+
+| Code | Meaning |
+| --- | --- |
+| `invalid_jurisdiction` | A jurisdiction or governing law that is not a registry code |
+| `too_many_jurisdictions` | More than 10 jurisdictions |
+| `invalid_working_language` | A working language that is not on the response-language list |
+
+A project created in an organization takes the organization's default for
+each field its request leaves out. A field that is sent, even empty, is kept
+as sent. A matter created from a request is created the same way, so it
+starts with the defaults too. Changing the defaults leaves existing projects
+as they are.
+
+When a chat runs inside a project, the model is given the matter's
+jurisdictions (as `Name (CODE)`), governing law and working language as
+facts, beside the user's own jurisdiction. They say which law the matter is
+about. They do not check an answer: what the assistant writes is still a
+draft for a lawyer to verify.
+
+In the web app the three fields are in a project's Details, next to its
+practice, and the chosen jurisdictions show under the project's header. An
+organization's owners and admins set the defaults under the organization's
+General settings.
+
+A change writes one audit row with ids and codes only:
+`project.jurisdiction_profile.updated` (surface `project`) or
+`org.matter_defaults.updated` (surface `organization`), naming the fields
+that changed and their new values. A request that repeats what is stored
+writes nothing.
+
+Migration `backend/migrations/20261113_50_matter_jurisdiction.sql` adds the
+three columns to `projects` and the two to `organizations`, with the limit of
+10 on both lists and a format check on `governing_law`. Existing deployments
+must apply it; fresh installations get the columns from `backend/schema.sql`.
+
+Tests: `backend/src/lib/__tests__/jurisdictions.test.ts` and
+`jurisdictionProfile.test.ts` (the registry and the rules),
+`backend/src/__tests__/integration/matterJurisdiction.routes.test.ts` (the
+HTTP layer, defaults and tenant isolation),
+`backend/src/__tests__/integration/matterJurisdiction.postgres.test.ts` (the
+migration in real PostgreSQL, under `npm run test:stack --prefix backend`),
+and `backend/src/modules/chat/engine/__tests__/matterPersonalisationPrompt.test.ts`
+(what the model is told).
+
 ## Data
 
 Migration `backend/migrations/20261031_53_request_desk.sql` adds:
