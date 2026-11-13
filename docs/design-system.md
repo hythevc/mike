@@ -935,6 +935,93 @@ entry in that list.
 The `Motion` story in the component catalog shows the curves and durations in
 both themes.
 
+## Tooltips
+
+A tooltip is a short description that supplements a control's accessible name.
+It never replaces that name, and it never holds anything to click: it is help
+text, not a surface. `components/ui/tooltip.tsx` is the one tooltip, a
+controlled Radix popover anchored to its trigger; mount `TooltipProvider` once
+near the app root (it already sits in `components/providers.tsx`) so a row of
+icon buttons shares one hover delay.
+
+- **It supplements, never replaces.** The control keeps its own accessible
+  name — a visible label or an `aria-label`. The tooltip's text reaches
+  assistive technology through the trigger's `aria-describedby`, as a
+  description layered on that name, and the content carries `role="tooltip"`.
+  Never move a control's only name into a tooltip.
+- **Open and close.** Hover opens it after a short delay; keyboard focus opens
+  it at once; pointer leave, blur, a press and Escape all close it. A touch
+  pointer opens nothing — a tap is the control's action, not a request for
+  help.
+- **Nothing interactive inside.** The surface is `pointer-events-none`. Links
+  and buttons belong in a menu or a popover, never in a tooltip.
+- **Disabled controls.** A disabled control fires no events, so the primitive
+  wraps one in a focusable span and anchors to that; the tooltip still shows
+  and the control stays visible inside it.
+- **Look and motion.** `text-xs` on the `liquid-glass-float` material, reusing
+  `PopoverContent`'s enter and exit on the motion tokens (a fade and at most
+  2px of travel), a plain fade under reduced motion.
+
+A tooltip's first job here is to replace the browser's native `title` on
+icon-only controls, which never surfaces on keyboard focus. The row-actions
+`···`, the table toolbar, the chat-panel close and the tabular quote marker
+moved first; `components/nativeTitles.test.ts` holds those files to no native
+`title` attribute while each control keeps its accessible name.
+
+## Keyboard keys
+
+`components/ui/kbd.tsx` renders a key or chord in a `<kbd>`. It is
+platform-aware: the `mod` token shows ⌘ on Apple platforms and `Ctrl`
+everywhere else, so a shortcut reads the way the person's own keyboard labels
+it; `shift`, `alt`, `enter` and `escape` get the same treatment, and any other
+string prints as given. The parts of a chord join with non-breaking spaces so a
+combination never wraps mid-way. Text sits at the 11px floor with tabular
+figures — the badge size in the type scale, and the one place that size is
+intended. Pass `keys={["mod", "K"]}`.
+
+## Command menu
+
+The command menu is a keyboard-first way to jump to any page, recent item or
+setting. `shared/CommandMenu.tsx` mounts it once from `(pages)/layout.tsx`,
+binds Cmd/Ctrl+K through `hooks/useCommandMenuShortcut.ts`, and exposes openers
+through context. It is a labelled dialog at `z-[250]` holding a `search-bar` as
+a `combobox` over a `listbox`, drawn on `DropdownSurface`.
+
+- **Groups.** _Go to_ (the navigation items and the settings index; Intake only
+  in an organization workspace), _Recent_ (chats, matters and tabular reviews
+  already loaded elsewhere, newest first) and _Actions_ (new chat, open
+  settings, toggle sidebar). `shared/commandMenuItems.ts` is the pure builder:
+  it takes only data the app already holds, never fetches, and filters case-
+  and accent-insensitively.
+- **Every destination is a link.** Each item carries a real `href`, so
+  middle-click and bookmarking work and the navigation does not depend on the
+  menu's own handler. An assistant destination keeps the current `?side=`
+  value.
+- **Keyboard.** Arrow keys and Home/End move the active option, Enter activates
+  it, Tab stays in the field, Escape closes and returns focus to whatever
+  opened the menu. Cmd/Ctrl+K is ignored when the event is already handled or
+  raised inside the DOCX, Markdown or spreadsheet editors, which bind it for
+  themselves.
+- **Trigger.** A search-shaped button in the sidebar
+  (`shared/CommandMenuTrigger.tsx`) opens the same menu and shows the `Kbd`
+  label; collapsed, it falls back to an icon button.
+
+It is a navigation accelerator, not a place to hide features: everything it
+reaches is reachable another way.
+
+## Help menu
+
+`shared/HelpMenu.tsx` gathers help, documentation, support and the legal pages
+into one menu on the `dropdown` primitive, rendered two ways: inline in the
+sidebar's account menu (`HelpMenuItems`) and as a standalone menu in the mobile
+header (`HelpMenu`). Its entries are Documentation, Keyboard shortcuts,
+Support, About, Source code, Terms and Privacy. Every destination is a real
+link whose address comes from the brand module (`docsUrl`, `legalDocuments`) or
+a fixed app route; the copy lives in `shared/helpMenuLabels.ts`, kept in one
+place so it reads as one voice. "Keyboard shortcuts" opens a labelled dialog
+listing the shortcuts the app really binds — the command menu, the toast focus
+key, Escape and the table selection modifiers — each key drawn with `Kbd`.
+
 ## Component catalog
 
 Every primitive in the table above has stories in the Ladle catalog, except
