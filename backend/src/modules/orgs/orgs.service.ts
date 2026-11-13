@@ -68,5 +68,9 @@ export {
     expireDepartureArchives,
 } from "./orgs.retention";
 
+// What the organization's new matters start with: default jurisdictions and
+// a default working language.
+export { getOrgMatterDefaults, setOrgMatterDefaults } from "./orgs.matterDefaults";
+
 export { listDeletedOrganizations, restoreOrganization, purgeExpiredOrganizations } from "./orgs.lifecycle";
 export { listPrivateContent, setPrivateContentPermission, changePrivateContentAccess } from "./orgs.privateContent";

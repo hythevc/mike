@@ -16,6 +16,8 @@
 //   projects.documents.ts  — list, assign/copy, rename
 //   projects.folders.ts    — subfolders + moving documents between them
 //   projects.chats.ts      — list a project's chats
+//   projects.jurisdictions.ts — the jurisdiction registry for pickers and
+//                            the matter jurisdiction profile on project rows
 
 export { normalizeOptionalString } from "./projects.shared";
 
@@ -59,3 +61,5 @@ export {
 export { listProjectChats } from "./projects.chats";
 
 export { getProjectUsage, projectUsageCsv } from "./projects.usage";
+
+export { getJurisdictionRegistry } from "./projects.jurisdictions";

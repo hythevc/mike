@@ -46,6 +46,8 @@ import {
     saveOrgApiKey,
     setOrgApiKeyEnabled,
     setOrgMemberDataPolicy,
+    getOrgMatterDefaults,
+    setOrgMatterDefaults,
     getOrgLogo,
     saveOrgLogo,
     removeOrgLogo,
@@ -497,6 +499,30 @@ orgsRouter.put(
         res.json(result.policy);
     }),
 );
+
+// GET /orgs/:orgId/matter-defaults — the jurisdictions and the working
+// language the organization's new matters start with (any member).
+orgsRouter.get("/:orgId/matter-defaults", requireOrgAuth, asyncRoute(async (req, res) => {
+    const result = await getOrgMatterDefaults(createServerSupabase(), {
+        userId: res.locals.userId as string,
+        orgId: req.params.orgId,
+    });
+    if (!result.ok) return void sendServiceFailure(res, result);
+    res.json(result.data);
+}));
+
+// PUT /orgs/:orgId/matter-defaults — set those defaults (owner or admin).
+// Only the fields sent change. Matters that already exist keep what they have.
+orgsRouter.put("/:orgId/matter-defaults", requireOrgAuth, asyncRoute(async (req, res) => {
+    const result = await setOrgMatterDefaults(createServerSupabase(), {
+        actorId: res.locals.userId as string,
+        actorEmail: res.locals.userEmail as string | undefined,
+        orgId: req.params.orgId,
+        body: req.body,
+    });
+    if (!result.ok) return void sendServiceFailure(res, result);
+    res.json(result.data);
+}));
 
 // PUT /orgs/:orgId/api-keys/:provider/models — the models the organization's
 // key for a "model list" provider may run (owner or admin). The whole list

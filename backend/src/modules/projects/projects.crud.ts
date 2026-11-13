@@ -22,6 +22,20 @@ import {
 import { can } from "../../lib/permissions";
 import { reportableServiceError } from "../../lib/serviceResult";
 import { recordAudit } from "../../lib/audit";
+import {
+  isEmptyMatterJurisdictionProfile,
+  loadMatterJurisdictionProfile,
+  matterJurisdictionProfileOf,
+  parseMatterJurisdictionFields,
+  type MatterJurisdictionProfile,
+} from "../../lib/jurisdictionProfile";
+import {
+  attachMatterJurisdictionProfiles,
+  changedProfileFields,
+  loadNewMatterDefaults,
+  recordMatterProfileChange,
+  withMatterJurisdictionProfile,
+} from "./projects.jurisdictions";
 import type { MatterAiRestriction } from "@mike/contracts";
 import { filterParticipatingProjects, type ProjectParticipationRow } from "./projects.participation";
 import {
@@ -129,7 +143,14 @@ export async function getProjectsOverview(
   if (accessSummary.error) return { ok: false, error: accessSummary.error };
   const withMemory = await attachProjectMemoryEnabled(db, accessSummary.rows);
   if (withMemory.error) return { ok: false, error: withMemory.error };
-  const projects = withMemory.rows;
+  // The list function returns a fixed set of columns, so each matter's
+  // jurisdictions, governing law and working language are read beside it.
+  const withProfile = await attachMatterJurisdictionProfiles(
+    db,
+    withMemory.rows,
+  );
+  if (withProfile.error) return { ok: false, error: withProfile.error };
+  const projects = withProfile.rows;
   // Only the paginated overview table renders creator avatars; the sidebar
   // and pickers keep the smaller payload.
   if (filters) {
@@ -434,7 +455,7 @@ export async function searchProjectDirectory(
     )
     .slice(pagination.offset, pagination.offset + pagination.limit + 1)
     .map((project) => ({
-      ...project,
+      ...withMatterJurisdictionProfile(project),
       is_owner: project.user_id === userId,
       documents: matchedDocuments.filter(
         (document) => document.project_id === project.id,
@@ -568,8 +589,37 @@ export async function listProjectIds(
 
 export type CreateProjectResult =
   | { ok: true; project: Record<string, unknown> }
-  | { ok: false; kind: "validation"; detail: string }
+  // `code` is set for a refused jurisdiction profile, so a client can tell
+  // which rule the request broke.
+  | { ok: false; kind: "validation"; detail: string; code?: string }
   | { ok: false; kind: "db_error"; error: unknown };
+
+/**
+ * What a new matter starts with: each profile field as the request sent it
+ * or, for a matter in an organization, the organization's default for a
+ * field the request left out. A field sent empty stays empty.
+ */
+async function initialMatterProfile(
+  db: Db,
+  orgId: string | null,
+  requested: Partial<MatterJurisdictionProfile>,
+): Promise<MatterJurisdictionProfile> {
+  const inherits =
+    orgId !== null &&
+    (requested.jurisdictions === undefined ||
+      requested.working_language === undefined);
+  const defaults = inherits
+    ? await loadNewMatterDefaults(db, orgId)
+    : { jurisdictions: [], working_language: null };
+  return {
+    jurisdictions: requested.jurisdictions ?? defaults.jurisdictions,
+    governing_law: requested.governing_law ?? null,
+    working_language:
+      requested.working_language !== undefined
+        ? requested.working_language
+        : defaults.working_language,
+  };
+}
 
 /** Create a project with a non-blank name in a workspace the caller may use. */
 export async function createProject(
@@ -582,6 +632,9 @@ export async function createProject(
     org_id?: string | null;
     visibility?: unknown;
     memory_enabled?: boolean;
+    jurisdictions?: unknown;
+    governing_law?: unknown;
+    working_language?: unknown;
   },
 ): Promise<CreateProjectResult> {
   const { userId, name, cm_number, practice, org_id, memory_enabled } = args;
@@ -594,6 +647,18 @@ export async function createProject(
       detail: "memory_enabled must be a boolean",
     };
   }
+  const requestedProfile = parseMatterJurisdictionFields({
+    jurisdictions: args.jurisdictions,
+    governing_law: args.governing_law,
+    working_language: args.working_language,
+  });
+  if (!requestedProfile.ok)
+    return {
+      ok: false,
+      kind: "validation",
+      detail: requestedProfile.detail,
+      code: requestedProfile.code,
+    };
 
   // Tenant assignment: an explicit org_id must be one the caller belongs to.
   // No org_id means a personal project — org_id stays NULL, which is still
@@ -626,6 +691,11 @@ export async function createProject(
 
   const resolvedMemoryEnabled =
     memory_enabled ?? (await projectMemoryDefaultFor(db, userId));
+  const profile = await initialMatterProfile(
+    db,
+    resolvedOrgId,
+    requestedProfile.fields,
+  );
   // The explicit opt-in/out and the project row are one transaction. A crash
   // can never leave an opted-out project without its fail-closed setting.
   const { data: created, error } = await db.rpc("create_project_with_memory", {
@@ -638,22 +708,29 @@ export async function createProject(
   });
   const data = Array.isArray(created) ? created[0] : created;
   if (error || !data) return { ok: false, kind: "db_error", error };
-  // The row is created private and opened afterwards. If this second write
+  // The row is created private, with nothing recorded about its
+  // jurisdictions, and both are set afterwards in one write. If that write
   // fails the project exists but nobody else can see it, which is the safe
-  // way round; the caller is told, and can open it from the Access panel.
-  if (visibility === "organization") {
-    const { error: visibilityError } = await db
+  // way round; the caller is told, and can open it from the Access panel and
+  // record the jurisdictions in its details.
+  const afterCreate = {
+    ...(visibility === "organization" ? { visibility } : {}),
+    ...(isEmptyMatterJurisdictionProfile(profile) ? {} : profile),
+  };
+  if (Object.keys(afterCreate).length > 0) {
+    const { error: afterCreateError } = await db
       .from("projects")
-      .update({ visibility })
+      .update(afterCreate)
       .eq("id", (data as { id: string }).id);
-    if (visibilityError)
-      return { ok: false, kind: "db_error", error: visibilityError };
+    if (afterCreateError)
+      return { ok: false, kind: "db_error", error: afterCreateError };
   }
   return {
     ok: true,
     project: {
       ...data,
       visibility,
+      ...profile,
       memory_enabled: resolvedMemoryEnabled,
       documents: [],
       is_owner: true,
@@ -709,7 +786,7 @@ export async function getProjectDetail(
   return {
     ok: true,
     body: {
-      ...withMemory.rows[0],
+      ...withMatterJurisdictionProfile(withMemory.rows[0]),
       is_owner: access.isCreator,
       access_role: access.projectRole,
       org_role: access.orgRole,
@@ -831,7 +908,8 @@ export type UpdateProjectResult =
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; kind: "not_found" }
   | { ok: false; kind: "forbidden"; detail: string }
-  | { ok: false; kind: "validation"; detail: string }
+  // `code` is set for a refused jurisdiction profile, as on create.
+  | { ok: false; kind: "validation"; detail: string; code?: string }
   | { ok: false; kind: "db_error"; error: unknown };
 
 /** Validate project metadata and apply only changes allowed by the caller's role. */
@@ -855,6 +933,19 @@ export async function updateProject(
   if ("practice" in body) {
     updates.practice = normalizeOptionalString(body.practice);
   }
+  // The matter's jurisdictions, governing law and working language. Only the
+  // fields the request carries are touched; `null` clears one.
+  const requestedProfile = parseMatterJurisdictionFields(body);
+  if (!requestedProfile.ok)
+    return {
+      ok: false,
+      kind: "validation",
+      detail: requestedProfile.detail,
+      code: requestedProfile.code,
+    };
+  const profileFields = requestedProfile.fields;
+  const changesProfile = Object.keys(profileFields).length > 0;
+  Object.assign(updates, profileFields);
   // Project settings and access edits are Owner-only: the creator, a direct
   // Owner grant on a personal project, or an Admin of the project's org.
   // The user_id filter moves out of the UPDATE so Owners can act on rows they
@@ -882,6 +973,13 @@ export async function updateProject(
   if (requestedVisibility.visibility)
     updates.visibility = requestedVisibility.visibility;
 
+  // The profile as it stands, read only when the request touches it, so the
+  // audit row names the fields that really changed. Null when it could not
+  // be read; every field sent is then recorded as changed.
+  const profileBefore = changesProfile
+    ? await loadMatterJurisdictionProfile(db, projectId)
+    : null;
+
   const { data, error } = await db
     .from("projects")
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -889,6 +987,21 @@ export async function updateProject(
     .select("*")
     .single();
   if (error || !data) return { ok: false, kind: "not_found" };
+
+  // A change to the profile is audited as the matter's other settings are:
+  // one row saying who changed it, on which matter, and what.
+  if (changesProfile) {
+    await recordMatterProfileChange(db, {
+      userId,
+      userEmail,
+      orgId: access.project.org_id ?? null,
+      projectId,
+      changed: profileBefore
+        ? changedProfileFields(profileBefore, profileFields)
+        : (Object.keys(profileFields) as (keyof MatterJurisdictionProfile)[]),
+      profile: matterJurisdictionProfileOf(data),
+    });
+  }
 
   const [{ data: docs }, { data: folderData }] = await Promise.all([
     db.from("documents").select("*").eq("project_id", projectId).order("created_at", { ascending: true }),
@@ -909,7 +1022,7 @@ export async function updateProject(
   return {
     ok: true,
     body: {
-      ...withMemory.rows[0],
+      ...withMatterJurisdictionProfile(withMemory.rows[0]),
       documents: docsTyped,
       folders: folderData ?? [],
     },

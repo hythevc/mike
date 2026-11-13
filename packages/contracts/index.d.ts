@@ -1441,3 +1441,65 @@ export interface ProjectUsageReport {
   priced: boolean;
   rows: ProjectUsageEntry[];
 }
+
+/** What a jurisdiction in the registry is (L1). */
+export type JurisdictionKind =
+  | "country"
+  | "subdivision"
+  | "supranational"
+  | "international";
+
+/**
+ * One entry of the jurisdiction registry (L1). `code` is an upper-case ISO
+ * 3166-1 alpha-2 country code, or COUNTRY_SUB for a subdivision (US_CA); EU
+ * is the European Union and ZZ stands for international standards.
+ */
+export interface JurisdictionEntry {
+  code: string;
+  /** English name. */
+  name: string;
+  kind: JurisdictionKind;
+  /** The country a subdivision belongs to; null for everything else. */
+  parent: string | null;
+  /** Primary languages, as BCP 47 primary language subtags. */
+  languages: string[];
+}
+
+/** A language a matter can be worked in: a response-language code and its English name. */
+export interface WorkingLanguageOption {
+  code: string;
+  name: string;
+}
+
+/**
+ * GET /projects/jurisdictions: what the jurisdiction, governing-law and
+ * working-language pickers offer, and how many jurisdictions one matter may
+ * list.
+ */
+export interface JurisdictionRegistry {
+  jurisdictions: JurisdictionEntry[];
+  working_languages: WorkingLanguageOption[];
+  max_jurisdictions: number;
+}
+
+/**
+ * A matter's jurisdiction profile (L1): the jurisdictions it is about (registry
+ * codes, in the order chosen), the law that governs it (one registry code) and
+ * the language it is worked in (a response-language code). Every project read
+ * carries these three fields; create and update accept them.
+ */
+export interface MatterJurisdictionProfile {
+  jurisdictions: string[];
+  governing_law: string | null;
+  working_language: string | null;
+}
+
+/**
+ * GET and PUT /orgs/:orgId/matter-defaults: the jurisdictions and the working
+ * language an organization's new matters start with. A matter created with a
+ * value of its own keeps it.
+ */
+export interface OrgMatterDefaults {
+  default_jurisdictions: string[];
+  default_working_language: string | null;
+}

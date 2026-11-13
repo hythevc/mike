@@ -12,6 +12,10 @@
 // The profile is context, not a control: nothing here decides who may open
 // a matter or whether a model may run on it.
 
+import type {
+    MatterJurisdictionProfile,
+    OrgMatterDefaults,
+} from "@mike/contracts";
 import {
     formatJurisdiction,
     getJurisdiction,
@@ -19,6 +23,8 @@ import {
 } from "./jurisdictions";
 import { RESPONSE_LANGUAGES, responseLanguageName } from "./responseLanguages";
 import type { Db } from "./supabase";
+
+export type { MatterJurisdictionProfile, OrgMatterDefaults };
 
 /** The most jurisdictions one matter, or one organisation default, may list. */
 export const MAX_PROFILE_JURISDICTIONS = 10;
@@ -28,20 +34,6 @@ export const MAX_PROFILE_JURISDICTIONS = 10;
 export const INVALID_JURISDICTION_CODE = "invalid_jurisdiction";
 export const TOO_MANY_JURISDICTIONS_CODE = "too_many_jurisdictions";
 export const INVALID_WORKING_LANGUAGE_CODE = "invalid_working_language";
-
-export type MatterJurisdictionProfile = {
-    /** Registry codes, in the order they were chosen. */
-    jurisdictions: string[];
-    /** One registry code, or null when no governing law is recorded. */
-    governing_law: string | null;
-    /** A code from lib/responseLanguages, or null when none is recorded. */
-    working_language: string | null;
-};
-
-export type OrgMatterDefaults = {
-    default_jurisdictions: string[];
-    default_working_language: string | null;
-};
 
 /** A refused value: the stable code, and a sentence written for the user. */
 export type ProfileFieldFailure = { ok: false; code: string; detail: string };

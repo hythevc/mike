@@ -9,6 +9,7 @@ import { requireAuth, requireMfaIfEnrolled } from "../../middleware/auth";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
 import { createServerSupabase } from "../../lib/supabase";
 import { sendInternalError } from "../../lib/httpError";
+import { failure, sendServiceFailure } from "../../lib/serviceResult";
 import {
   DOCUMENT_WORKSPACE_MISMATCH_CODE,
   DOCUMENT_WORKSPACE_MISMATCH_DETAIL,
@@ -49,6 +50,7 @@ import {
   setMatterAiRestriction,
   getProjectUsage,
   projectUsageCsv,
+  getJurisdictionRegistry,
   normalizeOptionalString,
   type ProjectAccessFailure,
 } from "./projects.service";
@@ -179,15 +181,27 @@ projectsRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
       detail:
         "shared_with is no longer supported; use the project access endpoints.",
     });
-  const { name, cm_number, practice, org_id, visibility, memory_enabled } =
-    req.body as {
-      name: string;
-      cm_number?: string;
-      practice?: string;
-      org_id?: string | null;
-      visibility?: unknown;
-      memory_enabled?: boolean;
-    };
+  const {
+    name,
+    cm_number,
+    practice,
+    org_id,
+    visibility,
+    memory_enabled,
+    jurisdictions,
+    governing_law,
+    working_language,
+  } = req.body as {
+    name: string;
+    cm_number?: string;
+    practice?: string;
+    org_id?: string | null;
+    visibility?: unknown;
+    memory_enabled?: boolean;
+    jurisdictions?: unknown;
+    governing_law?: unknown;
+    working_language?: unknown;
+  };
   const db = createServerSupabase();
 
   const result = await createProject(db, {
@@ -198,11 +212,17 @@ projectsRouter.post("/", requireAuth, asyncRoute(async (req, res) => {
     org_id,
     visibility,
     memory_enabled,
+    jurisdictions,
+    governing_law,
+    working_language,
   });
   if (!result.ok) {
     if (result.kind === "db_error")
       return void sendInternalError(res, result.error);
-    return void res.status(400).json({ detail: result.detail });
+    return void sendServiceFailure(
+      res,
+      failure("validation", result.detail, result.code),
+    );
   }
   res.status(201).json(result.project);
 }));
@@ -279,6 +299,14 @@ projectsRouter.get("/ids", requireAuth, asyncRoute(async (req, res) => {
   if (!result.ok) return void sendInternalError(res, result.error);
   res.json(result.ids);
 }));
+
+// GET /projects/jurisdictions (must come before /:projectId routes)
+// The jurisdiction registry for the pickers: each jurisdiction's code, name,
+// kind, parent and languages, plus the working languages a matter can use.
+// The same for every signed-in user; it reads nothing about the caller.
+projectsRouter.get("/jurisdictions", requireAuth, (_req, res) => {
+  res.json(getJurisdictionRegistry());
+});
 
 // GET /projects/:projectId
 projectsRouter.get("/:projectId", requireAuth, asyncRoute(async (req, res) => {
@@ -417,7 +445,10 @@ projectsRouter.patch("/:projectId", requireAuth, asyncRoute(async (req, res) => 
     if (result.kind === "forbidden")
       return void res.status(403).json({ detail: result.detail });
     if (result.kind === "validation")
-      return void res.status(400).json({ detail: result.detail });
+      return void sendServiceFailure(
+        res,
+        failure("validation", result.detail, result.code),
+      );
     if (result.kind === "db_error")
       return void sendInternalError(res, result.error);
     return void res.status(404).json({ detail: "Project not found" });

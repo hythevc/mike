@@ -275,6 +275,11 @@ describe("projects.routes", () => {
                     access_scope: "organization",
                     organization_name: "Elite Law LLP",
                     memory_enabled: true,
+                    // Every list row carries the matter's jurisdiction
+                    // profile; nothing is recorded for this one.
+                    jurisdictions: [],
+                    governing_law: null,
+                    working_language: null,
                 },
             ]);
         });
@@ -327,6 +332,9 @@ describe("projects.routes", () => {
                     access_scope: "organization",
                     organization_name: "Elite Law LLP",
                     memory_enabled: true,
+                    jurisdictions: [],
+                    governing_law: null,
+                    working_language: null,
                 },
             ]);
         });

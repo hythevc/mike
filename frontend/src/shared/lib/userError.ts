@@ -195,6 +195,13 @@ export const CODE_KINDS: Readonly<Record<string, UserErrorKind>> = {
     request_desk_assignee_not_member: "validation",
     // A public request form accepts senders from approved email domains only.
     request_form_sender_not_allowed: "validation",
+    // A matter's jurisdictions and governing law come from the jurisdiction
+    // registry, at most ten jurisdictions at a time, and its working language
+    // from the response-language list. The same rules hold for an
+    // organization's defaults.
+    invalid_jurisdiction: "validation",
+    too_many_jurisdictions: "validation",
+    invalid_working_language: "validation",
     // Identity
     authentication_failed: "unauthenticated",
     session_expired: "unauthenticated",
