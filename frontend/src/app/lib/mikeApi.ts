@@ -1,5 +1,12 @@
 import type { Operation } from "@/shared/lib/sentryPrivacy";
-import type { BillingSessionResponse, OrgPlanView, PlansResponse } from "@mike/contracts";
+import type {
+    BillingSessionResponse,
+    JurisdictionRegistry,
+    MatterJurisdictionProfile,
+    OrgMatterDefaults,
+    OrgPlanView,
+    PlansResponse,
+} from "@mike/contracts";
 import type {
     TabularReviewHistoryStatus,
     AuditActor,
@@ -13,6 +20,14 @@ import type {
     PlaybookFindingDecisionKind,
     PlaybookMatchedPosition,
     PlaybookRunDecisions,
+} from "@mike/contracts";
+export type {
+    JurisdictionEntry,
+    JurisdictionKind,
+    JurisdictionRegistry,
+    MatterJurisdictionProfile,
+    OrgMatterDefaults,
+    WorkingLanguageOption,
 } from "@mike/contracts";
 export type {
     AuditActor,
@@ -619,6 +634,11 @@ export async function getProjectFilterOptions(
     });
 }
 
+/**
+ * `profile` carries the matter's jurisdictions, governing law and working
+ * language. A field left out takes the organization's default, when the
+ * project is created in one; a field sent, even empty, is kept as sent.
+ */
 export async function createProject(
     name: string,
     cm_number?: string,
@@ -626,6 +646,7 @@ export async function createProject(
     org_id?: string,
     memory_enabled?: boolean,
     visibility?: ContentVisibility,
+    profile?: Partial<MatterJurisdictionProfile>,
 ): Promise<Project> {
     return apiRequest<Project>("projects.manage", "/projects", {
         method: "POST",
@@ -637,8 +658,23 @@ export async function createProject(
             org_id,
             memory_enabled,
             visibility,
+            ...profile,
         }),
     });
+}
+
+/**
+ * What the jurisdiction, governing-law and working-language pickers offer.
+ * The same for every signed-in user.
+ */
+export async function getJurisdictionRegistry(
+    signal?: AbortSignal,
+): Promise<JurisdictionRegistry> {
+    return apiRequest<JurisdictionRegistry>(
+        "projects.manage",
+        "/projects/jurisdictions",
+        { signal },
+    );
 }
 
 export async function deleteAccount(): Promise<void> {
@@ -1685,12 +1721,14 @@ export async function getProject(projectId: string): Promise<Project> {
 
 export async function updateProject(
     projectId: string,
+    // The three jurisdiction fields are sent only when they change; `null`
+    // clears the governing law or the working language, `[]` the list.
     payload: {
         name?: string;
         cm_number?: string;
         practice?: string | null;
         visibility?: ContentVisibility;
-    },
+    } & Partial<MatterJurisdictionProfile>,
 ): Promise<Project> {
     return apiRequest<Project>("projects.manage", `/projects/${projectId}`, {
         method: "PATCH",
@@ -1883,6 +1921,12 @@ export interface Org {
      */
     allow_member_exports?: boolean;
     allow_member_deletes?: boolean;
+    /**
+     * What the organization's new matters start with: jurisdiction codes and
+     * a working language. Absent from a server that predates them.
+     */
+    default_jurisdictions?: string[];
+    default_working_language?: string | null;
 }
 
 /**
@@ -2162,6 +2206,34 @@ export async function setOrgMemberDataPolicy(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(policy),
     });
+}
+
+/** The jurisdictions and working language an organization's new matters start with (any member). */
+export async function getOrgMatterDefaults(
+    orgId: string,
+    signal?: AbortSignal,
+): Promise<OrgMatterDefaults> {
+    return apiRequest<OrgMatterDefaults>(
+        "organizations.manage",
+        `/orgs/${encodeURIComponent(orgId)}/matter-defaults`,
+        { signal },
+    );
+}
+
+/** Set those defaults (owners and admins). Only the fields sent change. */
+export async function setOrgMatterDefaults(
+    orgId: string,
+    defaults: Partial<OrgMatterDefaults>,
+): Promise<OrgMatterDefaults> {
+    return apiRequest<OrgMatterDefaults>(
+        "organizations.manage",
+        `/orgs/${encodeURIComponent(orgId)}/matter-defaults`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(defaults),
+        },
+    );
 }
 
 export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {

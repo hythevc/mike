@@ -119,6 +119,15 @@ export interface Project {
   ai_restricted_reason?: string | null;
   ai_restricted_by?: string | null;
   ai_restricted_at?: string | null;
+  /**
+   * The matter's jurisdiction profile: the jurisdictions it is about (registry
+   * codes such as US_CA, in the order chosen), the law that governs it and
+   * the language it is worked in. Absent from a server that predates them,
+   * which reads as nothing recorded.
+   */
+  jurisdictions?: string[];
+  governing_law?: string | null;
+  working_language?: string | null;
   created_at: string;
   updated_at: string;
   documents?: Document[];
