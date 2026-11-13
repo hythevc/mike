@@ -30,7 +30,7 @@ export function CommandMenuTrigger({
                 onClick={openCommandMenu}
                 aria-label={COMMAND_MENU_LABELS.title}
                 className={cn(
-                    "mx-1.5 hidden h-8 w-8 items-center justify-center rounded-md text-fg-subtle transition-colors hover:text-fg md:flex",
+                    "mx-1.5 hidden h-8 w-8 items-center justify-center rounded-md text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] md:flex",
                     LIQUID_GLASS_HOVER_CLASS,
                 )}
             >
@@ -44,7 +44,7 @@ export function CommandMenuTrigger({
             type="button"
             onClick={openCommandMenu}
             className={cn(
-                "mx-1.5 flex h-8 items-center gap-2 rounded-md px-2 text-fg-subtle transition-colors hover:text-fg",
+                "mx-1.5 flex h-8 items-center gap-2 rounded-md px-2 text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
                 LIQUID_GLASS_SUBTLE_CLASS,
                 LIQUID_GLASS_HOVER_CLASS,
             )}

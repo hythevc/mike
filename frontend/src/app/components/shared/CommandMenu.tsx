@@ -125,8 +125,12 @@ export function CommandMenuProvider({
     );
 }
 
+// Enter on the motion tokens. The classes are unconditional so MotionUI.css's
+// reduced-motion block neutralises the zoom and leaves a plain fade, as it does
+// for every other menu and popover; gating the whole enter behind `motion-safe:`
+// would make reduced motion a hard cut instead of a gentler fade.
 const PANEL_ENTER_CLASS =
-    "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-[0.98] " +
+    "animate-in fade-in-0 zoom-in-[0.98] " +
     "animation-duration-(--motion-duration-enter) ease-out-strong";
 
 export function CommandMenuDialog({
@@ -243,7 +247,7 @@ export function CommandMenuDialog({
         >
             <div
                 aria-hidden="true"
-                className="absolute inset-0 bg-white/10 backdrop-blur-[2px] motion-safe:animate-in motion-safe:fade-in-0 animation-duration-(--motion-duration-fast)"
+                className="absolute inset-0 bg-white/10 backdrop-blur-[2px] animate-in fade-in-0 animation-duration-(--motion-duration-fast)"
             />
             <DropdownSurface
                 ref={panelRef}
