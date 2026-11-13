@@ -220,3 +220,12 @@ for the specs, so `e2e/public-site.spec.ts` expects the home page and fails if
 `/` redirects. Against a web server you started yourself without the flag, set
 `E2E_SITE_ENABLED=false` to skip that one test. CI sets both in
 `.github/workflows/e2e.yml`.
+
+The matter jurisdiction profile works the same way, with a switch on each
+side: the config starts the API with `MATTER_JURISDICTIONS_ENABLED=true` and
+the web server with `NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED=true`, and sets
+`E2E_MATTER_JURISDICTIONS_ENABLED=true`, so `e2e/matter-jurisdictions.spec.ts`
+expects the profile's fields and fails if they are missing. Against servers
+you started yourself without the switches, set
+`E2E_MATTER_JURISDICTIONS_ENABLED=false` to skip that spec. CI sets all three
+in `.github/workflows/e2e.yml`.

@@ -22,6 +22,21 @@ if (!process.env.CI && process.env.E2E_SITE_ENABLED === undefined) {
     process.env.E2E_SITE_ENABLED = "true";
 }
 
+/* The matter jurisdiction profile is off unless both its switches are on:
+   MATTER_JURISDICTIONS_ENABLED for the API and the build-time
+   NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED for the web app. The servers this
+   config starts run with both, so e2e/matter-jurisdictions.spec.ts can expect
+   the fields and fail when they are missing; E2E_MATTER_JURISDICTIONS_ENABLED
+   tells it so. CI owns its own servers and sets all three in
+   .github/workflows/e2e.yml. Against servers you started yourself without
+   the switches, set E2E_MATTER_JURISDICTIONS_ENABLED=false to skip it. */
+if (
+    !process.env.CI &&
+    process.env.E2E_MATTER_JURISDICTIONS_ENABLED === undefined
+) {
+    process.env.E2E_MATTER_JURISDICTIONS_ENABLED = "true";
+}
+
 export default defineConfig({
     testDir: "./e2e",
     /* Every parallel worker signs in as its OWN user (worker 0 is the
@@ -104,7 +119,13 @@ export default defineConfig({
                   cwd: "backend",
                   // Failures a browser test provokes are not community bug
                   // reports; CI sets the same (see .github/workflows/e2e.yml).
-                  env: { ...process.env, SENTRY_DISABLED: "true" },
+                  // The matter jurisdiction profile is on, as in CI, for
+                  // e2e/matter-jurisdictions.spec.ts.
+                  env: {
+                      ...process.env,
+                      SENTRY_DISABLED: "true",
+                      MATTER_JURISDICTIONS_ENABLED: "true",
+                  },
                   url: "http://localhost:3001/health",
                   reuseExistingServer: true,
                   timeout: 120_000,
@@ -121,6 +142,9 @@ export default defineConfig({
                       // runs with it on, as CI does (.github/workflows/e2e.yml),
                       // and E2E_SITE_ENABLED above tells the spec to expect it.
                       NEXT_PUBLIC_SITE_ENABLED: "true",
+                      // The matter jurisdiction profile's web switch, also
+                      // build-time; the backend server above has the API's.
+                      NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED: "true",
                   },
                   url: "http://localhost:3000",
                   reuseExistingServer: true,

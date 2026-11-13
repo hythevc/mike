@@ -152,6 +152,12 @@ jobs:
       # so e2e/public-site.spec.ts must find the home page at / and fails on a
       # redirect instead of skipping.
       E2E_SITE_ENABLED: "true"
+      # The stack below runs with the matter jurisdiction profile on (the
+      # API's MATTER_JURISDICTIONS_ENABLED in "Wire env from Supabase", the web
+      # app's build-time switch in "Write web env"), so
+      # e2e/matter-jurisdictions.spec.ts must find the fields and fails
+      # instead of skipping.
+      E2E_MATTER_JURISDICTIONS_ENABLED: "true"
     steps:
       - uses: actions/checkout@v7
 
@@ -290,6 +296,9 @@ jobs:
       # needs the upstream backend origin. Written before the build because
       # Next inlines NEXT_PUBLIC_* values at build time. The public home page
       # is behind NEXT_PUBLIC_SITE_ENABLED; e2e/public-site.spec.ts scans it.
+      # The matter jurisdiction profile's fields are behind
+      # NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED; e2e/matter-jurisdictions.spec.ts
+      # scans them.
       - name: Write web env
         run: |
           {
@@ -297,6 +306,7 @@ jobs:
             echo "SENTRY_DISABLED=true"
             echo "NEXT_PUBLIC_SENTRY_DISABLED=true"
             echo "NEXT_PUBLIC_SITE_ENABLED=true"
+            echo "NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED=true"
           } > frontend/.env.local
 
       - name: Build backend
@@ -359,6 +369,9 @@ jobs:
             echo "ANTHROPIC_BASE_URL=$ANTHROPIC_BASE_URL"
             # Error reporting is on by default; CI runs must not report.
             echo "SENTRY_DISABLED=true"
+            # The matter jurisdiction profile, off by default, on for
+            # e2e/matter-jurisdictions.spec.ts (with the web switch above).
+            echo "MATTER_JURISDICTIONS_ENABLED=true"
           } >> backend/.env
 
       # Production runs this as a release job after migrations and before the
