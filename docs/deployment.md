@@ -1162,7 +1162,7 @@ today's behaviour.
 The web app serves a small public site for visitors who are not signed in:
 the home page at `/`, `/pricing`, `/docs` (an index and four pages: getting
 started; tabular review and quote status; data and privacy; source code and
-licences), and `/security`. The copy lives in
+licences), `/security`, and `/contact`. The copy lives in
 `frontend/src/content/site/` and `frontend/src/content/docs/`, where the
 content lint (`frontend/src/content/__tests__/contentLint.test.ts`) checks
 it, and every name, address and document link comes from the brand
@@ -1200,6 +1200,14 @@ configuration and from `frontend/src/content/site/securityFacts.ts`, where an
 operator records independent assessments once there are any; until then the
 page says that none exists. `/.well-known/security.txt` is generated on each
 request from `brand.securityEmail`, with an `Expires` field 180 days ahead.
+
+`/contact` has one action: an email to `brand.supportEmail` with a subject
+filled in. It is a public route (it renders for a signed-out visitor whether
+or not `NEXT_PUBLIC_SITE_ENABLED` is set), stays `noindex` until the site is
+indexable, and the footer and the pricing page link to it. There is no form,
+and the page promises no response time, call or demonstration; an operator who
+can state when a reply comes sets `responseNote` in
+`frontend/src/content/site/contact.ts`, which is empty by default.
 
 Every page route (everything but the `/api` gateway and the `/monitoring`
 tunnel) carries these response headers, set in `frontend/next.config.ts` from
