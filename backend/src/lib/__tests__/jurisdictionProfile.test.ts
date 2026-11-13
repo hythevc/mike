@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     INVALID_JURISDICTION_CODE,
     INVALID_WORKING_LANGUAGE_CODE,
@@ -10,18 +10,106 @@ import {
     loadMatterJurisdictionProfile,
     matterJurisdictionFacts,
     matterJurisdictionProfileOf,
+    matterJurisdictionsEnabled,
     orgMatterDefaultsOf,
     parseJurisdiction,
     parseJurisdictionList,
     parseMatterJurisdictionFields,
     parseOrgMatterDefaultFields,
     parseWorkingLanguage,
+    presentMatterJurisdictionProfile,
+    presentOrgMatterDefaults,
 } from "../jurisdictionProfile";
 import { listLaunchJurisdictions } from "../jurisdictions";
 import { RESPONSE_LANGUAGES } from "../responseLanguages";
 import type { Db } from "../supabase";
 
 const ALL_CODES = listLaunchJurisdictions().map((j) => j.code);
+
+afterEach(() => {
+    vi.unstubAllEnvs();
+});
+
+describe("matterJurisdictionsEnabled", () => {
+    it("is off unless MATTER_JURISDICTIONS_ENABLED says true", () => {
+        expect(matterJurisdictionsEnabled({})).toBe(false);
+        for (const value of ["", "false", "1", "yes", "on", "truthy"])
+            expect(
+                matterJurisdictionsEnabled({ MATTER_JURISDICTIONS_ENABLED: value }),
+            ).toBe(false);
+    });
+
+    it("is on for true, trimmed and in any case", () => {
+        for (const value of ["true", "TRUE", " True "])
+            expect(
+                matterJurisdictionsEnabled({ MATTER_JURISDICTIONS_ENABLED: value }),
+            ).toBe(true);
+    });
+
+    it("reads the process environment on every call", () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "");
+        expect(matterJurisdictionsEnabled()).toBe(false);
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
+        expect(matterJurisdictionsEnabled()).toBe(true);
+    });
+});
+
+describe("what a response carries", () => {
+    const projectRow = {
+        id: "p1",
+        name: "Matter",
+        jurisdictions: ["PT", 7],
+        governing_law: "",
+        working_language: "pt-PT",
+    };
+    const orgRow = {
+        id: "org-1",
+        name: "Alpha LLP",
+        default_jurisdictions: ["GB"],
+        default_working_language: "en-GB",
+    };
+
+    it("leaves the project profile out while the profile is switched off", () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "");
+        expect(presentMatterJurisdictionProfile(projectRow)).toEqual({
+            id: "p1",
+            name: "Matter",
+        });
+        // The row it was given is not changed.
+        expect(projectRow).toHaveProperty("jurisdictions");
+    });
+
+    it("gives the project profile its stable shape while it is on", () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
+        expect(presentMatterJurisdictionProfile(projectRow)).toEqual({
+            id: "p1",
+            name: "Matter",
+            jurisdictions: ["PT"],
+            governing_law: null,
+            working_language: "pt-PT",
+        });
+        expect(presentMatterJurisdictionProfile({ id: "p2" })).toEqual({
+            id: "p2",
+            jurisdictions: [],
+            governing_law: null,
+            working_language: null,
+        });
+    });
+
+    it("leaves an organization's defaults out while the profile is switched off", () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "");
+        expect(presentOrgMatterDefaults(orgRow)).toEqual({
+            id: "org-1",
+            name: "Alpha LLP",
+        });
+        expect(orgRow).toHaveProperty("default_jurisdictions");
+    });
+
+    it("keeps an organization's row as it is while it is on", () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
+        expect(presentOrgMatterDefaults(orgRow)).toEqual(orgRow);
+    });
+});
 
 describe("parseJurisdictionList", () => {
     it("accepts registry codes and keeps their order", () => {
@@ -341,6 +429,11 @@ describe("matterJurisdictionFacts", () => {
 });
 
 describe("loadMatterJurisdictionProfile", () => {
+    // These read what a chat is told while the profile is switched on; the
+    // last test covers a deployment that has not turned it on.
+    beforeEach(() => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
+    });
     afterEach(() => vi.restoreAllMocks());
 
     function fakeDb(result: { data: unknown; error: unknown } | Error) {
@@ -420,5 +513,15 @@ describe("loadMatterJurisdictionProfile", () => {
         const { db } = fakeDb(new Error("socket hang up at 10.0.0.5"));
         await expect(loadMatterJurisdictionProfile(db, "p1")).resolves.toBeNull();
         expect(JSON.stringify(warn.mock.calls)).not.toContain("10.0.0.5");
+    });
+
+    it("reads nothing, and is null, while the profile is switched off", async () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "false");
+        const { db, calls } = fakeDb({
+            data: { jurisdictions: ["PT"], governing_law: "PT", working_language: "pt-PT" },
+            error: null,
+        });
+        await expect(loadMatterJurisdictionProfile(db, "p1")).resolves.toBeNull();
+        expect(calls).toEqual([]);
     });
 });

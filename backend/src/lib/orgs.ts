@@ -47,6 +47,7 @@ import {
 import { isOrgAccessOverrideRole } from "./orgAccessOverrides";
 import { isPersonalOrgRow } from "./personalOrgs";
 import { effectiveSeatLimit } from "./entitlements";
+import { presentOrgMatterDefaults } from "./jurisdictionProfile";
 
 type DbError = { code?: string; message: string } | null;
 
@@ -174,8 +175,10 @@ export async function listMyOrgs(
         memberCounts.set(row.org_id, (memberCounts.get(row.org_id) ?? 0) + 1);
     }
 
+    // Each row as a response carries it: without the new-matter defaults
+    // while the matter jurisdiction profile is switched off.
     const enriched = orgs.map((o) => ({
-        ...o,
+        ...presentOrgMatterDefaults(o),
         role: roleByOrg.get(o.id) ?? null,
         member_count: memberCounts.get(o.id) ?? 0,
     }));
@@ -217,7 +220,10 @@ export async function createOrg(
         userId: params.userId, userEmail: params.userEmail,
         orgId: String(org.id), action: "org.created", title: name, surface: "organization",
     });
-    return { ok: true, org: { ...org, role: "owner", member_count: 1 } };
+    return {
+        ok: true,
+        org: { ...presentOrgMatterDefaults(org), role: "owner", member_count: 1 },
+    };
 }
 
 export async function getOrg(
@@ -243,7 +249,7 @@ export async function getOrg(
     return {
         ok: true,
         org: {
-            ...org, role,
+            ...presentOrgMatterDefaults(org), role,
             can_access_private_content: role === "owner" ||
                 (role === "admin" && membership?.can_access_private_content === true),
         },

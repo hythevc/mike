@@ -7,6 +7,7 @@
 import { Router, type Response } from "express";
 import { requireAuth, requireMfaIfEnrolled } from "../../middleware/auth";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
+import { whileMatterJurisdictionsEnabled } from "../../middleware/matterJurisdictions";
 import { createServerSupabase } from "../../lib/supabase";
 import { sendInternalError } from "../../lib/httpError";
 import { failure, sendServiceFailure } from "../../lib/serviceResult";
@@ -304,9 +305,16 @@ projectsRouter.get("/ids", requireAuth, asyncRoute(async (req, res) => {
 // The jurisdiction registry for the pickers: each jurisdiction's code, name,
 // kind, parent and languages, plus the working languages a matter can use.
 // The same for every signed-in user; it reads nothing about the caller.
-projectsRouter.get("/jurisdictions", requireAuth, (_req, res) => {
-  res.json(getJurisdictionRegistry());
-});
+// Only while the matter jurisdiction profile is switched on; otherwise the
+// path reaches GET /:projectId below, as it did before this route existed.
+projectsRouter.get(
+  "/jurisdictions",
+  whileMatterJurisdictionsEnabled,
+  requireAuth,
+  (_req, res) => {
+    res.json(getJurisdictionRegistry());
+  },
+);
 
 // GET /projects/:projectId
 projectsRouter.get("/:projectId", requireAuth, asyncRoute(async (req, res) => {

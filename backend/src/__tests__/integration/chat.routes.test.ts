@@ -114,6 +114,8 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    // A few tests switch the matter jurisdiction profile on.
+    vi.unstubAllEnvs();
     expect(unexpectedFetch).not.toHaveBeenCalled();
 });
 
@@ -2526,8 +2528,27 @@ describe("chat writes are gated on content.edit (org RBAC)", () => {
 
     // The matter's jurisdiction profile (L1): a chat in a project the caller
     // can open is told the matter's jurisdictions, governing law and working
-    // language; a chat outside a project never reads one.
+    // language; a chat outside a project never reads one; and a deployment
+    // that has not switched the profile on tells the model nothing of it.
+    const profileSelectsOf = (db: ReturnType<typeof makeRbacDb>) =>
+        db.from.mock.calls
+            .flatMap(([table], index) =>
+                table === "projects"
+                    ? (
+                          db.from.mock.results[index].value as {
+                              select: { mock: { calls: unknown[][] } };
+                          }
+                      ).select.mock.calls.map(([columns]) => columns)
+                    : [],
+            )
+            .filter(
+                (columns) =>
+                    typeof columns === "string" &&
+                    columns.includes("jurisdictions"),
+            );
+
     it("tells the model the matter's jurisdiction profile for a chat in a project", async () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
         await seedResolvableModel();
         const db = makeRbacDb("member", "u1", {
             project: {
@@ -2556,9 +2577,37 @@ describe("chat writes are gated on content.edit (org RBAC)", () => {
         expect(systemPromptExtra).toContain(
             '"matter_working_language": "British English"',
         );
+        expect(profileSelectsOf(db)).toHaveLength(1);
+    });
+
+    it("tells the model nothing of the matter's profile, and reads none, while the profile is switched off", async () => {
+        await seedResolvableModel();
+        const db = makeRbacDb("member", "u1", {
+            // Stored on the matter, and still not read.
+            project: {
+                jurisdictions: ["GB", "IE"],
+                governing_law: "GB",
+                working_language: "en-GB",
+            },
+        });
+        mockedCreate.mockImplementation(() => db as never);
+        const chatLib = await import("../../modules/chat/engine/index.js");
+
+        const res = await request(app)
+            .post("/chat")
+            .set("Authorization", "Bearer test")
+            .send({ ...VALID_BODY, model: "gpt-6-luna", chat_id: "chat-1" });
+
+        expect(res.status).toBe(200);
+        const systemPromptExtra = vi.mocked(chatLib.buildMessages).mock
+            .calls[0]?.[2] as string | undefined;
+        expect(systemPromptExtra ?? "").not.toContain("matter_");
+        expect(systemPromptExtra ?? "").not.toContain("United Kingdom (GB)");
+        expect(profileSelectsOf(db)).toEqual([]);
     });
 
     it("reads no matter profile for a chat outside a project", async () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
         await seedResolvableModel();
         const db = makeRbacDb("member", "u1", {
             chat: { project_id: null, org_id: "org-1" },

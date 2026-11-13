@@ -144,6 +144,8 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    // A few tests switch the matter jurisdiction profile on.
+    vi.unstubAllEnvs();
     // Asserted here as well because a caller that swallows the throw (the
     // title flow catches its own errors) would otherwise hide it.
     expect(unexpectedFetch).not.toHaveBeenCalled();
@@ -445,8 +447,10 @@ describe("POST /projects/:projectId/chat", () => {
     });
 
     // The matter's jurisdiction profile (L1) reaches the model in the
-    // personalisation block, beside the user's own jurisdiction.
+    // personalisation block, beside the user's own jurisdiction, once a
+    // deployment has switched the profile on.
     it("tells the model the matter's jurisdictions, governing law and working language", async () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
         projectRow.current = {
             id: "p1",
             jurisdictions: ["PT", "EU"],
@@ -478,6 +482,7 @@ describe("POST /projects/:projectId/chat", () => {
     });
 
     it("adds nothing about the matter when it has nothing recorded", async () => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
         projectRow.current = {
             id: "p1",
             jurisdictions: [],
@@ -494,6 +499,27 @@ describe("POST /projects/:projectId/chat", () => {
         const systemPromptExtra = buildMessages.mock.calls[0]?.[2] as string;
         expect(systemPromptExtra).toContain("USER PERSONALISATION");
         expect(systemPromptExtra).not.toContain("matter_");
+    });
+
+    it("adds nothing about the matter while the profile is switched off, whatever is recorded", async () => {
+        projectRow.current = {
+            id: "p1",
+            jurisdictions: ["PT", "EU"],
+            governing_law: "PT",
+            working_language: "pt-PT",
+        };
+
+        const res = await request(app)
+            .post("/projects/p1/chat")
+            .set("Authorization", "Bearer test")
+            .send(VALID_BODY);
+
+        expect(res.status).toBe(200);
+        const systemPromptExtra = buildMessages.mock.calls[0]?.[2] as string;
+        // The user's own details are there, as they always were.
+        expect(systemPromptExtra).toContain('"jurisdiction": "Singapore"');
+        expect(systemPromptExtra).not.toContain("matter_");
+        expect(systemPromptExtra).not.toContain("Portugal (PT)");
     });
 
     it("runs the turn and its title under the project chat's usage context", async () => {

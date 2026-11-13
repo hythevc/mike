@@ -11,6 +11,9 @@
 //
 // The profile is context, not a control: nothing here decides who may open
 // a matter or whether a model may run on it.
+//
+// The feature is off unless a deployment switches it on; see
+// matterJurisdictionsEnabled below.
 
 import type {
     MatterJurisdictionProfile,
@@ -25,6 +28,73 @@ import { RESPONSE_LANGUAGES, responseLanguageName } from "./responseLanguages";
 import type { Db } from "./supabase";
 
 export type { MatterJurisdictionProfile, OrgMatterDefaults };
+
+/**
+ * Whether this deployment has the matter jurisdiction profile switched on:
+ * MATTER_JURISDICTIONS_ENABLED is "true" (trimmed, any case). Off by default.
+ *
+ * While it is off the server answers as it did before the profile existed.
+ * The three project fields are ignored on create and update, as any field
+ * the API does not know is; a new project takes no organization defaults;
+ * project and organization responses leave the fields out; the registry and
+ * organization-defaults routes are not there; and the model is told nothing
+ * about a matter's jurisdictions. Values already stored are kept, and come
+ * back when the profile is switched on again.
+ *
+ * The web app has its own switch, NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED,
+ * because its value is fixed when the web app is built. A deployment turns
+ * both on together.
+ *
+ * Read on every call rather than once at startup, so a test can turn it on
+ * and off; it is cheap.
+ */
+export function matterJurisdictionsEnabled(
+    env: NodeJS.ProcessEnv = process.env,
+): boolean {
+    return env.MATTER_JURISDICTIONS_ENABLED?.trim().toLowerCase() === "true";
+}
+
+const PROFILE_COLUMNS = [
+    "jurisdictions",
+    "governing_law",
+    "working_language",
+] as const;
+
+const ORG_DEFAULT_COLUMNS = [
+    "default_jurisdictions",
+    "default_working_language",
+] as const;
+
+function omitColumns<T extends object>(row: T, columns: readonly string[]): T {
+    const rest = { ...row } as Record<string, unknown>;
+    for (const column of columns) delete rest[column];
+    return rest as T;
+}
+
+/**
+ * A projects row as a response carries it. With the profile switched on,
+ * the three fields in their stable shape (a row from a database without the
+ * columns reads as nothing recorded). While it is off, without them, however
+ * the row was read, so a project reads as it did before the profile existed.
+ */
+export function presentMatterJurisdictionProfile<T extends object>(
+    row: T,
+): T & Partial<MatterJurisdictionProfile> {
+    return matterJurisdictionsEnabled()
+        ? { ...row, ...matterJurisdictionProfileOf(row) }
+        : omitColumns(row, PROFILE_COLUMNS);
+}
+
+/**
+ * An organizations row as a response carries it. A `select *` reads the two
+ * default columns whether or not the profile is switched on; while it is
+ * off they are left out, so an organization reads as it did before them.
+ */
+export function presentOrgMatterDefaults<T extends object>(row: T): T {
+    return matterJurisdictionsEnabled()
+        ? row
+        : omitColumns(row, ORG_DEFAULT_COLUMNS);
+}
 
 /** The most jurisdictions one matter, or one organisation default, may list. */
 export const MAX_PROFILE_JURISDICTIONS = 10;
@@ -286,13 +356,14 @@ const SAFE_CODE = /^[A-Za-z0-9_]{2,40}$/;
  * The profile of the matter a conversation runs in, for the model's context.
  * Null when there is no matter or it cannot be read: these facts tailor an
  * answer and never gate one, so a failed read costs the context, not the
- * turn.
+ * turn. Null, without a read, while the profile is switched off, so the model
+ * is told exactly what it was told before the profile existed.
  */
 export async function loadMatterJurisdictionProfile(
     db: Db,
     projectId: string | null | undefined,
 ): Promise<MatterJurisdictionProfile | null> {
-    if (!projectId) return null;
+    if (!projectId || !matterJurisdictionsEnabled()) return null;
     try {
         const { data, error } = await db
             .from("projects")

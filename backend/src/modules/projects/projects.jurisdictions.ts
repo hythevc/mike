@@ -4,7 +4,8 @@
 // the pickers are served, the profile on project list rows, the organization
 // defaults a new matter starts with, and the audit row a change writes.
 //
-// What a valid value is, and the codes a refusal carries, live in
+// What a valid value is, the codes a refusal carries, and the switch that
+// turns the whole profile on (MATTER_JURISDICTIONS_ENABLED) live in
 // lib/jurisdictionProfile.ts, which the orgs module and the chat engine
 // share.
 
@@ -16,6 +17,7 @@ import {
     MAX_PROFILE_JURISDICTIONS,
     currentMatterJurisdictionProfile,
     matterJurisdictionProfileOf,
+    matterJurisdictionsEnabled,
     orgMatterDefaultsOf,
     type MatterJurisdictionProfile,
 } from "../../lib/jurisdictionProfile";
@@ -51,6 +53,9 @@ const PROFILE_READ_BATCH = 100;
  * function, which returns a fixed set of columns. One read per hundred
  * projects, never one per row. A failed read is reported to the caller: an
  * empty profile must not stand in for one that did not load.
+ *
+ * While the profile is switched off the rows come back as they went in,
+ * without a read, so the lists answer exactly as they did before it.
  */
 export async function attachMatterJurisdictionProfiles<
     T extends { id: string },
@@ -58,9 +63,10 @@ export async function attachMatterJurisdictionProfiles<
     db: Db,
     projects: T[],
 ): Promise<{
-    rows: (T & MatterJurisdictionProfile)[];
+    rows: (T & Partial<MatterJurisdictionProfile>)[];
     error: unknown | null;
 }> {
+    if (!matterJurisdictionsEnabled()) return { rows: projects, error: null };
     const profiles = new Map<string, MatterJurisdictionProfile>();
     for (const ids of chunkArray(
         projects.map((project) => project.id),
@@ -70,11 +76,9 @@ export async function attachMatterJurisdictionProfiles<
             .from("projects")
             .select("id, jurisdictions, governing_law, working_language")
             .in("id", ids);
-        if (error)
-            return {
-                rows: projects.map((project) => withMatterJurisdictionProfile(project)),
-                error,
-            };
+        // The caller fails the whole list on an error, so the rows sent
+        // back with it are never shown.
+        if (error) return { rows: projects, error };
         for (const row of (data ?? []) as { id?: unknown }[])
             if (typeof row.id === "string")
                 profiles.set(row.id, matterJurisdictionProfileOf(row));
@@ -86,16 +90,6 @@ export async function attachMatterJurisdictionProfiles<
         })),
         error: null,
     };
-}
-
-/**
- * A row that already carries the profile columns (a `select *` of projects),
- * with the three fields in their stable shape.
- */
-export function withMatterJurisdictionProfile<T extends object>(
-    row: T,
-): T & MatterJurisdictionProfile {
-    return { ...row, ...matterJurisdictionProfileOf(row) };
 }
 
 /**

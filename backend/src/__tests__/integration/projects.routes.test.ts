@@ -1,5 +1,5 @@
 import { brandFileSlug } from "../../lib/brandFiles";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import {
     supabaseState,
@@ -112,6 +112,12 @@ describe("projects.routes", () => {
             project: { id: "p1", user_id: "u1", org_id: null },
         });
         deleteProjectsByIds.mockResolvedValue(1);
+    });
+
+    // A few tests switch the matter jurisdiction profile on; it is off again
+    // for the next.
+    afterEach(() => {
+        vi.unstubAllEnvs();
     });
 
     describe("PATCH /projects/:projectId/documents/:documentId", () => {
@@ -275,8 +281,40 @@ describe("projects.routes", () => {
                     access_scope: "organization",
                     organization_name: "Elite Law LLP",
                     memory_enabled: true,
-                    // Every list row carries the matter's jurisdiction
-                    // profile; nothing is recorded for this one.
+                },
+            ]);
+        });
+
+        // The rows above are what a deployment gets while the matter
+        // jurisdiction profile is switched off, as it is by default. Switched
+        // on, every list row carries the profile too.
+        it("adds the jurisdiction profile to the overview rows while it is switched on", async () => {
+            vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
+            supabaseState.rpc = {
+                data: [
+                    {
+                        id: "p1",
+                        name: "Alpha",
+                        org_id: "org-1",
+                        access_scope: "organization",
+                        organization_name: "Elite Law LLP",
+                    },
+                ],
+                error: null,
+            };
+
+            const res = await request(app).get("/projects").set(...AUTH);
+
+            expect(res.status).toBe(200);
+            expect(res.body).toEqual([
+                {
+                    id: "p1",
+                    name: "Alpha",
+                    org_id: "org-1",
+                    access_scope: "organization",
+                    organization_name: "Elite Law LLP",
+                    memory_enabled: true,
+                    // Nothing is recorded for this one.
                     jurisdictions: [],
                     governing_law: null,
                     working_language: null,
@@ -303,6 +341,41 @@ describe("projects.routes", () => {
         });
 
         it("backfills organization access when the overview RPC is stale", async () => {
+            supabaseState.rpc = {
+                data: [{ id: "p1", name: "Firm matter", is_owner: true }],
+                error: null,
+            };
+            supabaseState.tables.projects = {
+                data: [{ id: "p1", org_id: "org-1" }],
+                error: null,
+            };
+            supabaseState.tables.project_access_grants = {
+                data: [],
+                error: null,
+            };
+            supabaseState.tables.organizations = {
+                data: [{ id: "org-1", name: "Elite Law LLP" }],
+                error: null,
+            };
+
+            const res = await request(app).get("/projects").set(...AUTH);
+
+            expect(res.status).toBe(200);
+            expect(res.body).toEqual([
+                {
+                    id: "p1",
+                    name: "Firm matter",
+                    is_owner: true,
+                    org_id: "org-1",
+                    access_scope: "organization",
+                    organization_name: "Elite Law LLP",
+                    memory_enabled: true,
+                },
+            ]);
+        });
+
+        it("backfills organization access and adds the jurisdiction profile while it is switched on", async () => {
+            vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
             supabaseState.rpc = {
                 data: [{ id: "p1", name: "Firm matter", is_owner: true }],
                 error: null,
@@ -444,6 +517,31 @@ describe("projects.routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual([
+        { id: "p1", name: "Recently updated", memory_enabled: true },
+      ]);
+      expect(captured.name).toBe("get_project_summaries");
+      expect(captured.args).toEqual({
+        p_user_id: "u1",
+        p_user_email: "u1@test.local",
+        p_limit: 11,
+        p_offset: 10,
+      });
+    });
+
+    it("adds the jurisdiction profile to summary rows while it is switched on", async () => {
+      vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
+      const captured = captureRpcArgs();
+      supabaseState.rpc = {
+        data: [{ id: "p1", name: "Recently updated" }],
+        error: null,
+      };
+
+      const res = await request(app)
+        .get("/projects?view=summary&limit=11&offset=10")
+        .set(...AUTH);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([
         {
           id: "p1",
           name: "Recently updated",
@@ -454,12 +552,6 @@ describe("projects.routes", () => {
         },
       ]);
       expect(captured.name).toBe("get_project_summaries");
-      expect(captured.args).toEqual({
-        p_user_id: "u1",
-        p_user_email: "u1@test.local",
-        p_limit: 11,
-        p_offset: 10,
-      });
     });
 
     it("uses the projects collection for directory search", async () => {

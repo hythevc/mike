@@ -13,6 +13,7 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { requireAuth, requireMfaIfEnrolled } from "../../middleware/auth";
 import { asyncRoute, routerErrorHandler } from "../../middleware/asyncRoute";
+import { whileMatterJurisdictionsEnabled } from "../../middleware/matterJurisdictions";
 import { createServerSupabase } from "../../lib/supabase";
 import { sendOrgFailure } from "../../lib/orgFailure";
 import { isPersonalOrg } from "../../lib/personalOrgs";
@@ -501,8 +502,11 @@ orgsRouter.put(
 );
 
 // GET /orgs/:orgId/matter-defaults — the jurisdictions and the working
-// language the organization's new matters start with (any member).
-orgsRouter.get("/:orgId/matter-defaults", requireOrgAuth, asyncRoute(async (req, res) => {
+// language the organization's new matters start with (any member). Both
+// matter-defaults routes exist only while the matter jurisdiction profile is
+// switched on; otherwise, after the guard every organization route starts
+// with, the path is not found, as before they existed.
+orgsRouter.get("/:orgId/matter-defaults", requireOrgAuth, whileMatterJurisdictionsEnabled, asyncRoute(async (req, res) => {
     const result = await getOrgMatterDefaults(createServerSupabase(), {
         userId: res.locals.userId as string,
         orgId: req.params.orgId,
@@ -513,7 +517,7 @@ orgsRouter.get("/:orgId/matter-defaults", requireOrgAuth, asyncRoute(async (req,
 
 // PUT /orgs/:orgId/matter-defaults — set those defaults (owner or admin).
 // Only the fields sent change. Matters that already exist keep what they have.
-orgsRouter.put("/:orgId/matter-defaults", requireOrgAuth, asyncRoute(async (req, res) => {
+orgsRouter.put("/:orgId/matter-defaults", requireOrgAuth, whileMatterJurisdictionsEnabled, asyncRoute(async (req, res) => {
     const result = await setOrgMatterDefaults(createServerSupabase(), {
         actorId: res.locals.userId as string,
         actorEmail: res.locals.userEmail as string | undefined,

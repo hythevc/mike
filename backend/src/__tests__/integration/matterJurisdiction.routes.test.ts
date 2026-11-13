@@ -9,10 +9,14 @@
 // real access checks (lib/access.ts) decide every verdict from the rows
 // seeded below, and each test can see what a request left behind. Sessions
 // are named by an `x-test-user` header; a request without one has none.
+//
+// The profile is off unless a deployment turns it on, so every test here
+// runs with MATTER_JURISDICTIONS_ENABLED=true except the last block, which
+// pins that a deployment that has not turned it on answers as before.
 
 import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryDb, type MemoryDbFunction, type Row } from "../helpers/memoryDb";
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -231,7 +235,12 @@ const profileOf = (row: Row) => ({
 const audits = () => fake.tables.audit_events ?? [];
 
 beforeEach(() => {
+    vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "true");
     fake = seed();
+});
+
+afterEach(() => {
+    vi.unstubAllEnvs();
 });
 
 describe("GET /projects/jurisdictions", () => {
@@ -1124,5 +1133,161 @@ describe("PUT /orgs/:orgId/matter-defaults", () => {
         // The next matter starts with the new defaults.
         const res = await request(app).post("/projects").set(...as(MIA)).send({ name: "After", org_id: ORG_A });
         expect(profileOf(res.body)).toEqual({ jurisdictions: ["JP"], governing_law: null, working_language: "ja" });
+    });
+});
+
+describe("the organization itself", () => {
+    it("carries its defaults for new matters", async () => {
+        const res = await request(app).get(`/orgs/${ORG_A}`).set(...as(MIA));
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({
+            id: ORG_A,
+            default_jurisdictions: ["GB", "EU"],
+            default_working_language: "en-GB",
+        });
+    });
+});
+
+// A deployment that has not switched the profile on gets the answers it got
+// before the profile existed. Values already stored stay stored, for the day
+// it is switched on.
+describe("while the profile is switched off", () => {
+    const PROFILE_KEYS = ["jurisdictions", "governing_law", "working_language"];
+    const DEFAULT_KEYS = ["default_jurisdictions", "default_working_language"];
+    // Any read of the profile or of an organization's defaults.
+    const profileReads = () =>
+        fake.calls.filter(
+            (call) =>
+                (call.table === "projects" &&
+                    call.columns?.includes("jurisdictions")) ||
+                (call.table === "organizations" &&
+                    call.columns?.includes("default_")),
+        );
+    const expectNoProfile = (row: Row) => {
+        for (const key of PROFILE_KEYS) expect(row).not.toHaveProperty(key);
+    };
+
+    beforeEach(() => {
+        vi.stubEnv("MATTER_JURISDICTIONS_ENABLED", "false");
+    });
+
+    it("serves no registry: the path is a project id again, as before", async () => {
+        const res = await request(app)
+            .get("/projects/jurisdictions")
+            .set(...as(CAROL));
+        expect(res.status).toBe(404);
+        expect(res.body).toEqual({ detail: "Project not found" });
+        // And it asks for a session first, like every project route.
+        await request(app).get("/projects/jurisdictions").expect(401);
+    });
+
+    it("ignores the three fields on create, refusing none, and records nothing", async () => {
+        const res = await request(app)
+            .post("/projects")
+            .set(...as(CAROL))
+            .send({
+                name: "Plain",
+                jurisdictions: ["XX"],
+                governing_law: "PT",
+                working_language: "auto",
+            });
+        expect(res.status).toBe(201);
+        expectNoProfile(res.body);
+        expect(profileOf(stored(res.body.id))).toEqual(EMPTY_PROFILE);
+        expect(fake.callsTo("projects", "update")).toEqual([]);
+    });
+
+    it("gives a new matter in an organization none of its defaults, without reading them", async () => {
+        const res = await request(app)
+            .post("/projects")
+            .set(...as(MIA))
+            .send({ name: "New Alpha matter", org_id: ORG_A });
+        expect(res.status).toBe(201);
+        expectNoProfile(res.body);
+        expect(profileOf(stored(res.body.id))).toEqual(EMPTY_PROFILE);
+        expect(profileReads()).toEqual([]);
+    });
+
+    it("ignores the three fields on update: the rest applies, the profile stays, nothing is audited", async () => {
+        const before = profileOf(stored("p-alpha"));
+        const res = await request(app)
+            .patch("/projects/p-alpha")
+            .set(...as(ALICE))
+            .send({
+                name: "Renamed",
+                jurisdictions: ["XX"],
+                governing_law: null,
+                working_language: "de",
+            });
+        expect(res.status).toBe(200);
+        expect(res.body.name).toBe("Renamed");
+        expectNoProfile(res.body);
+        expect(stored("p-alpha").name).toBe("Renamed");
+        expect(profileOf(stored("p-alpha"))).toEqual(before);
+        expect(audits()).toEqual([]);
+        expect(profileReads()).toEqual([]);
+    });
+
+    it("leaves the profile out of every project read, without reading it, though it is stored", async () => {
+        const detail = await request(app).get("/projects/p-alpha").set(...as(ALICE));
+        const list = await request(app).get("/projects").set(...as(ALICE));
+        const summary = await request(app)
+            .get("/projects?view=summary")
+            .set(...as(ALICE));
+        const search = await request(app)
+            .get("/projects?view=directory-search&search=Alpha")
+            .set(...as(ALICE));
+        for (const res of [detail, list, summary, search])
+            expect(res.status).toBe(200);
+        expect(detail.body.name).toBe("Alpha matter");
+        expect(list.body.map((row: Row) => row.id)).toEqual(["p-alpha"]);
+        expect(search.body.map((row: Row) => row.id)).toEqual(["p-alpha"]);
+        for (const row of [detail.body, ...list.body, ...search.body])
+            expectNoProfile(row);
+        // The summary rows are exactly what they were before the profile.
+        expect(summary.body).toEqual([
+            { id: "p-alpha", name: "Alpha matter", org_id: ORG_A, memory_enabled: true },
+        ]);
+        expect(profileReads()).toEqual([]);
+        expect(profileOf(stored("p-alpha"))).toEqual({
+            jurisdictions: ["PT", "EU"],
+            governing_law: "PT",
+            working_language: "pt-PT",
+        });
+    });
+
+    it("has no organization defaults routes: past the organization guard the paths are not found, and nothing changes", async () => {
+        const read = await request(app)
+            .get(`/orgs/${ORG_A}/matter-defaults`)
+            .set(...as(ALICE));
+        const write = await request(app)
+            .put(`/orgs/${ORG_A}/matter-defaults`)
+            .set(...as(ALICE))
+            .send({ default_jurisdictions: ["JP"] });
+        for (const res of [read, write]) {
+            expect(res.status).toBe(404);
+            expect(JSON.stringify(res.body)).not.toContain("default_");
+            expect(JSON.stringify(res.body)).not.toContain("GB");
+        }
+        // Every organization route asks for a session first; so do these.
+        await request(app).get(`/orgs/${ORG_A}/matter-defaults`).expect(401);
+        expect(profileReads()).toEqual([]);
+        expect(fake.callsTo("organizations", "update")).toEqual([]);
+        expect(
+            fake.tables.organizations.find((o) => o.id === ORG_A)
+                ?.default_jurisdictions,
+        ).toEqual(["GB", "EU"]);
+        expect(audits()).toEqual([]);
+    });
+
+    it("leaves an organization's defaults out of the organization and its list", async () => {
+        const one = await request(app).get(`/orgs/${ORG_A}`).set(...as(MIA));
+        const mine = await request(app).get("/orgs").set(...as(MIA));
+        expect(one.status).toBe(200);
+        expect(one.body).toMatchObject({ id: ORG_A, name: "Alpha LLP" });
+        expect(mine.status).toBe(200);
+        expect(mine.body.map((org: Row) => org.id)).toEqual([ORG_A]);
+        for (const org of [one.body, ...mine.body])
+            for (const key of DEFAULT_KEYS) expect(org).not.toHaveProperty(key);
     });
 });
