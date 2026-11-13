@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { THEME_COLOR, THEME_MIRROR_KEY } from "./theme";
 
 /**
