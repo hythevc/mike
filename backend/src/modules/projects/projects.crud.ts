@@ -246,7 +246,14 @@ export async function getProjectSummaries(
     (data ?? []) as { id: string }[],
   );
   if (withMemory.error) return { ok: false, error: withMemory.error };
-  return { ok: true, data: withMemory.rows };
+  // Summary rows carry the matter's jurisdiction profile too, so a picker
+  // or the sidebar knows which law a project is about without opening it.
+  const withProfile = await attachMatterJurisdictionProfiles(
+    db,
+    withMemory.rows,
+  );
+  if (withProfile.error) return { ok: false, error: withProfile.error };
+  return { ok: true, data: withProfile.rows };
 }
 
 /**

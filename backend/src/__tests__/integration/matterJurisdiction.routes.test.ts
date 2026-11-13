@@ -129,6 +129,21 @@ const functions: Record<string, MemoryDbFunction> = {
             }));
         return { data: rows, error: null };
     },
+    // The lightweight list: a name and little else, for the same projects.
+    get_project_summaries(args, tables) {
+        const firms = (tables.org_members ?? [])
+            .filter((member) => member.user_id === args.p_user_id)
+            .map((member) => member.org_id);
+        const rows = (tables.projects ?? [])
+            .filter(
+                (row) =>
+                    row.user_id === args.p_user_id ||
+                    (firms.includes(row.org_id) &&
+                        row.visibility === "organization"),
+            )
+            .map((row) => ({ id: row.id, name: row.name, org_id: row.org_id }));
+        return { data: rows, error: null };
+    },
     org_item_is_ownerless: () => ({ data: false, error: null }),
     org_private_access_role: () => ({ data: null, error: null }),
     ownerless_org_item_ids: () => ({ data: [], error: null }),
@@ -591,6 +606,65 @@ describe("reading a project's jurisdiction profile", () => {
         expect(res.status).toBe(500);
         expect(res.body.code).toBe("internal_error");
         expect(JSON.stringify(res.body)).not.toContain("statement timeout");
+    });
+
+    it("adds the profile to the rows of the summary list", async () => {
+        const res = await request(app).get("/projects?view=summary").set(...as(ALICE));
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual([
+            {
+                id: "p-alpha",
+                name: "Alpha matter",
+                org_id: ORG_A,
+                memory_enabled: true,
+                jurisdictions: ["PT", "EU"],
+                governing_law: "PT",
+                working_language: "pt-PT",
+            },
+        ]);
+        // One read for the whole page here too.
+        expect(
+            fake
+                .callsTo("projects", "select")
+                .filter((call) => call.columns?.includes("jurisdictions")),
+        ).toHaveLength(1);
+    });
+
+    it("adds an empty profile to summary rows with nothing recorded", async () => {
+        const res = await request(app).get("/projects?view=summary").set(...as(CAROL));
+        expect(res.status).toBe(200);
+        expect(res.body.map((row: Row) => [row.id, profileOf(row)])).toEqual([
+            ["p-carol", EMPTY_PROFILE],
+        ]);
+    });
+
+    it("fails the summary list too when the profiles cannot be read", async () => {
+        fake.failWhen((call) =>
+            call.table === "projects" && call.columns?.includes("jurisdictions")
+                ? { code: "57014", message: "canceling statement due to statement timeout on projects" }
+                : null,
+        );
+        const res = await request(app).get("/projects?view=summary").set(...as(ALICE));
+        expect(res.status).toBe(500);
+        expect(res.body.code).toBe("internal_error");
+        expect(JSON.stringify(res.body)).not.toContain("statement timeout");
+    });
+
+    it("returns the profile from the directory search as well", async () => {
+        const res = await request(app)
+            .get("/projects?view=directory-search&search=Alpha")
+            .set(...as(ALICE));
+        expect(res.status).toBe(200);
+        expect(res.body.map((row: Row) => [row.id, profileOf(row)])).toEqual([
+            [
+                "p-alpha",
+                {
+                    jurisdictions: ["PT", "EU"],
+                    governing_law: "PT",
+                    working_language: "pt-PT",
+                },
+            ],
+        ]);
     });
 });
 

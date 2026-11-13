@@ -444,7 +444,14 @@ describe("projects.routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual([
-        { id: "p1", name: "Recently updated", memory_enabled: true },
+        {
+          id: "p1",
+          name: "Recently updated",
+          memory_enabled: true,
+          jurisdictions: [],
+          governing_law: null,
+          working_language: null,
+        },
       ]);
       expect(captured.name).toBe("get_project_summaries");
       expect(captured.args).toEqual({
