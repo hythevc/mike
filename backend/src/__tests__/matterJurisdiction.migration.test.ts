@@ -2,6 +2,10 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+    JURISDICTION_CODE_PATTERN,
+    listLaunchJurisdictions,
+} from "../lib/jurisdictions";
 
 // The matter jurisdiction migration (L1) adds columns and check constraints
 // to two existing tables. Whether Postgres accepts it, and whether applying
@@ -208,10 +212,7 @@ describe("schema.sql agrees with the matter jurisdiction migration", () => {
 });
 
 describe("the jurisdiction code shape is the same in SQL and in the registry", () => {
-    it("uses the registry's pattern in the governing-law constraint", async () => {
-        const { JURISDICTION_CODE_PATTERN, listLaunchJurisdictions } = await import(
-            "../lib/jurisdictions"
-        );
+    it("uses the registry's pattern in the governing-law constraint", () => {
         const expression = checkConstraints(migration).get(
             "projects_governing_law_format",
         );
