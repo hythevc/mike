@@ -128,6 +128,22 @@ describe("schema validation names the field", () => {
         match(problems[0], /^palette\.onPrimary has a contrast of 4\.48:1 on palette\.primary; it must be at least 4\.5:1$/);
         strictEqual(Number(contrastRatio("#000000", "#FFFFFF").toFixed(1)), 21);
     });
+
+    test("a primaryDark the on-brand text cannot be read on", () => {
+        const broken = fresh();
+        // primary/onPrimary stay the valid committed pair; only the optional
+        // dark fill is unreadable, so it is the sole problem reported.
+        broken.palette = { primary: "#1F3A5F", onPrimary: "#FFFFFF", primaryDark: "#AAB4C2" };
+        const problems = brandProblems(broken, schema);
+        strictEqual(problems.length, 1);
+        match(problems[0], /^palette\.onPrimary has a contrast of \d+\.\d+:1 on palette\.primaryDark; it must be at least 4\.5:1$/);
+    });
+
+    test("an omitted primaryDark is accepted", () => {
+        const ok = fresh();
+        delete ok.palette.primaryDark;
+        deepStrictEqual(brandProblems(ok, schema), []);
+    });
 });
 
 describe("resolved values", () => {

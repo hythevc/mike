@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import postcss from "postcss";
 import { describe, expect, it } from "vitest";
+import { brand } from "../brand.generated";
 
 // The semantic colour roles in DesignTokensUI.css must clear WCAG 2.2 AA where
 // it matters: muted body text on a surface (4.5:1), the focus ring against the
@@ -150,12 +151,20 @@ function relativeLuminance([r, g, b]: Rgb): number {
     return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-/** WCAG contrast ratio between two resolved token values in a theme. */
-function contrast(aName: string, bName: string, theme: Theme): number {
-    const la = relativeLuminance(toRgb(resolveValue(`var(${aName})`, theme)));
-    const lb = relativeLuminance(toRgb(resolveValue(`var(${bName})`, theme)));
+/** WCAG contrast ratio between two concrete colour strings. */
+function ratioBetween(a: string, b: string): number {
+    const la = relativeLuminance(toRgb(a));
+    const lb = relativeLuminance(toRgb(b));
     const [hi, lo] = la > lb ? [la, lb] : [lb, la];
     return (hi + 0.05) / (lo + 0.05);
+}
+
+/** WCAG contrast ratio between two resolved token values in a theme. */
+function contrast(aName: string, bName: string, theme: Theme): number {
+    return ratioBetween(
+        resolveValue(`var(${aName})`, theme),
+        resolveValue(`var(${bName})`, theme),
+    );
 }
 
 const THEMES: Theme[] = ["light", "dark"];
@@ -192,4 +201,22 @@ describe("DesignTokensUI semantic colour roles", () => {
             ).toBeGreaterThanOrEqual(4.5);
         });
     }
+});
+
+// Brand-on-dark (W27). When the brand config carries palette.primaryDark,
+// layout.tsx sets --brand-primary-dark and the dark brand fill resolves to it
+// (not to the navy primary, which fails the 3:1 boundary against the dark
+// surface). This block reads the generated brand value directly, because the
+// stylesheet only holds the var() fallback, not the runtime brand value. It is
+// guarded on the slot being set, matching "whenever the slot is set".
+const primaryDark = brand.palette.primaryDark;
+describe.runIf(primaryDark !== undefined)("brand fill on the dark surface", () => {
+    it("on-brand text clears 4.5:1 on primaryDark", () => {
+        expect(ratioBetween(brand.palette.onPrimary, primaryDark!)).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it("the brand fill clears 3:1 against the dark --app-surface", () => {
+        const surface = resolveValue("var(--app-surface)", "dark");
+        expect(ratioBetween(primaryDark!, surface)).toBeGreaterThanOrEqual(3);
+    });
 });

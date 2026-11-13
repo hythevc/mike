@@ -49,9 +49,15 @@ export const metadata: Metadata = {
 // The brand palette and display face, set once on the root so the whole app
 // and its auth and loader screens read them. W11 consumes the primary slots
 // through the semantic tokens; the display face names the wordmark's type.
+// --brand-primary-dark is set only when the brand config carries one, so the
+// dark-surface brand fill otherwise falls back to the navy primary (see the
+// .dark brand override in DesignTokensUI.css).
 const brandStyle = {
     "--brand-primary": brand.palette.primary,
     "--brand-on-primary": brand.palette.onPrimary,
+    ...(brand.palette.primaryDark
+        ? { "--brand-primary-dark": brand.palette.primaryDark }
+        : {}),
     "--brand-display-face":
         brand.displayFace === "eb-garamond"
             ? "var(--font-eb-garamond)"
