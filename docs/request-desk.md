@@ -91,8 +91,8 @@ its work is about. The profile is three optional fields on the project:
 | `working_language` | One tag from the response-language list in `backend/src/lib/responseLanguages.ts`. `auto` is not a working language |
 
 A code is two capital letters for a country (`GB`), with a suffix for a
-subdivision (`US_CA`). `EU` stands for European Union law and `ZZ` for
-international law that belongs to no single state. The registry is
+subdivision (`US_CA`). `EU` stands for the European Union and `ZZ` for
+international standards, which belong to no single state. The registry is
 `backend/src/lib/jurisdictions.ts`; the rules for a valid profile, shared by
 the projects module, the orgs module and the chat engine, are in
 `backend/src/lib/jurisdictionProfile.ts`.
