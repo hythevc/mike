@@ -261,20 +261,94 @@ The chrome base is 13px: `DesignTokensUI.css` sets `--text-xs` (the default for
 most chrome) to `0.8125rem` in `@theme`, one step up from Tailwind's 12px, in
 both the web app and the add-in. Figures are tabular in the chrome
 (`font-variant-numeric: tabular-nums` on `body`), and reset to proportional in
-the prose editors. Shared primitives in `frontend/src/shared/ui` carry no text
-below 11px; `sharedUiAccessibility.test.ts` enforces that floor.
+the prose editors.
 
-De facto type scale in the app chrome, most to least common: `text-xs` (dense
-table and control text — the default for most chrome, 13px), `text-sm` (body
-copy, normal-size buttons), `text-[11px]` (badges, superscript citations),
-`text-2xl font-serif` (display headings and empty states), `text-xl font-serif`
-(page titles and breadcrumbs). There is no separate heading component; use
-`EmptyState` for empty-state headings and `PageHeader` for page titles so the
-display style stays in one place. A plain page title is an `<h1>` passed as
-`PageHeader`'s children with `PAGE_HEADER_TITLE_CLASS` (from
-`shared/pageHeaderStyles.ts`), which is also what its breadcrumbs use. `PAGE_HEADER_ROW_CLASS` is what
-keeps that title on the line of the sidebar's logo text. The settings areas
-(`SettingsShell`) have a larger display title of their own, `text-3xl`.
+### Headings and text
+
+Use the two shared primitives rather than a hand-written class recipe, so the
+hierarchy reads the same on every screen and nothing drifts to a raw gray or a
+sub-11px size:
+
+- `HeadingUI` (`shared/ui/HeadingUI.tsx`) renders a heading at one of the
+  display sizes — `settings` (`text-3xl`, the settings-area title), `display`
+  (`text-2xl`, empty states), `page` (`text-xl`, a page title that sits beside
+  its controls), `section` (`text-xl` in the sans face) and `label`
+  (`text-sm`). The three display sizes use the serif face; the colour is the
+  `text-fg` role (or `tone="danger"`), never a raw gray. `as` sets the semantic
+  element so the document's heading order stays right. `PAGE_HEADER_TITLE_CLASS`
+  (from `shared/pageHeaderStyles.ts`) is exactly the `page` entry, and both
+  `PageHeader` and `EmptyState` render through `HeadingUI`;
+  `PAGE_HEADER_ROW_CLASS` keeps the page title on the line of the sidebar's
+  logo text.
+- `TextUI` (`shared/ui/TextUI.tsx`) renders secondary text at a size-and-colour
+  role: `body` (14px primary), `chrome` (13px primary, the dense base), `subtle`
+  and `muted` (14px secondary and muted), and `badge` (11px muted, the floor).
+  `weight="medium"` for a label line, `tone` for a status colour. The settings
+  text helpers (`SettingsHeading`, `SettingsText`) are thin wrappers over these.
+
+Both primitives are cross-target (they import nothing from `frontend/src/app/`)
+and registered in the add-in's `@source` list. The 11px floor is enforced two
+ways by `sharedUiAccessibility.test.ts`: over the `shared/ui` primitives, and
+app-wide over `frontend/src/app` against `microTextAllowlist.json`, which records
+today's remaining offenders (removed as each owning screen is polished) and the
+one permanent exception, the 16px avatar monogram at 8px (see User avatars).
+
+## Theme
+
+Three preferences — System, Light, Dark — stored in the profile's `dark_mode`
+column: `true` is Dark, `false` is Light, and `null` is System (follow the
+device's `prefers-color-scheme`). A fork migration drops the column's `NOT NULL`
+and default, so a new account starts on System and existing rows keep their
+explicit value.
+
+The mode is class-based: `.dark` on `<html>`, with `color-scheme` and the
+`<meta name="theme-color">` tint kept in step by `applyTheme`
+(`frontend/src/app/lib/theme.ts`). To avoid a flash of the light frame on load,
+a tiny inline script (`themeScript.ts`) in `<head>` reads a `localStorage`
+mirror of the preference, resolves System against the device query, and sets
+the class before first paint; `<html>` carries `suppressHydrationWarning`
+because the server markup cannot know the client's theme.
+`UserProfileContext` reconciles to the server value once the profile loads and
+follows the device live on System. The enforced CSP is `frame-ancestors` only
+(the report-only policy allows inline scripts), so the inline script needs no
+header change. `e2e/theme.spec.ts` proves the first paint; `theme.test.ts` pins
+the resolver, `applyTheme` and the inline script.
+
+### Brand identity versus system accent
+
+Two blues, and never a third. The **brand** colour is identity: the mark, the
+primary pill, and the public site. The **system accent** is the azure
+(`--focus-ring`, and the selection, link and active-citation roles); it owns
+every interactive signal. On a dark surface the navy brand primary fails the
+3:1 non-text boundary, so the brand carries an optional lighter fill,
+`palette.primaryDark`, used for the dark-surface brand fill only: `layout.tsx`
+sets `--brand-primary-dark` and `DesignTokensUI.css`'s `.dark` block reads it,
+falling back to the navy primary when the slot is absent. The generator holds
+on-brand text to 4.5:1 on both `primary` and `primaryDark`, and
+`tokenContrast.test.ts` pins the fill's 3:1 boundary against the dark
+`--app-surface` whenever the slot is set. The accent azure is unchanged on
+dark; it is not a brand colour and never becomes one.
+
+## Modals
+
+`ModalUI` (`shared/ui/ModalUI.tsx`) is the one dialog frame; app code reaches it
+through the `Modal` wrapper (`components/modals/Modal.tsx`).
+
+- **Name.** Every dialog needs an accessible name. Prefer `title`: it renders as
+  a `HeadingUI` wired to the dialog's `aria-labelledby`, so it is both the
+  visible and the accessible name. With no `title` but `breadcrumbs`, the last
+  breadcrumb names the dialog; `ariaLabel` is the fallback only when neither
+  exists. The `Modal` wrapper derives the name from `title ?? last breadcrumb`,
+  which labels most existing dialogs without a call-site edit. `description`
+  wires `aria-describedby`. `modalLabelling.test.ts` fails on any new unlabelled
+  call site; the ones that remain are recorded in `modalLabelAllowlist.json`.
+- **Height.** The dialog grows with its content to the viewport and then scrolls
+  its `data-modal-scroll` body, so short content keeps a natural height instead
+  of a fixed box with empty space.
+- **Motion.** It fades and settles on the Motion tokens — a fade plus a 0.98
+  zoom, entering on `--motion-duration-enter` and leaving a tier quicker on
+  `--motion-duration-exit` — with a `motion-reduce:` variant that drops the scale
+  and keeps the fade.
 
 ## Spacing and radius
 
