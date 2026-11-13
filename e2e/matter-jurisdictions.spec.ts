@@ -34,6 +34,16 @@ async function openProjectDetails(page: Page, projectName: string) {
     await expect(page.locator("#project-details-name")).toBeVisible();
 }
 
+/** The jurisdictions the server has stored for the project at `projectPath`. */
+async function storedJurisdictions(
+    page: Page,
+    projectPath: string,
+): Promise<unknown> {
+    const res = await page.request.get(`/api${projectPath}`);
+    expect(res.ok(), `GET /api${projectPath}`).toBe(true);
+    return ((await res.json()) as { jurisdictions?: unknown }).jurisdictions;
+}
+
 /** Ticks jurisdictions in an open multi-select menu, then closes the menu. */
 async function chooseJurisdictions(page: Page, names: string[]) {
     for (const name of names)
@@ -80,6 +90,10 @@ test.describe("matter jurisdiction profile", () => {
 
         await page.getByRole("button", { name: "Update", exact: true }).click();
         await expect(page.getByText("Updated", { exact: true })).toBeVisible();
+        expect(await storedJurisdictions(page, projectPath)).toEqual([
+            "PT",
+            "EU",
+        ]);
 
         // The chips under the project header, on the project's own page.
         await page.goto(projectPath);
@@ -105,8 +119,11 @@ test.describe("matter jurisdiction profile", () => {
         ).toBeVisible();
         await page.getByRole("button", { name: "Update", exact: true }).click();
         await expect(page.getByText("Updated", { exact: true })).toBeVisible();
+        expect(await storedJurisdictions(page, projectPath)).toEqual([]);
         await page.goto(projectPath);
-        await expect(page.getByRole("main")).toBeVisible();
+        // The header names the project once it has loaded; the chips would
+        // be drawn beneath it by then.
+        await expect(page.getByTitle("Back to project documents")).toBeVisible();
         await expect(
             page.getByRole("list", { name: "Jurisdictions of this project" }),
         ).toHaveCount(0);
