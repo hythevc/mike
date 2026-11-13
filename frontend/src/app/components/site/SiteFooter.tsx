@@ -2,36 +2,41 @@
 import Link from "next/link";
 import { brand } from "@/shared/brand.generated";
 import { getBuildInfo, repositoryFileUrl } from "@/app/lib/buildInfo";
-import { SITE_CHROME_COPY } from "@/content/site/chrome";
+import { cn } from "@/app/lib/utils";
+import { CONTACT_PATH, SITE_CHROME_COPY } from "@/content/site/chrome";
+import { SITE_FOCUS_CLASS } from "./siteStyles";
 
-const linkClassName =
-    "rounded-sm underline-offset-2 transition-colors hover:text-fg hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
+// 44px tall, like the header's links, so each is an easy target on a phone.
+const linkClassName = cn(
+    "inline-flex min-h-11 items-center rounded-sm underline-offset-2 hover:text-fg hover:underline",
+    SITE_FOCUS_CLASS,
+);
 
 /**
- * The footer of the public pages. Like the signed-out AuthFooter it carries
- * the source offer (the repository at the running commit, AGPL-3.0 section
- * 13), the terms and the privacy notice, and adds the security page and the
- * open-source attributions, then the line that these pages describe a tool,
- * not advice. Every address comes from the brand configuration or the
- * running build; every word from content/site/chrome.ts.
+ * The footer of the public pages: the way to reach a person (the contact
+ * page), the security page, the terms and the privacy notice, then the
+ * source offer (the repository at the running commit, AGPL-3.0 section 13)
+ * and the open-source attributions, and under them the line that these pages
+ * describe a tool, not advice. Every address comes from the brand
+ * configuration or the running build; every word from content/site/chrome.ts.
  */
 export function SiteFooter() {
     const build = getBuildInfo();
     const { footer } = SITE_CHROME_COPY;
     return (
         <footer className="border-t border-border">
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-4 py-6 text-sm text-fg-muted sm:px-6">
+            <div className="mx-auto flex w-full max-w-5xl flex-col gap-1 px-4 py-4 text-sm text-fg-muted sm:px-6">
                 <nav aria-label={SITE_CHROME_COPY.footerNavLabel}>
-                    <ul className="flex flex-wrap gap-x-5 gap-y-1">
+                    <ul className="flex flex-wrap gap-x-5">
                         <li>
-                            <a
-                                href={build.sourceTreeUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className={linkClassName}
-                            >
-                                {footer.source}
-                            </a>
+                            <Link href={CONTACT_PATH} className={linkClassName}>
+                                {footer.contact}
+                            </Link>
+                        </li>
+                        <li>
+                            <Link href={brand.legalDocuments.security.url} className={linkClassName}>
+                                {footer.security}
+                            </Link>
                         </li>
                         <li>
                             <Link href={brand.legalDocuments.terms.url} className={linkClassName}>
@@ -44,9 +49,14 @@ export function SiteFooter() {
                             </Link>
                         </li>
                         <li>
-                            <Link href={brand.legalDocuments.security.url} className={linkClassName}>
-                                {footer.security}
-                            </Link>
+                            <a
+                                href={build.sourceTreeUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={linkClassName}
+                            >
+                                {footer.source}
+                            </a>
                         </li>
                         <li>
                             <a
@@ -60,7 +70,7 @@ export function SiteFooter() {
                         </li>
                     </ul>
                 </nav>
-                <p>{SITE_CHROME_COPY.disclaimer}</p>
+                <p className="pb-2">{SITE_CHROME_COPY.disclaimer}</p>
             </div>
         </footer>
     );

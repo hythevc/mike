@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     robots: siteRobotsMetadata(),
 };
 
-/** The public pages: pricing, documentation and the security page. */
+/** The public pages: pricing, documentation, the security page and contact. */
 export default function SiteLayout({ children }: { children: ReactNode }) {
     return <SiteShell>{children}</SiteShell>;
 }

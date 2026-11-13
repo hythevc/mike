@@ -12,11 +12,19 @@ import { reportFault } from "@/app/lib/userFacingError";
 import { GlassCardUI } from "@/shared/ui/GlassCardUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { RequestFormNotices } from "./RequestFormNotices";
-import { RequestSubmissionForm } from "./RequestSubmissionForm";
 import {
+    REQUEST_PRIMARY_ACTION_SLOT,
+    RequestSubmissionForm,
+} from "./RequestSubmissionForm";
+import {
+    FORM_LOADING_LABEL,
+    FORM_LOAD_FAILED_MESSAGE,
+    FORM_LOAD_FAILED_TITLE,
+    FORM_RETRY_LABEL,
     FORM_UNAVAILABLE_MESSAGE,
     FORM_UNAVAILABLE_TITLE,
     RECEIPT_KEEP_REFERENCE,
+    RECEIPT_REFERENCE_LEAD,
     RECEIPT_TITLE,
 } from "./requestFormLabels";
 
@@ -29,9 +37,13 @@ type State =
 
 /**
  * The public request form, reached by its link and rendered without a
- * session: the organization's name and logo, its notices, the form, and the
- * receipt. An unknown, disabled or replaced link shows one notice, the same
- * for all three; a failed load says so and offers Retry.
+ * session: the organization's name and logo, the form with its notices, and
+ * the receipt. An unknown, disabled or replaced link shows one notice, the
+ * same for all three; a failed load says so and offers Retry.
+ *
+ * The receipt is the reference and what happens next. What happens next is
+ * said by the notices the requester already read, the organization's first
+ * and in its own words; nothing here adds a time or a channel of its own.
  */
 export function PublicRequestForm({ token }: { token: string }) {
     const [state, setState] = useState<State>({ kind: "loading" });
@@ -80,7 +92,7 @@ export function PublicRequestForm({ token }: { token: string }) {
     if (state.kind === "loading") {
         return (
             <div aria-busy="true" aria-live="polite" className="space-y-4">
-                <p className="text-sm text-fg-muted">Loading the request form…</p>
+                <p className="text-sm text-fg-muted">{FORM_LOADING_LABEL}</p>
                 <div className="h-6 w-48 animate-pulse rounded bg-surface" />
                 <div className="h-40 animate-pulse rounded-xl bg-surface" />
             </div>
@@ -102,16 +114,16 @@ export function PublicRequestForm({ token }: { token: string }) {
         return (
             <GlassCardUI>
                 <div className="space-y-3 p-5">
-                    <h1 className="text-xl font-medium text-fg">The request form did not load</h1>
-                    <p className="text-sm text-fg-subtle">
-                        Something went wrong on our side. Try again in a moment.
-                    </p>
+                    <h1 className="text-xl font-medium text-fg">{FORM_LOAD_FAILED_TITLE}</h1>
+                    <p className="text-sm text-fg-subtle">{FORM_LOAD_FAILED_MESSAGE}</p>
                     <PillButtonUI
                         tone="black"
-                        size="sm"
+                        size="normal"
+                        data-slot={REQUEST_PRIMARY_ACTION_SLOT}
+                        className="h-11 px-5"
                         onClick={() => setReloadKey((key) => key + 1)}
                     >
-                        Try again
+                        {FORM_RETRY_LABEL}
                     </PillButtonUI>
                 </div>
             </GlassCardUI>
@@ -128,6 +140,8 @@ export function PublicRequestForm({ token }: { token: string }) {
                     <img
                         src={form.organization.logo_data_url}
                         alt=""
+                        width={48}
+                        height={48}
                         className="h-12 w-12 shrink-0 rounded-lg object-contain"
                     />
                 ) : null}
@@ -139,7 +153,9 @@ export function PublicRequestForm({ token }: { token: string }) {
                         {form.title}
                     </h1>
                     {form.intro ? (
-                        <p className="whitespace-pre-wrap text-sm text-fg-subtle">{form.intro}</p>
+                        <p className="whitespace-pre-wrap text-sm leading-6 text-fg-subtle [overflow-wrap:anywhere]">
+                            {form.intro}
+                        </p>
                     ) : null}
                 </div>
             </header>
@@ -147,31 +163,36 @@ export function PublicRequestForm({ token }: { token: string }) {
             <GlassCardUI>
                 <div className="relative p-5">
                     {state.kind === "submitted" ? (
-                        <section aria-labelledby="request-form-receipt" className="space-y-3">
-                            <h2
-                                id="request-form-receipt"
-                                ref={receiptHeading}
-                                tabIndex={-1}
-                                className="text-lg font-medium text-fg focus-visible:outline-none"
-                            >
-                                {RECEIPT_TITLE}
-                            </h2>
-                            <p className="text-sm text-fg">
-                                Your reference is{" "}
-                                <strong className="font-semibold tabular-nums">
-                                    {state.receipt.reference}
-                                </strong>
-                                .
-                            </p>
-                            <p className="text-sm text-fg-subtle">{RECEIPT_KEEP_REFERENCE}</p>
+                        <section aria-labelledby="request-form-receipt" className="space-y-5">
+                            <div className="space-y-3">
+                                <h2
+                                    id="request-form-receipt"
+                                    ref={receiptHeading}
+                                    tabIndex={-1}
+                                    className="text-lg font-medium text-fg focus-visible:outline-none"
+                                >
+                                    {RECEIPT_TITLE}
+                                </h2>
+                                <p className="text-sm text-fg">
+                                    {RECEIPT_REFERENCE_LEAD}{" "}
+                                    <strong className="font-semibold tabular-nums [overflow-wrap:anywhere]">
+                                        {state.receipt.reference}
+                                    </strong>
+                                    .
+                                </p>
+                                <p className="text-sm leading-6 text-fg-subtle">
+                                    {RECEIPT_KEEP_REFERENCE}
+                                </p>
+                            </div>
+                            <div className="border-t border-border pt-5">
+                                <RequestFormNotices form={form} submitted />
+                            </div>
                         </section>
                     ) : (
                         <RequestSubmissionForm token={token} form={form} onSubmitted={onSubmitted} />
                     )}
                 </div>
             </GlassCardUI>
-
-            <RequestFormNotices form={form} />
         </div>
     );
 }

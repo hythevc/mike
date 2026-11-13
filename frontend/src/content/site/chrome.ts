@@ -4,10 +4,15 @@
 // navigation and the footer) and for the security page's title and search
 // description. It lives with the rest of the site copy so counsel reviews
 // every visitor-facing word in one place and W20's content lint scans it. The
-// home, pricing and documentation copy reuse the shared strings below, so one
-// edit here changes every occurrence.
+// home, pricing, contact and documentation copy reuse the shared strings
+// below, so one edit here changes every occurrence.
+
+/** Where the contact page lives; the footer and the pricing page link to it. */
+export const CONTACT_PATH = "/contact";
 
 export const SITE_CHROME_COPY = {
+    /** The first link on every public page, shown when it takes keyboard focus. */
+    skipToContent: "Skip to content",
     /** The way into the app: in the header, and under the home and pricing copy. */
     signIn: "Sign in",
     createAccount: "Create an account",
@@ -20,12 +25,14 @@ export const SITE_CHROME_COPY = {
         { href: "/security", label: "Security" },
     ],
     /** The accessible name of the footer's navigation landmark. */
-    footerNavLabel: "Legal and source",
+    footerNavLabel: "Footer",
+    /** The footer's links, in the order the footer shows them. */
     footer: {
-        source: "Source",
+        contact: "Contact",
+        security: "Security",
         terms: "Terms",
         privacy: "Privacy",
-        security: "Security",
+        source: "Source",
         attributions: "Attributions",
     },
     /** The line under every public page: these pages describe a tool, not advice. */
