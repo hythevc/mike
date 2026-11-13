@@ -114,6 +114,31 @@ vi.mock("./OrganizationLogoModal", () => ({
   ),
 }));
 
+// The defaults for new projects have their own tests, and read a registry
+// from the server. This stand-in shows which organization it was handed and
+// lets a test save through it.
+vi.mock("./OrganizationMatterDefaults", () => ({
+  OrganizationMatterDefaults: ({
+    org,
+    onSaved,
+  }: {
+    org: Org;
+    onSaved: (org: Org) => void;
+  }) => (
+    <section aria-label="New Project Defaults">
+      <p>
+        {org.id}|{(org.default_jurisdictions ?? []).join(",")}
+      </p>
+      <button
+        type="button"
+        onClick={() => onSaved({ ...org, default_jurisdictions: ["GB"] })}
+      >
+        Save stand-in defaults
+      </button>
+    </section>
+  ),
+}));
+
 /** What the framing dialog hands back: the logo as it was framed. */
 const FRAMED_LOGO = "data:image/png;base64,AAAA";
 
@@ -195,6 +220,52 @@ describe("who sees what", () => {
     expect(
       screen.queryByRole("button", { name: "Delete" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+// What an organization's new projects start with is set by its owners and
+// admins, as the server allows, so only they are shown the section.
+describe("the defaults for new projects", () => {
+  const defaults = () =>
+    screen.queryByRole("region", { name: "New Project Defaults" });
+
+  it.each(["owner", "admin"] as const)("is shown to an %s", (role) => {
+    mocks.org = { ...orgAs(role), default_jurisdictions: ["EU", "IE"] };
+    render(<OrganizationGeneralSettings />);
+    expect(defaults()).toHaveTextContent("org-1|EU,IE");
+  });
+
+  it("is not shown to a member", () => {
+    mocks.org = orgAs("member");
+    render(<OrganizationGeneralSettings />);
+    expect(defaults()).not.toBeInTheDocument();
+  });
+
+  it("is not shown before the organization has loaded", () => {
+    mocks.org = null;
+    render(<OrganizationGeneralSettings />);
+    expect(defaults()).not.toBeInTheDocument();
+  });
+
+  it("sits between the organization's details and the caller's membership", () => {
+    render(<OrganizationGeneralSettings />);
+    const regions = screen.getAllByRole("region");
+    const at = (name: string) =>
+      regions.indexOf(screen.getByRole("region", { name }));
+    expect(at("General")).toBeGreaterThanOrEqual(0);
+    expect(at("New Project Defaults")).toBeGreaterThan(at("General"));
+    expect(at("New Project Defaults")).toBeLessThan(at("Your Membership"));
+  });
+
+  it("puts the saved defaults in place for the rest of the settings", async () => {
+    const user = userEvent.setup();
+    render(<OrganizationGeneralSettings />);
+    await user.click(
+      screen.getByRole("button", { name: "Save stand-in defaults" }),
+    );
+    expect(mocks.setOrg).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "org-1", default_jurisdictions: ["GB"] }),
+    );
   });
 });
 

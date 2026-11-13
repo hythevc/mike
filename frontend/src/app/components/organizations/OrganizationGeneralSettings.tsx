@@ -46,6 +46,7 @@ import { GlassCardUI } from "@/shared/ui/GlassCardUI";
 import { BrandMark } from "@/shared/ui/BrandMarkUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
 import { OrganizationLogoModal } from "./OrganizationLogoModal";
+import { OrganizationMatterDefaults } from "./OrganizationMatterDefaults";
 import { useOrganizationSettings } from "./OrganizationSettingsShell";
 
 // The General section of an organization's settings. Everyone in the
@@ -355,6 +356,13 @@ export function OrganizationGeneralSettings() {
           ) : null}
         </GlassCardUI>
       </section>
+
+      {/* What the organization's new projects start with. Setting it is its
+          owners' and admins', as renaming is; the server refuses anyone
+          else, so a member is not shown it. */}
+      {canRename && org ? (
+        <OrganizationMatterDefaults org={org} onSaved={setOrg} />
+      ) : null}
 
       <section aria-labelledby="org-general-membership" className="space-y-3">
         <SettingsHeading id="org-general-membership">
