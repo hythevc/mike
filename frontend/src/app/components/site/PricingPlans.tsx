@@ -6,7 +6,6 @@ import Link from "next/link";
 import type { PlansResponse, PublicPlan } from "@mike/contracts";
 import { getPlans } from "@/app/lib/mikeApi";
 import { describeError } from "@/app/lib/userFacingError";
-import { cn } from "@/app/lib/utils";
 import { SkeletonLine } from "@/app/components/shared/TablePrimitive";
 import { GlassCardUI } from "@/shared/ui/GlassCardUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
