@@ -43,6 +43,7 @@ import {
     MATTER_AI_RESTRICTED_CODE,
     MATTER_AI_RESTRICTED_DETAIL,
 } from "../../lib/matterAi";
+import { loadMatterJurisdictionProfile } from "../../lib/jurisdictionProfile";
 import { hasDirectContentGrants } from "../../lib/contentAccess";
 import { can } from "../../lib/permissions";
 import { resolveEffectiveReasoningLevel } from "../../lib/modelSelection";
@@ -538,9 +539,17 @@ export async function prepareChatStream(
             title_model: titleModel,
             personalisation,
         } = modelSettings;
+        // A chat in a project is told the matter's jurisdictions, governing
+        // law and working language. They are the project's, so they are read
+        // only for a caller the project check admitted, as its memory is:
+        // `canReadProjectMemory` is that verdict, and it is false for a chat
+        // outside a project. A failed read costs the context, never the turn.
         const personalisationPrompt = buildUserPersonalisationPrompt(
             personalisation,
             nonce,
+            canReadProjectMemory
+                ? await loadMatterJurisdictionProfile(db, resolvedProjectId)
+                : null,
         );
         const userSentAt = await loadUserMessageSentTimes(
             db,

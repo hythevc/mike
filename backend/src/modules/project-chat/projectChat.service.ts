@@ -52,6 +52,7 @@ import {
     MATTER_AI_RESTRICTED_CODE,
     MATTER_AI_RESTRICTED_DETAIL,
 } from "../../lib/matterAi";
+import { loadMatterJurisdictionProfile } from "../../lib/jurisdictionProfile";
 import {
     resolveEffectiveReasoningLevel,
 } from "../../lib/modelSelection";
@@ -561,9 +562,14 @@ export async function prepareProjectChatStream(
             title_model: titleModel,
             personalisation,
         } = modelSettings;
+        // The matter's jurisdictions, governing law and working language,
+        // stated beside the user's own details. The caller's access to the
+        // project was established above; a failed read costs the context,
+        // never the turn.
         const personalisationPrompt = buildUserPersonalisationPrompt(
             personalisation,
             nonce,
+            await loadMatterJurisdictionProfile(db, projectId),
         );
         if (personalisationPrompt) {
             systemPromptExtra += `\n\n${personalisationPrompt}`;

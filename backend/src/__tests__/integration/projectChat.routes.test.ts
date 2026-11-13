@@ -18,6 +18,7 @@ const {
   scheduleMemoryConsolidation,
   dbInserts,
   dbUpdates,
+  projectRow,
 } = vi.hoisted(() => ({
     runLLMStream: vi.fn(),
     checkProjectAccess: vi.fn(),
@@ -34,6 +35,9 @@ const {
   }),
   dbInserts: [] as { table: string; value: unknown }[],
   dbUpdates: [] as { table: string; value: unknown }[],
+  // The matter's own row, for a test that needs one; every other read of
+  // `projects` gets the same canned row as any other table.
+  projectRow: { current: null as Record<string, unknown> | null },
 }));
 
 // The signed-in person, and the model provider for the one test that runs
@@ -55,7 +59,10 @@ vi.mock("../../lib/mcpConnectors", async (importOriginal) => ({
 
 function makeQuery(table: string) {
     const result = {
-        data: { id: "chat-1", title: null, project_id: "p1" },
+        data:
+            table === "projects" && projectRow.current
+                ? projectRow.current
+                : { id: "chat-1", title: null, project_id: "p1" },
         error: null,
     };
     const q: Record<string, unknown> = {};
@@ -247,6 +254,7 @@ describe("POST /projects/:projectId/chat", () => {
         vi.clearAllMocks();
     dbInserts.length = 0;
     dbUpdates.length = 0;
+    projectRow.current = null;
         buildMessages.mockReturnValue([]);
         buildProjectDocContext.mockResolvedValue({
             docIndex: {},
@@ -434,6 +442,58 @@ describe("POST /projects/:projectId/chat", () => {
     });
     expect(scheduleMemoryConsolidation).toHaveBeenCalledTimes(1);
     expect(releaseMemoryConversationTurn).not.toHaveBeenCalled();
+    });
+
+    // The matter's jurisdiction profile (L1) reaches the model in the
+    // personalisation block, beside the user's own jurisdiction.
+    it("tells the model the matter's jurisdictions, governing law and working language", async () => {
+        projectRow.current = {
+            id: "p1",
+            jurisdictions: ["PT", "EU"],
+            governing_law: "PT",
+            working_language: "pt-PT",
+        };
+
+        const res = await request(app)
+            .post("/projects/p1/chat")
+            .set("Authorization", "Bearer test")
+            .send(VALID_BODY);
+
+        expect(res.status).toBe(200);
+        const systemPromptExtra = buildMessages.mock.calls[0]?.[2] as string;
+        expect(systemPromptExtra).toContain(
+            '"matter_jurisdictions": [\n    "Portugal (PT)",\n    "European Union (EU)"\n  ]',
+        );
+        expect(systemPromptExtra).toContain(
+            '"matter_governing_law": "Portugal (PT)"',
+        );
+        expect(systemPromptExtra).toContain(
+            '"matter_working_language": "European Portuguese"',
+        );
+        // The user's own jurisdiction is still stated, just before them.
+        expect(systemPromptExtra).toContain('"jurisdiction": "Singapore"');
+        expect(systemPromptExtra.indexOf('"jurisdiction": "Singapore"')).toBeLessThan(
+            systemPromptExtra.indexOf('"matter_jurisdictions"'),
+        );
+    });
+
+    it("adds nothing about the matter when it has nothing recorded", async () => {
+        projectRow.current = {
+            id: "p1",
+            jurisdictions: [],
+            governing_law: null,
+            working_language: null,
+        };
+
+        const res = await request(app)
+            .post("/projects/p1/chat")
+            .set("Authorization", "Bearer test")
+            .send(VALID_BODY);
+
+        expect(res.status).toBe(200);
+        const systemPromptExtra = buildMessages.mock.calls[0]?.[2] as string;
+        expect(systemPromptExtra).toContain("USER PERSONALISATION");
+        expect(systemPromptExtra).not.toContain("matter_");
     });
 
     it("runs the turn and its title under the project chat's usage context", async () => {

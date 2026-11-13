@@ -2524,6 +2524,64 @@ describe("chat writes are gated on content.edit (org RBAC)", () => {
         );
     });
 
+    // The matter's jurisdiction profile (L1): a chat in a project the caller
+    // can open is told the matter's jurisdictions, governing law and working
+    // language; a chat outside a project never reads one.
+    it("tells the model the matter's jurisdiction profile for a chat in a project", async () => {
+        await seedResolvableModel();
+        const db = makeRbacDb("member", "u1", {
+            project: {
+                jurisdictions: ["GB", "IE"],
+                governing_law: "GB",
+                working_language: "en-GB",
+            },
+        });
+        mockedCreate.mockImplementation(() => db as never);
+        const chatLib = await import("../../modules/chat/engine/index.js");
+
+        const res = await request(app)
+            .post("/chat")
+            .set("Authorization", "Bearer test")
+            .send({ ...VALID_BODY, model: "gpt-6-luna", chat_id: "chat-1" });
+
+        expect(res.status).toBe(200);
+        const systemPromptExtra = vi.mocked(chatLib.buildMessages).mock
+            .calls[0]?.[2] as string;
+        expect(systemPromptExtra).toContain(
+            '"matter_jurisdictions": [\n    "United Kingdom (GB)",\n    "Ireland (IE)"\n  ]',
+        );
+        expect(systemPromptExtra).toContain(
+            '"matter_governing_law": "United Kingdom (GB)"',
+        );
+        expect(systemPromptExtra).toContain(
+            '"matter_working_language": "British English"',
+        );
+    });
+
+    it("reads no matter profile for a chat outside a project", async () => {
+        await seedResolvableModel();
+        const db = makeRbacDb("member", "u1", {
+            chat: { project_id: null, org_id: "org-1" },
+            // Were the project read, this would reach the prompt.
+            project: { jurisdictions: ["GB"], governing_law: "GB" },
+        });
+        mockedCreate.mockImplementation(() => db as never);
+        const chatLib = await import("../../modules/chat/engine/index.js");
+
+        const res = await request(app)
+            .post("/chat")
+            .set("Authorization", "Bearer test")
+            .send({ ...VALID_BODY, model: "gpt-6-luna", chat_id: "chat-1" });
+
+        expect(res.status).toBe(200);
+        const systemPromptExtra = vi.mocked(chatLib.buildMessages).mock
+            .calls[0]?.[2] as string | undefined;
+        expect(systemPromptExtra ?? "").not.toContain("matter_");
+        expect(
+            db.from.mock.calls.filter(([table]) => table === "projects"),
+        ).toEqual([]);
+    });
+
     it("403s a personal-project Viewer POSTing to an existing chat", async () => {
         mockedCreate.mockImplementation(
       () =>
