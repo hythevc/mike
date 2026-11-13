@@ -15,6 +15,7 @@ import type {
 } from "@/app/components/shared/types";
 import { listOrgs, type Org } from "@/app/lib/mikeApi";
 import { userFacingApiError } from "@/app/lib/userFacingError";
+import { ProjectJurisdictionFields } from "./ProjectJurisdictionFields";
 import { ProjectPracticeField } from "./ProjectPracticeField";
 
 const PERSONAL_WORKSPACE = "__personal__";
@@ -30,6 +31,13 @@ interface ProjectDetailsModalProps {
         practice: string;
         /** Sent only for an organization's project, and only when changed. */
         visibility?: ContentVisibility;
+        /**
+         * The jurisdiction profile. Each is sent only when it changed: an
+         * empty list or `null` clears what was recorded.
+         */
+        jurisdictions?: string[];
+        governingLaw?: string | null;
+        workingLanguage?: string | null;
     }) => Promise<void>;
     onShareProject?: () => void;
 }
@@ -47,6 +55,13 @@ export function ProjectDetailsModal({
     const [practiceDraft, setPracticeDraft] = useState("");
     const [visibilityDraft, setVisibilityDraft] =
         useState<ContentVisibility>("private");
+    const [jurisdictionsDraft, setJurisdictionsDraft] = useState<string[]>([]);
+    const [governingLawDraft, setGoverningLawDraft] = useState<string | null>(
+        null,
+    );
+    const [workingLanguageDraft, setWorkingLanguageDraft] = useState<
+        string | null
+    >(null);
     const [orgs, setOrgs] = useState<Org[]>([]);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -57,6 +72,11 @@ export function ProjectDetailsModal({
     const projectPractice = project?.practice ?? "";
     const projectVisibility: ContentVisibility =
         project?.visibility ?? "private";
+    // The list as one string, so the drafts reset when what is recorded
+    // changes and not each time the project object is rebuilt around it.
+    const projectJurisdictions = (project?.jurisdictions ?? []).join(",");
+    const projectGoverningLaw = project?.governing_law ?? null;
+    const projectWorkingLanguage = project?.working_language ?? null;
 
     useEffect(() => {
         if (!open || !projectId) return;
@@ -64,6 +84,11 @@ export function ProjectDetailsModal({
         setCmDraft(projectCmNumber);
         setPracticeDraft(projectPractice);
         setVisibilityDraft(projectVisibility);
+        setJurisdictionsDraft(
+            projectJurisdictions ? projectJurisdictions.split(",") : [],
+        );
+        setGoverningLawDraft(projectGoverningLaw);
+        setWorkingLanguageDraft(projectWorkingLanguage);
         setSaved(false);
         setError(null);
     }, [
@@ -73,6 +98,9 @@ export function ProjectDetailsModal({
         projectCmNumber,
         projectPractice,
         projectVisibility,
+        projectJurisdictions,
+        projectGoverningLaw,
+        projectWorkingLanguage,
     ]);
 
     useEffect(() => {
@@ -93,6 +121,11 @@ export function ProjectDetailsModal({
     const trimmedName = nameDraft.trim();
     const trimmedCm = cmDraft.trim();
     const trimmedPractice = practiceDraft.trim();
+    const jurisdictionsChanged =
+        jurisdictionsDraft.join(",") !== projectJurisdictions;
+    const governingLawChanged = governingLawDraft !== projectGoverningLaw;
+    const workingLanguageChanged =
+        workingLanguageDraft !== projectWorkingLanguage;
     const hasChanges = useMemo(() => {
         if (!project) return false;
         return (
@@ -100,9 +133,21 @@ export function ProjectDetailsModal({
             trimmedCm !== (project.cm_number ?? "") ||
             trimmedPractice !== (project.practice ?? "") ||
             (!!project.org_id &&
-                visibilityDraft !== (project.visibility ?? "private"))
+                visibilityDraft !== (project.visibility ?? "private")) ||
+            jurisdictionsChanged ||
+            governingLawChanged ||
+            workingLanguageChanged
         );
-    }, [project, trimmedCm, trimmedName, trimmedPractice, visibilityDraft]);
+    }, [
+        project,
+        trimmedCm,
+        trimmedName,
+        trimmedPractice,
+        visibilityDraft,
+        jurisdictionsChanged,
+        governingLawChanged,
+        workingLanguageChanged,
+    ]);
 
     // The select falls back to rendering its raw value when no option matches,
     // so a failed (or still pending) listOrgs used to show the organization's
@@ -142,6 +187,15 @@ export function ProjectDetailsModal({
                 ...(project?.org_id &&
                 visibilityDraft !== (project.visibility ?? "private")
                     ? { visibility: visibilityDraft }
+                    : {}),
+                ...(jurisdictionsChanged
+                    ? { jurisdictions: jurisdictionsDraft }
+                    : {}),
+                ...(governingLawChanged
+                    ? { governingLaw: governingLawDraft }
+                    : {}),
+                ...(workingLanguageChanged
+                    ? { workingLanguage: workingLanguageDraft }
                     : {}),
             });
             setSaved(true);
@@ -188,7 +242,12 @@ export function ProjectDetailsModal({
             }
             cancelAction={canEdit ? undefined : false}
         >
-            <div className="flex min-h-0 flex-1 flex-col gap-6 py-1">
+            {/* The form is taller than the dialog once a few jurisdictions
+                are chosen, so it scrolls inside it and the footer stays put. */}
+            <div
+                data-modal-scroll="vertical"
+                className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pb-4 pt-1"
+            >
                 <div>
                     <FieldLabel htmlFor="project-details-name">
                         Project name
@@ -241,6 +300,24 @@ export function ProjectDetailsModal({
                         disabled={!canEdit || saving}
                     />
                 </div>
+
+                <ProjectJurisdictionFields
+                    idPrefix="project-details"
+                    value={{
+                        jurisdictions: jurisdictionsDraft,
+                        governingLaw: governingLawDraft,
+                        workingLanguage: workingLanguageDraft,
+                    }}
+                    onChange={(next) => {
+                        setJurisdictionsDraft(next.jurisdictions);
+                        setGoverningLawDraft(next.governingLaw);
+                        setWorkingLanguageDraft(next.workingLanguage);
+                        setSaved(false);
+                        setError(null);
+                    }}
+                    readOnly={!canEdit}
+                    disabled={saving}
+                />
 
                 <div>
                     <FieldLabel htmlFor="project-details-org">

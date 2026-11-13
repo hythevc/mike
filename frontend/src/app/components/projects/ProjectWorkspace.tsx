@@ -60,6 +60,7 @@ import {
     roleFromLoaded,
 } from "@/app/lib/permissions";
 import { ProjectDetailsModal } from "./ProjectDetailsModal";
+import { ProjectJurisdictionChips } from "./ProjectJurisdictionChips";
 import { ProjectMemoryModal } from "./ProjectMemoryModal";
 import {
     ProjectPageHeader,
@@ -508,6 +509,9 @@ export function ProjectWorkspaceProvider({
         cmNumber: string;
         practice: string;
         visibility?: ContentVisibility;
+        jurisdictions?: string[];
+        governingLaw?: string | null;
+        workingLanguage?: string | null;
     }) {
         if (!canDo("access.manage")) {
             denyUnlessLoading({
@@ -525,6 +529,17 @@ export function ProjectWorkspaceProvider({
             cm_number: cmNumber,
             practice: practice || null,
             ...(values.visibility ? { visibility: values.visibility } : {}),
+            // The jurisdiction profile: only the fields that changed are
+            // sent, and an empty list or null clears what was recorded.
+            ...(values.jurisdictions !== undefined
+                ? { jurisdictions: values.jurisdictions }
+                : {}),
+            ...(values.governingLaw !== undefined
+                ? { governing_law: values.governingLaw }
+                : {}),
+            ...(values.workingLanguage !== undefined
+                ? { working_language: values.workingLanguage }
+                : {}),
         });
         setProject((prev) =>
             prev
@@ -534,6 +549,17 @@ export function ProjectWorkspaceProvider({
                       cm_number: updated.cm_number,
                       practice: updated.practice,
                       visibility: updated.visibility ?? prev.visibility,
+                      jurisdictions: updated.jurisdictions ?? prev.jurisdictions,
+                      // Null is a value here (cleared), so only a response
+                      // without the field falls back to what was shown.
+                      governing_law:
+                          updated.governing_law !== undefined
+                              ? updated.governing_law
+                              : prev.governing_law,
+                      working_language:
+                          updated.working_language !== undefined
+                              ? updated.working_language
+                              : prev.working_language,
                   }
                 : updated,
         );
@@ -712,6 +738,14 @@ export function ProjectWorkspaceProvider({
                         onUploadFolder={documentUploadActions.uploadFolder}
                         documentFolderBreadcrumbs={documentFolderBreadcrumbs}
                     />
+
+                    {/* The matter's jurisdictions, in view on every page of
+                        the project. Mounted only when there are some. */}
+                    {project?.jurisdictions?.length ? (
+                        <ProjectJurisdictionChips
+                            codes={project.jurisdictions}
+                        />
+                    ) : null}
 
                     {children}
 

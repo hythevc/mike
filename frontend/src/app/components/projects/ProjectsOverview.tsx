@@ -410,6 +410,9 @@ export function ProjectsOverview() {
         name: string;
         cmNumber: string;
         practice: string;
+        jurisdictions?: string[];
+        governingLaw?: string | null;
+        workingLanguage?: string | null;
     }) {
         if (!detailsProject) return;
         // The list rows carry the caller's merged access_role, so an
@@ -430,6 +433,18 @@ export function ProjectsOverview() {
             name,
             cm_number: cmNumber,
             practice: practice || null,
+            // The jurisdiction profile: the form hands over only the fields
+            // that changed, and an empty list or null clears what was
+            // recorded.
+            ...(values.jurisdictions !== undefined
+                ? { jurisdictions: values.jurisdictions }
+                : {}),
+            ...(values.governingLaw !== undefined
+                ? { governing_law: values.governingLaw }
+                : {}),
+            ...(values.workingLanguage !== undefined
+                ? { working_language: values.workingLanguage }
+                : {}),
         });
         setProjects((prev) =>
             prev.map((project) =>
