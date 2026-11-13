@@ -1218,6 +1218,32 @@ tunnel) carries these response headers, set in `frontend/next.config.ts` from
 
 The API's own responses keep the headers the API sets.
 
+## Matter jurisdiction profile
+
+A project can record the jurisdictions its work is about, its governing law
+and its working language, an organization can set the jurisdictions and the
+language its new projects start with, and a chat in a project is told the
+matter's jurisdictions (see [the profile](request-desk.md#jurisdiction-profile)).
+It is off by default and has two switches; turn both on together.
+
+- `MATTER_JURISDICTIONS_ENABLED=true` in the API's environment
+  (`backend/.env`) switches the API on. It is read at run time, so a change
+  needs a restart of the API and no rebuild. Unset, the API answers as it
+  did before the profile existed: the three project fields are ignored on
+  create and update, no project or organization response carries them,
+  `GET /projects/jurisdictions` and `/orgs/:orgId/matter-defaults` are not
+  served, and the model is told nothing about a matter's jurisdictions.
+- `NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED=true` shows the fields in a
+  project's Details, the chips under the project header and the New Project
+  Defaults section of an organization's General settings. Like the public
+  site switches it is inlined by `next build`, so **changing it means
+  rebuilding the web app** (`docker compose build frontend` with the build
+  argument, or a new image). Unset, the web app asks the API for none of it.
+
+Values recorded while the profile was on are kept when it is turned off and
+come back when it is turned on again. Migration
+`20261113_50_matter_jurisdiction.sql` adds the columns either way.
+
 ## Deployment safety
 
 - Generate unique, high-entropy signing and encryption secrets.

@@ -82,7 +82,15 @@ everyone else sees that one exists.
 ### Jurisdiction profile
 
 Every project, whether or not it came from a request, can record which law
-its work is about. The profile is three optional fields on the project:
+its work is about, once a deployment has switched the profile on. It is off
+by default: `MATTER_JURISDICTIONS_ENABLED=true` switches the API on and
+`NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED=true` the web app (see
+[Matter jurisdiction profile](deployment.md#matter-jurisdiction-profile) in
+the deployment guide). Until then the API answers as it did before the
+profile existed and the web app shows none of it; everything below describes
+a deployment that has turned both on.
+
+The profile is three optional fields on the project:
 
 | Field | Holds |
 | --- | --- |
@@ -145,9 +153,9 @@ three columns to `projects` and the two to `organizations`, with the limit of
 must apply it; fresh installations get the columns from `backend/schema.sql`.
 
 Tests: `backend/src/lib/__tests__/jurisdictions.test.ts` and
-`jurisdictionProfile.test.ts` (the registry and the rules),
+`jurisdictionProfile.test.ts` (the registry, the rules and the switch),
 `backend/src/__tests__/integration/matterJurisdiction.routes.test.ts` (the
-HTTP layer, defaults and tenant isolation),
+HTTP layer, defaults, tenant isolation, and the answers with the switch off),
 `backend/src/__tests__/integration/matterJurisdiction.postgres.test.ts` (the
 migration in real PostgreSQL, under `npm run test:stack --prefix backend`),
 and `backend/src/modules/chat/engine/__tests__/matterPersonalisationPrompt.test.ts`

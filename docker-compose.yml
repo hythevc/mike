@@ -385,6 +385,10 @@ services:
         # too (docs/deployment.md, "Public site"); a change needs a rebuild.
         NEXT_PUBLIC_SITE_ENABLED: ${NEXT_PUBLIC_SITE_ENABLED:-}
         NEXT_PUBLIC_SITE_INDEXABLE: ${NEXT_PUBLIC_SITE_INDEXABLE:-}
+        # The matter jurisdiction profile in the web app, also a build-time
+        # flag (docs/deployment.md, "Matter jurisdiction profile"). The API's
+        # own switch, MATTER_JURISDICTIONS_ENABLED, is read from its env_file.
+        NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED: ${NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED:-}
         GIT_SHA: ${GIT_SHA:-}
         # Sentry source-map upload (docs/observability.md); the token is the
         # build secret below.
