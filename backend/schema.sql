@@ -418,6 +418,14 @@ create table if not exists public.organizations (
   -- Kept in step by a trigger on org_logos; clients read it to know whether
   -- there is a logo and when to fetch it again.
   logo_updated_at timestamptz,
+  -- What the organization's new matters start with (L1): jurisdiction codes
+  -- from lib/jurisdictions.ts and a working language from
+  -- lib/responseLanguages.ts. A matter can change either afterwards. The API
+  -- checks membership of both lists; the database checks only the number.
+  default_jurisdictions text[] not null default '{}'
+    constraint organizations_default_jurisdictions_limit
+      check (cardinality(default_jurisdictions) <= 10),
+  default_working_language text,
   kind text not null default 'team'
     constraint organizations_kind_check check (kind in ('team', 'personal')),
   -- Whose personal organization this is; set exactly when it is one.
@@ -1038,6 +1046,18 @@ create table if not exists public.projects (
   ai_restricted_reason text,
   ai_restricted_by uuid references auth.users(id) on delete set null,
   ai_restricted_at timestamptz,
+  -- The matter's jurisdiction profile (L1): which jurisdictions it is about,
+  -- which law governs it and the language it is worked in. Jurisdictions are
+  -- codes of the registry in lib/jurisdictions.ts; the language is a tag from
+  -- lib/responseLanguages.ts. The API checks membership of both lists, so
+  -- the database checks only how many codes a row lists and a code's shape.
+  jurisdictions text[] not null default '{}'
+    constraint projects_jurisdictions_limit
+      check (cardinality(jurisdictions) <= 10),
+  governing_law text
+    constraint projects_governing_law_format
+      check (governing_law is null or governing_law ~ '^[A-Z]{2}(_[A-Z0-9]{1,3})?$'),
+  working_language text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint projects_visibility_scope_check
@@ -12658,5 +12678,6 @@ insert into public.schema_migrations (filename) values
   ('20261107_50_org_subscriptions.sql'),
   ('20261107_51_matter_ai_controls.sql'),
   ('20261108_50_request_desk_forms.sql'),
-  ('20261108_51_billing_events.sql')
+  ('20261108_51_billing_events.sql'),
+  ('20261113_50_matter_jurisdiction.sql')
 on conflict (filename) do nothing;
