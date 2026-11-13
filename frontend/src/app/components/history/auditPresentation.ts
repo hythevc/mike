@@ -96,6 +96,11 @@ export const ACTION_LABELS: Record<string, string> = {
   "request.form_disabled": "Request form disabled",
   "request.form_link_rotated": "Request form link replaced",
   "request.form_submitted": "Request submitted through form",
+  // The matter jurisdiction profile: a project's jurisdictions, governing
+  // law and working language, and an organization's defaults for new
+  // projects.
+  "project.jurisdiction_profile.updated": "Jurisdiction profile updated",
+  "org.matter_defaults.updated": "New project defaults updated",
 };
 
 export const SURFACE_LABELS: Record<string, string> = {
@@ -197,6 +202,7 @@ export function auditSubject(event: AuditEvent) {
   else if (action.startsWith("org.departure.item."))
     type = auditLabel(detailText(event, "kind") ?? "item");
   else if (action.startsWith("org.")) type = "Organization";
+  else if (action === "project.jurisdiction_profile.updated") type = "Project";
   else if (action.startsWith("document.")) type = "Document";
   else if (action.startsWith("chat.")) type = "Chat";
   else if (action.startsWith("workflow.")) type = "Workflow";

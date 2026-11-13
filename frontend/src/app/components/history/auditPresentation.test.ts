@@ -124,6 +124,45 @@ describe("audit event presentation", () => {
     );
   });
 
+  it("labels changes to the matter jurisdiction profile instead of generating labels", () => {
+    const profile = {
+      ...event,
+      action: "project.jurisdiction_profile.updated",
+      title: null,
+      surface: "project",
+      project_id: "project-1",
+      detail: { changed: ["jurisdictions"], jurisdictions: ["GB", "IE"] },
+    };
+    expect(auditAction(profile)).toBe("Jurisdiction profile updated");
+    expect(auditSubject(profile)).toEqual({
+      type: "Project",
+      name: "-",
+      context: "Project",
+    });
+    expect(auditSummary(profile, false)).toBe(
+      "Jurisdiction profile updated by Alex Chen",
+    );
+    expect(auditDestination(profile)).toEqual({
+      href: "/projects/project-1",
+      label: "Open project",
+    });
+
+    const defaults = {
+      ...event,
+      action: "org.matter_defaults.updated",
+      title: null,
+      detail: {
+        changed: ["default_working_language"],
+        default_working_language: "en-GB",
+      },
+    };
+    expect(auditAction(defaults)).toBe("New project defaults updated");
+    expect(auditSubject(defaults).type).toBe("Organization");
+    expect(auditSummary(defaults, true)).toBe(
+      "New project defaults updated by you",
+    );
+  });
+
   it("names what a playbook decision row decided from its codes alone", () => {
     const decided = {
       ...event,
