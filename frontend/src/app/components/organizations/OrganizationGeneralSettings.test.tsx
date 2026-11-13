@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fireEvent,
   render,
@@ -224,10 +224,32 @@ describe("who sees what", () => {
 });
 
 // What an organization's new projects start with is set by its owners and
-// admins, as the server allows, so only they are shown the section.
+// admins, as the server allows, so only they are shown the section, and only
+// where the deployment has switched the matter jurisdiction profile on.
 describe("the defaults for new projects", () => {
   const defaults = () =>
     screen.queryByRole("region", { name: "New Project Defaults" });
+
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED", "true");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each(["owner", "admin"] as const)(
+    "is shown to no one, an %s included, while the profile is switched off",
+    (role) => {
+      vi.stubEnv("NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED", "");
+      mocks.org = { ...orgAs(role), default_jurisdictions: ["EU", "IE"] };
+      render(<OrganizationGeneralSettings />);
+      expect(defaults()).not.toBeInTheDocument();
+      // The sections are the ones it always had.
+      expect(
+        screen.getAllByRole("region").map((region) => region.getAttribute("aria-labelledby")),
+      ).not.toContain("org-matter-defaults");
+    },
+  );
 
   it.each(["owner", "admin"] as const)("is shown to an %s", (role) => {
     mocks.org = { ...orgAs(role), default_jurisdictions: ["EU", "IE"] };

@@ -41,6 +41,7 @@ import {
   isOrgAdmin,
   isOrgOwner,
 } from "@/app/lib/permissions";
+import { matterJurisdictionsEnabled } from "@/app/lib/matterJurisdictionsFlag";
 import { userFacingApiError } from "@/app/lib/userFacingError";
 import { GlassCardUI } from "@/shared/ui/GlassCardUI";
 import { BrandMark } from "@/shared/ui/BrandMarkUI";
@@ -359,8 +360,9 @@ export function OrganizationGeneralSettings() {
 
       {/* What the organization's new projects start with. Setting it is its
           owners' and admins', as renaming is; the server refuses anyone
-          else, so a member is not shown it. */}
-      {canRename && org ? (
+          else, so a member is not shown it. Only where the deployment has
+          switched the matter jurisdiction profile on. */}
+      {canRename && org && matterJurisdictionsEnabled() ? (
         <OrganizationMatterDefaults org={org} onSaved={setOrg} />
       ) : null}
 

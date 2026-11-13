@@ -122,8 +122,8 @@ export interface Project {
   /**
    * The matter's jurisdiction profile: the jurisdictions it is about (registry
    * codes such as US_CA, in the order chosen), the law that governs it and
-   * the language it is worked in. Absent from a server that predates them,
-   * which reads as nothing recorded.
+   * the language it is worked in. Absent from a server that predates them or
+   * has the profile switched off, which reads as nothing recorded.
    */
   jurisdictions?: string[];
   governing_law?: string | null;

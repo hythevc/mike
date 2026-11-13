@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     MikeApiError,
     getJurisdictionRegistry,
@@ -262,11 +262,96 @@ describe("ProjectDetailsModal", () => {
         });
     });
 
+    // While the deployment has not switched the profile on (the default),
+    // the form is what it was before the profile existed, whatever the
+    // project carries.
+    describe("while the jurisdiction profile is switched off", () => {
+        const recorded = {
+            ...project,
+            jurisdictions: ["US", "US_NY"],
+            governing_law: "US_NY",
+            working_language: "en-US",
+        } as Project;
+
+        it("shows the fields it always had, and asks the server for no registry", async () => {
+            render(
+                <ProjectDetailsModal
+                    open
+                    project={recorded}
+                    canEdit
+                    onClose={vi.fn()}
+                    onSave={vi.fn()}
+                />,
+            );
+            await screen.findByLabelText("Organisation");
+
+            expect(
+                Array.from(document.querySelectorAll("label")).map(
+                    (label) => label.textContent,
+                ),
+            ).toEqual(["Project name", "CM number", "Practice", "Organisation"]);
+            expect(screen.queryByLabelText("Jurisdictions")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Governing law")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Working language")).not.toBeInTheDocument();
+            expect(getJurisdictionRegistry).not.toHaveBeenCalled();
+        });
+
+        it("keeps the form's own layout, without the scrolling the profile needs", async () => {
+            render(
+                <ProjectDetailsModal
+                    open
+                    project={recorded}
+                    canEdit
+                    onClose={vi.fn()}
+                    onSave={vi.fn()}
+                />,
+            );
+            const name = await screen.findByLabelText("Project name");
+            const form = name.parentElement?.parentElement;
+            expect(form).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "gap-6", "py-1");
+            expect(form).not.toHaveClass("overflow-y-auto");
+            expect(document.querySelector("[data-modal-scroll]")).toBeNull();
+        });
+
+        it("saves the details without any of the profile", async () => {
+            const user = userEvent.setup();
+            const onSave = vi.fn().mockResolvedValue(undefined);
+            render(
+                <ProjectDetailsModal
+                    open
+                    project={recorded}
+                    canEdit
+                    onClose={vi.fn()}
+                    onSave={onSave}
+                />,
+            );
+            const name = await screen.findByLabelText("Project name");
+            await user.clear(name);
+            await user.type(name, "Renamed matter");
+            await user.click(screen.getByRole("button", { name: "Update" }));
+
+            await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+            expect(onSave.mock.calls[0][0]).toEqual({
+                name: "Renamed matter",
+                cmNumber: "CM-123",
+                practice: "Litigation",
+            });
+        });
+    });
+
     // The matter's jurisdiction profile is three more of a project's
     // details: the jurisdictions it is about, the law that governs it and
     // the language it is worked in. They sit beside its practice and are
-    // saved with the rest, each only when it changed.
+    // saved with the rest, each only when it changed. Shown only where the
+    // deployment has switched the profile on.
     describe("jurisdiction profile", () => {
+        beforeEach(() => {
+            vi.stubEnv("NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED", "true");
+        });
+        afterEach(() => {
+            vi.unstubAllEnvs();
+        });
+
         const withProfile = (overrides: Partial<Project> = {}) =>
             ({
                 ...project,

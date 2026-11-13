@@ -1474,7 +1474,8 @@ export interface WorkingLanguageOption {
 /**
  * GET /projects/jurisdictions: what the jurisdiction, governing-law and
  * working-language pickers offer, and how many jurisdictions one matter may
- * list.
+ * list. Served only while the deployment has the profile switched on
+ * (MATTER_JURISDICTIONS_ENABLED).
  */
 export interface JurisdictionRegistry {
   jurisdictions: JurisdictionEntry[];
@@ -1485,8 +1486,10 @@ export interface JurisdictionRegistry {
 /**
  * A matter's jurisdiction profile (L1): the jurisdictions it is about (registry
  * codes, in the order chosen), the law that governs it (one registry code) and
- * the language it is worked in (a response-language code). Every project read
- * carries these three fields; create and update accept them.
+ * the language it is worked in (a response-language code). While the
+ * deployment has the profile switched on (MATTER_JURISDICTIONS_ENABLED), every
+ * project read carries these three fields and create and update accept them;
+ * while it is off, no read carries them and a write ignores them.
  */
 export interface MatterJurisdictionProfile {
   jurisdictions: string[];
@@ -1497,7 +1500,7 @@ export interface MatterJurisdictionProfile {
 /**
  * GET and PUT /orgs/:orgId/matter-defaults: the jurisdictions and the working
  * language an organization's new matters start with. A matter created with a
- * value of its own keeps it.
+ * value of its own keeps it. Served only while the profile is switched on.
  */
 export interface OrgMatterDefaults {
   default_jurisdictions: string[];

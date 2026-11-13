@@ -1923,7 +1923,8 @@ export interface Org {
     allow_member_deletes?: boolean;
     /**
      * What the organization's new matters start with: jurisdiction codes and
-     * a working language. Absent from a server that predates them.
+     * a working language. Absent from a server that predates them or has the
+     * matter jurisdiction profile switched off.
      */
     default_jurisdictions?: string[];
     default_working_language?: string | null;

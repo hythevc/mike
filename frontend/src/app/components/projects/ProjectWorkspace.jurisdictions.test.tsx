@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     getJurisdictionRegistry,
     getProject,
@@ -139,13 +139,37 @@ const chipNames = () =>
         .map((item) => item.textContent);
 const profile = () => JSON.parse(screen.getByRole("status").textContent ?? "{}");
 
-describe("the jurisdiction profile in the project workspace", () => {
+describe("while the jurisdiction profile is switched off", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         clearJurisdictionRegistryCache();
         vi.mocked(getJurisdictionRegistry).mockResolvedValue(registry);
+    });
+
+    it("draws no chips and reads no registry, even for a project that has jurisdictions", async () => {
+        vi.mocked(getProject).mockResolvedValue(loadedProject() as never);
+        renderWorkspace();
+        await screen.findByText("Cross-border sale");
+        expect(chips()).toBeNull();
+        expect(
+            document.querySelector("[data-slot='project-jurisdiction-chips']"),
+        ).toBeNull();
+        expect(getJurisdictionRegistry).not.toHaveBeenCalled();
+    });
+});
+
+describe("the jurisdiction profile in the project workspace", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        // Shown only where the deployment has switched the profile on.
+        vi.stubEnv("NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED", "true");
+        clearJurisdictionRegistryCache();
+        vi.mocked(getJurisdictionRegistry).mockResolvedValue(registry);
         vi.mocked(getProject).mockResolvedValue(loadedProject() as never);
         detailsToSave.current = null;
+    });
+    afterEach(() => {
+        vi.unstubAllEnvs();
     });
 
     describe("chips under the header", () => {

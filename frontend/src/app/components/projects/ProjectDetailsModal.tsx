@@ -14,6 +14,7 @@ import type {
     Project,
 } from "@/app/components/shared/types";
 import { listOrgs, type Org } from "@/app/lib/mikeApi";
+import { matterJurisdictionsEnabled } from "@/app/lib/matterJurisdictionsFlag";
 import { userFacingApiError } from "@/app/lib/userFacingError";
 import { ProjectJurisdictionFields } from "./ProjectJurisdictionFields";
 import { ProjectPracticeField } from "./ProjectPracticeField";
@@ -121,11 +122,16 @@ export function ProjectDetailsModal({
     const trimmedName = nameDraft.trim();
     const trimmedCm = cmDraft.trim();
     const trimmedPractice = practiceDraft.trim();
+    // The jurisdiction profile is shown, and can change, only where the
+    // deployment has switched it on (NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED).
+    // Off, the form is what it was before the profile existed.
+    const profileEnabled = matterJurisdictionsEnabled();
     const jurisdictionsChanged =
-        jurisdictionsDraft.join(",") !== projectJurisdictions;
-    const governingLawChanged = governingLawDraft !== projectGoverningLaw;
+        profileEnabled && jurisdictionsDraft.join(",") !== projectJurisdictions;
+    const governingLawChanged =
+        profileEnabled && governingLawDraft !== projectGoverningLaw;
     const workingLanguageChanged =
-        workingLanguageDraft !== projectWorkingLanguage;
+        profileEnabled && workingLanguageDraft !== projectWorkingLanguage;
     const hasChanges = useMemo(() => {
         if (!project) return false;
         return (
@@ -242,11 +248,16 @@ export function ProjectDetailsModal({
             }
             cancelAction={canEdit ? undefined : false}
         >
-            {/* The form is taller than the dialog once a few jurisdictions
-                are chosen, so it scrolls inside it and the footer stays put. */}
+            {/* With the jurisdiction profile the form is taller than the
+                dialog once a few jurisdictions are chosen, so it scrolls
+                inside it and the footer stays put. */}
             <div
-                data-modal-scroll="vertical"
-                className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pb-4 pt-1"
+                data-modal-scroll={profileEnabled ? "vertical" : undefined}
+                className={
+                    profileEnabled
+                        ? "flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pb-4 pt-1"
+                        : "flex min-h-0 flex-1 flex-col gap-6 py-1"
+                }
             >
                 <div>
                     <FieldLabel htmlFor="project-details-name">
@@ -301,23 +312,25 @@ export function ProjectDetailsModal({
                     />
                 </div>
 
-                <ProjectJurisdictionFields
-                    idPrefix="project-details"
-                    value={{
-                        jurisdictions: jurisdictionsDraft,
-                        governingLaw: governingLawDraft,
-                        workingLanguage: workingLanguageDraft,
-                    }}
-                    onChange={(next) => {
-                        setJurisdictionsDraft(next.jurisdictions);
-                        setGoverningLawDraft(next.governingLaw);
-                        setWorkingLanguageDraft(next.workingLanguage);
-                        setSaved(false);
-                        setError(null);
-                    }}
-                    readOnly={!canEdit}
-                    disabled={saving}
-                />
+                {profileEnabled ? (
+                    <ProjectJurisdictionFields
+                        idPrefix="project-details"
+                        value={{
+                            jurisdictions: jurisdictionsDraft,
+                            governingLaw: governingLawDraft,
+                            workingLanguage: workingLanguageDraft,
+                        }}
+                        onChange={(next) => {
+                            setJurisdictionsDraft(next.jurisdictions);
+                            setGoverningLawDraft(next.governingLaw);
+                            setWorkingLanguageDraft(next.workingLanguage);
+                            setSaved(false);
+                            setError(null);
+                        }}
+                        readOnly={!canEdit}
+                        disabled={saving}
+                    />
+                ) : null}
 
                 <div>
                     <FieldLabel htmlFor="project-details-org">

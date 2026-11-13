@@ -59,6 +59,7 @@ import {
     can,
     roleFromLoaded,
 } from "@/app/lib/permissions";
+import { matterJurisdictionsEnabled } from "@/app/lib/matterJurisdictionsFlag";
 import { ProjectDetailsModal } from "./ProjectDetailsModal";
 import { ProjectJurisdictionChips } from "./ProjectJurisdictionChips";
 import { ProjectMemoryModal } from "./ProjectMemoryModal";
@@ -740,8 +741,11 @@ export function ProjectWorkspaceProvider({
                     />
 
                     {/* The matter's jurisdictions, in view on every page of
-                        the project. Mounted only when there are some. */}
-                    {project?.jurisdictions?.length ? (
+                        the project. Mounted only when there are some, and
+                        only where the deployment has switched the profile
+                        on (NEXT_PUBLIC_MATTER_JURISDICTIONS_ENABLED). */}
+                    {matterJurisdictionsEnabled() &&
+                    project?.jurisdictions?.length ? (
                         <ProjectJurisdictionChips
                             codes={project.jurisdictions}
                         />
