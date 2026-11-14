@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TRTable } from "./TRTable";
+import { QUOTE_MARKER_DESCRIPTIONS } from "./tabularQuoteLabels";
 import type {
     ColumnConfig,
     Document,
@@ -198,16 +199,20 @@ function renderQuoteTable(showCellsToCheck: boolean) {
 }
 
 describe("TRTable quote markers and filter", () => {
-    it("shows a quote-status marker with visible text on each answered cell", () => {
+    it("shows a quote-status marker with visible text on each answered cell", async () => {
         renderQuoteTable(false);
         // Three cells found, one not found: markers render as plain text.
         expect(screen.getAllByText("Quote found")).toHaveLength(3);
         const notFound = screen.getByText("Quote not found - check source");
         expect(notFound).toBeInTheDocument();
-        // The marker's accessible description, never colour alone.
-        expect(
-            notFound.closest("[data-quote-marker='not_found']"),
-        ).toHaveAttribute("title");
+        // The marker's accessible description, never colour alone: a tooltip
+        // on hover, not a native title.
+        const marker = notFound.closest("[data-quote-marker='not_found']");
+        expect(marker).not.toHaveAttribute("title");
+        fireEvent.pointerEnter(marker as HTMLElement, { pointerType: "mouse" });
+        expect(await screen.findByRole("tooltip")).toHaveTextContent(
+            QUOTE_MARKER_DESCRIPTIONS.not_found,
+        );
     });
 
     it("'Show cells to check' shows only the cells that need checking", () => {

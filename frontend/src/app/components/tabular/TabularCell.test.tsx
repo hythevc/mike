@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { TabularCell as TabularCellData } from "../shared/types";
 import { TabularCell } from "./TabularCell";
+import { QUOTE_MARKER_DESCRIPTIONS } from "./tabularQuoteLabels";
 
 describe("TabularCell", () => {
     it("passes the cited source document through the click handler", () => {
@@ -67,7 +68,7 @@ describe("TabularCell", () => {
         expect(screen.queryByText("No readable text")).not.toBeInTheDocument();
     });
 
-    it("shows the quote-status marker on an answered cell", () => {
+    it("shows the quote-status marker on an answered cell", async () => {
         const cell = {
             id: "cell-1",
             status: "done",
@@ -79,8 +80,12 @@ describe("TabularCell", () => {
 
         const marker = screen.getByText("Quote not found - check source");
         expect(marker).toBeInTheDocument();
-        expect(
-            marker.closest("[data-quote-marker='not_found']"),
-        ).toHaveAttribute("title");
+        // The description is a tooltip on hover, not a native title.
+        const anchor = marker.closest("[data-quote-marker='not_found']");
+        expect(anchor).not.toHaveAttribute("title");
+        fireEvent.pointerEnter(anchor as HTMLElement, { pointerType: "mouse" });
+        expect(await screen.findByRole("tooltip")).toHaveTextContent(
+            QUOTE_MARKER_DESCRIPTIONS.not_found,
+        );
     });
 });
