@@ -13,6 +13,7 @@ import {
     LIQUID_GLASS_HOVER_CLASS,
     LIQUID_GLASS_SUBTLE_CLASS,
 } from "@/app/components/ui/liquid-surface";
+import { Tooltip } from "@/app/components/ui/tooltip";
 import { cn } from "@/app/lib/utils";
 import { formatElapsedTime } from "@/app/lib/formatElapsedTime";
 import { chatActivityAt, sortChatsByActivity } from "@/app/lib/chatActivity";
@@ -264,15 +265,19 @@ export function ChatPanelHeader({
                         )}
                         {actions}
                         {onClose && (
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                aria-label="Close chat panel"
-                                title="Close chat panel"
-                                className={HEADER_PILL_BUTTON_CLASS}
-                            >
-                                <X aria-hidden="true" className="h-3.5 w-3.5" />
-                            </button>
+                            <Tooltip content="Close chat panel">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    aria-label="Close chat panel"
+                                    className={HEADER_PILL_BUTTON_CLASS}
+                                >
+                                    <X
+                                        aria-hidden="true"
+                                        className="h-3.5 w-3.5"
+                                    />
+                                </button>
+                            </Tooltip>
                         )}
                     </div>
                 </div>
