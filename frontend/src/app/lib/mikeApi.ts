@@ -1,4 +1,5 @@
 import type { Operation } from "@/shared/lib/sentryPrivacy";
+import type { ThemePreference } from "@/app/lib/theme";
 import type { BillingSessionResponse, OrgPlanView, PlansResponse } from "@mike/contracts";
 import type {
     TabularReviewHistoryStatus,
@@ -889,6 +890,9 @@ export interface UserProfile extends RouterProfileLists {
     quickActionsVisible: boolean;
     /** Whether responses and subagents show the model, effort and tokens they used. */
     responseDetailsVisible?: boolean;
+    /** Appearance preference: follow the device, or force light or dark. */
+    theme: ThemePreference;
+    /** Retained for the Word add-in's own theme path; System resolves to light there. */
     darkMode: boolean;
     projectMemoryDefault: boolean;
     apiKeyStatus: ApiKeyStatus;
@@ -1014,6 +1018,7 @@ export async function updateUserProfile(payload: {
     lastSelectedReasoningLevel?: NonNullable<Message["reasoning"]>;
     quickActionsVisible?: boolean;
     responseDetailsVisible?: boolean;
+    theme?: ThemePreference;
     darkMode?: boolean;
     projectMemoryDefault?: boolean;
 } & Partial<RouterProfileLists>): Promise<UserProfile> {

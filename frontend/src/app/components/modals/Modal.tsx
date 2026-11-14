@@ -3,7 +3,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { ModalUI, type ModalUISize } from "@/shared/ui/ModalUI";
 import { PillButtonUI } from "@/shared/ui/PillButtonUI";
-import { cn } from "@/app/lib/utils";
 
 type ModalAction = Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
@@ -18,6 +17,10 @@ interface ModalProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  /** A visible dialog title, rendered as a heading and used as the name. */
+  title?: ReactNode;
+  /** A line under the title, wired to the dialog's description. */
+  description?: ReactNode;
   breadcrumbs?: ReactNode[];
   headerAction?: ReactNode;
   size?: ModalUISize;
@@ -40,6 +43,8 @@ export function Modal({
   open,
   onClose,
   children,
+  title,
+  description,
   breadcrumbs,
   headerAction,
   size = "lg",
@@ -57,12 +62,20 @@ export function Modal({
     <ModalUI
       open={open}
       onClose={onClose}
+      title={title}
+      description={description}
       breadcrumbs={breadcrumbs}
       headerAction={headerAction}
       size={size}
-      className={cn("h-[min(600px,calc(100vh-2rem))]", className)}
+      // Natural height: the dialog grows with its content and then scrolls its
+      // body inside the viewport, instead of a fixed box with empty space.
+      className={className}
       ariaLabel={
-        typeof lastBreadcrumb === "string" ? lastBreadcrumb : undefined
+        typeof title === "string"
+          ? title
+          : typeof lastBreadcrumb === "string"
+            ? lastBreadcrumb
+            : undefined
       }
       footerStatus={footerStatus}
       secondaryAction={

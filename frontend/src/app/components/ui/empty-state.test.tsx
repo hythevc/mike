@@ -21,13 +21,14 @@ describe("EmptyState", () => {
         ).toBeNull();
     });
 
-    it("applies the shared display heading classes", () => {
+    it("applies the shared display heading classes through HeadingUI", () => {
         render(<EmptyState title="Workflows" />);
+        // The display size from HeadingUI, in the fg colour role (no raw gray).
         expect(screen.getByText("Workflows")).toHaveClass(
             "font-serif",
             "text-2xl",
             "font-medium",
-            "text-gray-900",
+            "text-fg",
         );
     });
 

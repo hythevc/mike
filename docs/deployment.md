@@ -199,6 +199,19 @@ add them to the organization) if they should still have it, and otherwise do
 nothing. The table is a record, not a queue — nothing reads it, and rows may
 be deleted once every recipient has been dealt with.
 
+### After the system-theme upgrade: `dark_mode` becomes nullable
+
+`20261110_50_theme_system.sql` adds a System theme option. The appearance
+preference is three-valued now — System, Light or Dark — but it stays in the
+existing `user_profiles.dark_mode` boolean rather than a new column: `true` is
+Dark, `false` is Light, and `NULL` is System (follow the device). The migration
+drops the column's `NOT NULL` and its default, which makes `NULL` representable
+and starts a new account on System (the profile row is inserted without naming
+`dark_mode`). Existing rows keep their explicit `true`/`false`, so nobody's
+current theme changes. The migration is safe to re-run. No data is lost and
+there is nothing to apply by hand; a deployment that must roll back can set a
+default and `NOT NULL` again only once every profile row has a non-null value.
+
 Apply the workflow catalog migration before deploying the matching backend
 release, then run the dedicated ingestion job from the built backend artifact:
 

@@ -5,6 +5,8 @@ import "./fonts/fonts.css";
 import "./globals.css";
 import { Providers } from "@/app/components/providers";
 import { brand } from "@/shared/brand.generated";
+import { THEME_COLOR } from "@/app/lib/theme";
+import { themeScript } from "@/app/lib/themeScript";
 
 const title = `${brand.productName} — Legal AI`;
 const description =
@@ -47,9 +49,15 @@ export const metadata: Metadata = {
 // The brand palette and display face, set once on the root so the whole app
 // and its auth and loader screens read them. W11 consumes the primary slots
 // through the semantic tokens; the display face names the wordmark's type.
+// --brand-primary-dark is set only when the brand config carries one, so the
+// dark-surface brand fill otherwise falls back to the navy primary (see the
+// .dark brand override in DesignTokensUI.css).
 const brandStyle = {
     "--brand-primary": brand.palette.primary,
     "--brand-on-primary": brand.palette.onPrimary,
+    ...(brand.palette.primaryDark
+        ? { "--brand-primary-dark": brand.palette.primaryDark }
+        : {}),
     "--brand-display-face":
         brand.displayFace === "eb-garamond"
             ? "var(--font-eb-garamond)"
@@ -62,7 +70,19 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="en" style={brandStyle}>
+        // suppressHydrationWarning: the pre-paint script below sets the `.dark`
+        // class and color-scheme on <html> before React hydrates, so the
+        // server and client markup differ by design on this one element.
+        <html lang="en" style={brandStyle} suppressHydrationWarning>
+            <head>
+                {/* Updated per resolved theme by the pre-paint script and by
+                    applyTheme; the default is the light surface tint. */}
+                <meta name="theme-color" content={THEME_COLOR.light} />
+                {/* Set .dark, color-scheme and theme-color from the localStorage
+                    mirror before first paint, so a dark-mode user never sees a
+                    flash of the light frame. */}
+                <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+            </head>
             <body
                 className="font-sans antialiased"
             >

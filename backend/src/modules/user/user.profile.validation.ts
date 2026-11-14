@@ -187,6 +187,7 @@ export function validateProfilePayload(body: unknown):
         "quickActionsVisible",
         "responseDetailsVisible",
         "darkMode",
+        "theme",
         "projectMemoryDefault",
         ...ROUTER_SLUGS.map((slug) => ROUTER_PROFILE_FIELDS[slug]),
     ]);
@@ -216,7 +217,7 @@ export function validateProfilePayload(body: unknown):
         last_selected_reasoning_level?: string | null;
         quick_actions_visible?: boolean;
         response_details_visible?: boolean;
-        dark_mode?: boolean;
+        dark_mode?: boolean | null;
         project_memory_default?: boolean;
         updated_at: string;
     } = { updated_at: new Date().toISOString() };
@@ -441,6 +442,23 @@ export function validateProfilePayload(body: unknown):
             };
         }
         update.dark_mode = raw.darkMode;
+    }
+
+    // Three-valued appearance preference, stored in the same dark_mode column:
+    // 'system' -> null, 'dark' -> true, 'light' -> false. The legacy boolean
+    // `darkMode` is still accepted above; `theme` wins when both are sent.
+    if ("theme" in raw) {
+        if (
+            raw.theme !== "system" &&
+            raw.theme !== "light" &&
+            raw.theme !== "dark"
+        ) {
+            return {
+                ok: false,
+                detail: "theme must be one of system, light or dark",
+            };
+        }
+        update.dark_mode = raw.theme === "system" ? null : raw.theme === "dark";
     }
 
     if ("projectMemoryDefault" in raw) {

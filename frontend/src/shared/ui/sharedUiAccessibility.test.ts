@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 const frontend = process.cwd();
 const SHARED_UI = resolve(frontend, "src/shared/ui");
+const APP = resolve(frontend, "src/app");
 
 function sourceFiles(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -81,5 +82,41 @@ describe("shared/ui accessibility", () => {
         );
         expect(docs).toMatch(/2\.5\.8/);
         expect(docs.toLowerCase()).toContain("spacing exception");
+    });
+});
+
+// App-wide 11px floor (W27). The shared primitives hold a hard zero above; the
+// app screens still carry pre-token offenders, recorded in microTextAllowlist
+// so the set can only shrink. A new sub-11px token fails the build; a removed
+// one must be removed here too. The one permanent entry is the 16px avatar
+// monogram, documented in docs/design-system.md.
+describe("frontend/src/app micro-typography floor", () => {
+    it("holds every sub-11px token to the recorded allowlist", () => {
+        const found = new Set<string>();
+        for (const file of sourceFiles(APP)) {
+            const source = readFileSync(file, "utf8");
+            for (const match of source.matchAll(/text-\[[^\]]+\]/g)) {
+                const px = arbitraryTextPx(match[0]);
+                if (px !== null && px < 11)
+                    found.add(`${relative(frontend, file)}: ${match[0]}`);
+            }
+        }
+
+        const { allow } = JSON.parse(
+            readFileSync(resolve(APP, "microTextAllowlist.json"), "utf8"),
+        ) as { allow: string[] };
+
+        const sortedFound = [...found].sort();
+        const sortedAllow = [...allow].sort();
+
+        const unlisted = sortedFound.filter((e) => !allow.includes(e));
+        expect(unlisted, "new text below 11px — raise it to 11px or more").toEqual(
+            [],
+        );
+        const removed = sortedAllow.filter((e) => !found.has(e));
+        expect(
+            removed,
+            "allowlist entries no longer present — delete them from microTextAllowlist.json",
+        ).toEqual([]);
     });
 });

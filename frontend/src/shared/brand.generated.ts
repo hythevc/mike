@@ -116,14 +116,20 @@ export interface Brand {
     readonly ogImage: string;
   };
   /**
-   * Brand colours. onPrimary on primary must reach a 4.5:1 contrast ratio
-   * (checked by the generator).
+   * Brand colours. onPrimary on primary must reach a 4.5:1 contrast ratio, and
+   * on primaryDark too when it is set (checked by the generator).
    */
   readonly palette: {
     /** Main brand colour. */
     readonly primary: string;
-    /** Text and icon colour placed on primary. */
+    /** Text and icon colour placed on primary, and on primaryDark. */
     readonly onPrimary: string;
+    /**
+     * Optional lighter brand fill for dark surfaces, so a brand fill keeps a
+     * 3:1 boundary there; onPrimary must still reach 4.5:1 on it. Omit to keep
+     * brand fills off dark surfaces.
+     */
+    readonly primaryDark?: string;
   };
   /**
    * Typeface for display text, chosen from the faces bundled with the web
@@ -219,6 +225,7 @@ export const brand: Brand = {
   palette: {
     primary: "#1F3A5F",
     onPrimary: "#FFFFFF",
+    primaryDark: "#3E6AA6",
   },
   displayFace: "inter",
   docxAuthorLabel: "Glossa Assistant",

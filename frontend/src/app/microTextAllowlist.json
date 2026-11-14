@@ -1,0 +1,24 @@
+{
+    "$comment": "SPDX-License-Identifier: AGPL-3.0-only. Files under frontend/src/app that still set interface text below the 11px floor (see docs/design-system.md, Typography). Each entry is '<path relative to frontend>: <token>', deduplicated per file and token. sharedUiAccessibility.test.ts asserts the live set equals this list, so a NEW sub-11px token fails the build and a listed one may only be removed together with its code. Permanent, documented exception: 'src/app/components/ui/user-avatar.tsx: text-[8px]' is the 16px table-avatar monogram (docs/design-system.md). The rest are pre-existing offenders removed by W29 and W31 as their screens are polished.",
+    "allow": [
+        "src/app/(pages)/settings/models/page.tsx: text-[9px]",
+        "src/app/components/assistant/AskInputPopup.tsx: text-[10px]",
+        "src/app/components/assistant/CitationQuotesSection.tsx: text-[9px]",
+        "src/app/components/assistant/ContextNumberBadge.tsx: text-[9px]",
+        "src/app/components/history/HistoryDatePicker.tsx: text-[10px]",
+        "src/app/components/organizations/OrganizationMembers.tsx: text-[10px]",
+        "src/app/components/organizations/OrganizationModals.tsx: text-[10px]",
+        "src/app/components/projects/ProjectPageParts.tsx: text-[7px]",
+        "src/app/components/projects/ProjectWorkspaceTips.tsx: text-[10px]",
+        "src/app/components/settings/RouterSettingsSection.tsx: text-[10px]",
+        "src/app/components/shared/AppSidebar.tsx: text-[10px]",
+        "src/app/components/shared/DocumentVersionPicker.tsx: text-[10px]",
+        "src/app/components/shared/VersionChip.tsx: text-[10px]",
+        "src/app/components/shared/VersionChip.tsx: text-[9px]",
+        "src/app/components/tabular/TREditColumnMenu.tsx: text-[10px]",
+        "src/app/components/tabular/TabularCell.tsx: text-[10px]",
+        "src/app/components/ui/user-avatar.tsx: text-[10px]",
+        "src/app/components/ui/user-avatar.tsx: text-[8px]",
+        "src/app/components/workflows/WorkflowPickerContent.tsx: text-[10px]"
+    ]
+}

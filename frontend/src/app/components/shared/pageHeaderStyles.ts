@@ -1,14 +1,17 @@
 // Kept apart from PageHeader.tsx so a page can take the title's style
 // without depending on the header component itself.
 
+import { HEADING_SIZE_CLASSES } from "@/shared/ui/HeadingUI";
+
 /**
  * The display style of a page's title, shared by a plain title (an `<h1>`
  * passed as the header's children) and the breadcrumbs, so the two are the
- * same size on every page. One step below the display headings used for
- * empty states: a page title sits beside the header's controls, and at their
- * size it crowded them.
+ * same size on every page. It is the `page` entry of the shared display
+ * scale in `HeadingUI`, one step below the display headings used for empty
+ * states: a page title sits beside the header's controls, and at their size
+ * it crowded them.
  */
-export const PAGE_HEADER_TITLE_CLASS = "font-serif text-xl font-medium";
+export const PAGE_HEADER_TITLE_CLASS = HEADING_SIZE_CLASSES.page;
 
 /**
  * The height and padding of the row a page's title sits in, which is what

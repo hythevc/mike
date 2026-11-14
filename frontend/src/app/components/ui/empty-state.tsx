@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/app/lib/utils";
+import { HeadingUI } from "@/shared/ui/HeadingUI";
 
 type EmptyStateProps = {
     /** Rendered at 32px; pass the bare icon, the wrapper sizes it. */
@@ -41,9 +42,9 @@ export function EmptyState({
                     {icon}
                 </span>
             ) : null}
-            <p className="font-serif text-2xl font-medium text-gray-900">
+            <HeadingUI as="p" size="display">
                 {title}
-            </p>
+            </HeadingUI>
             {description ? (
                 <p
                     data-slot="empty-state-description"

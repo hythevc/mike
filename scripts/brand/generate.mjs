@@ -178,18 +178,34 @@ export function brandProblems(config, schema) {
     for (const problem of validateAgainstSchema(schema, resolved)) {
         if (!problems.includes(problem)) problems.push(problem);
     }
-    const { primary, onPrimary } = resolved.palette;
+    const { primary, onPrimary, primaryDark } = resolved.palette;
     const ratio = contrastRatio(primary, onPrimary);
     if (ratio < MIN_CONTRAST) {
         problems.push(
             `palette.onPrimary has a contrast of ${ratio.toFixed(2)}:1 on palette.primary; it must be at least ${MIN_CONTRAST}:1`,
         );
     }
+    // The optional dark-surface brand fill still carries on-brand text, so
+    // onPrimary must clear 4.5:1 on it too. Its 3:1 boundary against the dark
+    // app surface is checked in the web app's tokenContrast.test.ts.
+    if (primaryDark !== undefined) {
+        const darkRatio = contrastRatio(primaryDark, onPrimary);
+        if (darkRatio < MIN_CONTRAST) {
+            problems.push(
+                `palette.onPrimary has a contrast of ${darkRatio.toFixed(2)}:1 on palette.primaryDark; it must be at least ${MIN_CONTRAST}:1`,
+            );
+        }
+    }
     return problems;
 }
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 const pascal = (name) => name.charAt(0).toUpperCase() + name.slice(1);
+
+// Optional config fields resolveBrand always fills, so they are present in
+// every generated value and stay required in the generated type. Keep this in
+// step with resolveBrand's defaults.
+const ALWAYS_RESOLVED = new Set(["assistantName", "docxAuthorLabel"]);
 
 function wrapComment(text, indent) {
     const width = 80 - indent.length - 4;
@@ -226,11 +242,20 @@ function renderType(schema, root, indent, named) {
     if (schema.enum) return schema.enum.map((option) => JSON.stringify(option)).join(" | ");
     if (schema.type !== "object") return schema.type;
     const lines = ["{"];
+    const required = new Set(schema.required ?? []);
     for (const [key, child] of Object.entries(schema.properties ?? {})) {
         if (key.startsWith("$")) continue;
         if (child.description) lines.push(...wrapComment(child.description, `${indent}  `));
         const name = IDENTIFIER.test(key) ? key : JSON.stringify(key);
-        lines.push(`${indent}  readonly ${name}: ${renderType(child, root, `${indent}  `, named)};`);
+        // A property the config may omit and the resolver does not fill (today
+        // only palette.primaryDark) is optional in the type; everything in
+        // `required`, and the two defaults resolveBrand always supplies, stays
+        // mandatory.
+        const optional =
+            required.has(key) || ALWAYS_RESOLVED.has(key) ? "" : "?";
+        lines.push(
+            `${indent}  readonly ${name}${optional}: ${renderType(child, root, `${indent}  `, named)};`,
+        );
     }
     lines.push(`${indent}}`);
     return lines.join("\n");

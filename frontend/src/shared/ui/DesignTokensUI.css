@@ -230,9 +230,10 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
 
-    /* Semantic colour roles (dark). --surface/--surface-elevated and the brand
-       slots inherit the :root definitions, which resolve to the dark
-       app-surface family and the brand fallback respectively. */
+    /* Semantic colour roles (dark). --surface/--surface-elevated inherit the
+       :root definitions, which resolve to the dark app-surface family. The
+       brand fill is overridden below, because the navy brand primary fails the
+       3:1 boundary against the dark surface. */
     --text-primary: #f3f4f6;
     --text-secondary: #d1d5db;
     --text-muted: #9ca3af;
@@ -241,4 +242,17 @@
     --danger: #f87171;
     --success: #34d399;
     --warning: #fbbf24;
+
+    /* Brand fill on the dark surface. layout.tsx sets --brand-primary-dark only
+       when the brand config carries palette.primaryDark; with it set, the
+       lighter fill is used so a brand pill or mark keeps the 3:1 non-text
+       boundary against --app-surface. With no primaryDark the chain falls back
+       to the light brand primary (the navy), unchanged from before. On-brand
+       text stays at --brand-on-primary-color: the generator holds it to 4.5:1
+       on both primary and primaryDark. tokenContrast.test.ts pins the 3:1
+       boundary whenever the slot is set. */
+    --brand-primary-color: var(
+        --brand-primary-dark,
+        var(--brand-primary, #006edc)
+    );
 }

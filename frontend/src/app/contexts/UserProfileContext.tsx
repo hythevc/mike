@@ -39,7 +39,12 @@ import {
 } from "@/app/lib/mikeApi";
 import { apiKeyStateFromStatus } from "@/app/lib/apiKeyState";
 import type { Message } from "@/app/components/shared/types";
-import { applyDarkMode } from "@/app/lib/theme";
+import {
+    applyDarkMode,
+    applyTheme,
+    watchSystemTheme,
+    type ThemePreference,
+} from "@/app/lib/theme";
 import { notifyError } from "@/app/lib/userFacingError";
 import { useAssignLatest } from "@/app/hooks/useLatestRef";
 import {
@@ -86,6 +91,8 @@ interface UserProfile extends RouterProfileLists {
     quickActionsVisible: boolean;
     /** Whether responses and subagents show the model, effort and tokens they used. */
     responseDetailsVisible: boolean;
+    /** Appearance preference: follow the device, or force light or dark. */
+    theme: ThemePreference;
     darkMode: boolean;
     projectMemoryDefault: boolean;
     apiKeys: ApiKeyState;
@@ -142,6 +149,8 @@ interface UserProfileContextType {
         models: string[],
     ) => Promise<boolean>;
     updateDarkMode: (enabled: boolean) => Promise<void>;
+    /** Sets the appearance preference: follow the device, or force light or dark. */
+    updateTheme: (preference: ThemePreference) => Promise<void>;
     updateProjectMemoryDefault: (enabled: boolean) => Promise<void>;
     updateApiKey: (
         provider: ApiKeyProvider,
@@ -205,6 +214,10 @@ function toProfile(data: ApiUserProfile): UserProfile {
         mfaOnLogin: profile.mfaOnLogin === true,
         courtlistenerBulkData: profile.courtlistenerBulkData === true,
         responseDetailsVisible: profile.responseDetailsVisible === true,
+        // An older backend may send only `darkMode`; fall back to it so the
+        // app still has a preference, treating a missing value as light/dark
+        // (an old backend has no System concept).
+        theme: profile.theme ?? (profile.darkMode ? "dark" : "light"),
         projectMemoryDefault: profile.projectMemoryDefault !== false,
         ...routerProfileLists(profile),
         apiKeys,
@@ -308,6 +321,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 quickActionsVisible: true,
                 responseDetailsVisible: false,
                 ...routerProfileLists({}),
+                theme: "system",
                 darkMode: false,
                 projectMemoryDefault: true,
                 apiKeys: emptyApiKeys(),
@@ -344,9 +358,18 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
         }
     }, [isAuthenticated, userId, loadProfile]);
 
+    // Reconcile the theme once the profile loads (server truth). Before that
+    // the pre-paint head script holds whatever the localStorage mirror said,
+    // so a signed-out or still-loading page keeps the right frame; we only
+    // touch the root here once a real preference is known. On System, follow
+    // the device's colour scheme live.
+    const theme = profile?.theme;
     useEffect(() => {
-        applyDarkMode(profile?.darkMode === true);
-    }, [profile?.darkMode]);
+        if (!theme) return;
+        applyTheme(theme);
+        if (theme !== "system") return;
+        return watchSystemTheme(() => applyTheme("system"));
+    }, [theme]);
 
     /** Persists a photo change before publishing the returned value to every profile consumer. */
     const updateProfilePhoto = useCallback(async (photo: string | null) => {
@@ -676,6 +699,28 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
         [user, profile?.darkMode],
     );
 
+    const updateTheme = useCallback(
+        async (preference: ThemePreference): Promise<void> => {
+            if (!user) throw new Error("Sign in to change the appearance.");
+            const previous = profile?.theme ?? "system";
+            // Apply at once so the choice is visible, then persist; revert the
+            // root if the save fails so the screen never shows a theme the
+            // server did not keep.
+            applyTheme(preference);
+            try {
+                const updated = await updateUserProfile({ theme: preference });
+                const normalized = toProfile(updated);
+                setProfile((prev) =>
+                    prev ? { ...prev, ...normalized, theme: preference } : null,
+                );
+            } catch (error) {
+                applyTheme(previous);
+                throw error;
+            }
+        },
+        [user, profile?.theme],
+    );
+
     const updateProjectMemoryDefault = useCallback(
         async (enabled: boolean): Promise<void> => {
             if (!user) {
@@ -808,6 +853,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             updateResponseDetailsVisible,
             updateRouterModels,
             updateDarkMode,
+            updateTheme,
             updateProjectMemoryDefault,
             updateApiKey,
             updateApiKeyEnabled,
@@ -832,6 +878,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             updateResponseDetailsVisible,
             updateRouterModels,
             updateDarkMode,
+            updateTheme,
             updateProjectMemoryDefault,
             updateApiKey,
             updateApiKeyEnabled,

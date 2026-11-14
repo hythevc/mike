@@ -19,8 +19,11 @@
 // Browsers log what it would have blocked and send nothing to the server (no
 // reporting endpoint is configured); it records what an enforced policy will
 // have to allow before one is switched on. `'unsafe-inline'` and
-// `'unsafe-eval'` in script-src cover Next's inline bootstrap and the
-// development overlay; the Google script is the Drive picker.
+// `'unsafe-eval'` in script-src cover Next's inline bootstrap, the development
+// overlay and the pre-paint theme script layout.tsx inlines in <head>
+// (frontend/src/app/lib/themeScript.ts, which sets .dark before first paint);
+// the Google script is the Drive picker. The enforced policy is
+// `frame-ancestors` only, so that inline script needs no header change today.
 //
 // The headers go on every route but the API gateway (`/api/*`, whose
 // responses carry the API's own headers through unchanged) and the Sentry

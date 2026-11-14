@@ -102,12 +102,12 @@ export function ConfirmPopup({
           className="absolute right-2.5 top-2.5"
         />
         {title && (
-          <div id={titleId} className="pr-4 text-sm font-medium text-gray-950 mb-3">
+          <div id={titleId} className="pr-4 text-sm font-medium text-fg mb-3">
             {title}
           </div>
         )}
         {message && (
-          <div className={cn("pr-4 text-xs text-gray-700", title && "mt-1")}>
+          <div className={cn("pr-4 text-xs text-fg-subtle", title && "mt-1")}>
             {message}
           </div>
         )}
