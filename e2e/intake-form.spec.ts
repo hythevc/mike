@@ -70,6 +70,37 @@ test.describe("Public request form", () => {
 
             await expectAccessibleInEveryTheme(visitor, "/request");
 
+            // The submit button is enabled before anything is typed: pressing
+            // it is how a requester learns what is missing, not a dead button
+            // that never says why.
+            const send = visitor.getByRole("button", { name: "Send request" });
+            await expect(send).toBeEnabled();
+
+            // Submitting an empty form does not send it. A summary takes focus
+            // and names what to correct; each empty field is marked invalid and
+            // carries its own visible message.
+            await send.click();
+            const summary = visitor.locator('[data-slot="request-error-summary"]');
+            await expect(summary).toBeVisible();
+            await expect(summary).toBeFocused();
+            await expect(summary.getByText("Your request was not sent")).toBeVisible();
+            await expect(
+                visitor.getByLabel("What is the request about?"),
+            ).toHaveAttribute("aria-invalid", "true");
+            await expect(
+                visitor
+                    .locator('[data-request-field="title"]')
+                    .getByText("Add a short title for your request."),
+            ).toBeVisible();
+            // No horizontal scroll with the live form shown at a phone width.
+            await visitor.setViewportSize({ width: 320, height: 844 });
+            const overflow = await visitor.evaluate(
+                () =>
+                    document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            );
+            expect(overflow, "the request form overflows at 320px").toBeLessThanOrEqual(1);
+            await visitor.setViewportSize({ width: 1280, height: 844 });
+
             await visitor.getByLabel("What is the request about?").fill(title);
             await visitor
                 .getByLabel("Details")

@@ -1,12 +1,16 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
-> This is legal information, not legal advice. This page states what the software does today. It is not a certification, and it describes no control the software does not have.
+> This is legal information, not legal advice. This page states what the software does today. It is not a certification. Where the summary lists something that is not in place yet, it says so and gives the date it is due.
 
 {{productName}} is operated by {{legalEntityName}}. The complete source code of the running service is public under the GNU Affero General Public License v3.0 only, at [{{sourcePagePath}}]({{sourcePagePath}}), so every statement below can be checked against the code.
 
+## Summary
+
+{{securityFactsSummary}}
+
 ## Stored provider keys
 
-A model provider key you save in the product is encrypted before it is stored, with AES-256-GCM and a key derived from a secret that only the operator holds. It is decrypted only to make the model calls you ask for, and it is never returned to a browser. A key the operator configures for the deployment is held in the server's environment, not in the database.
+A model provider key you save in the product is encrypted before it is stored, with AES-256-GCM and a key derived from a secret that only the operator holds. It is decrypted only to make the model calls you ask for, and it is never returned to a browser. A key the operator configures for the deployment is held in the server’s environment, not in the database.
 
 ## Sign-in and sessions
 
@@ -22,7 +26,7 @@ SAML single sign-on is available when the operator enables it and names the emai
 
 ## Audit log and what it records
 
-Every recorded event stores who acted (account id and email), the action, its status, a short title, the part of the product it came from, the matter, chat, document or review it concerns, the model used where one was, and details specific to the action. A chat event records which documents the assistant read. Members see their own activity under Settings; organization owners and administrators see the organization's log and can export it as CSV (up to 2,000 events per export). Audit access does not grant access to the content itself: titles and details of private work the viewer cannot open are redacted.
+Every recorded event stores who acted (account id and email), the action, its status, a short title, the part of the product it came from, the matter, chat, document or review it concerns, the model used where one was, and details specific to the action. A chat event records which documents the assistant read. Members see their own activity under Settings; organization owners and administrators see the organization’s log and can export it as CSV (up to 2,000 events per export). Audit access does not grant access to the content itself: titles and details of private work the viewer cannot open are redacted.
 
 ## Export and deletion
 

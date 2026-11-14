@@ -19,6 +19,7 @@ export const PUBLIC_ROUTE_PREFIXES = [
     "/request/",
     "/docs",
     "/pricing",
+    "/contact",
 ] as const;
 
 /** Whether `pathname` falls under one of `PUBLIC_ROUTE_PREFIXES`. */

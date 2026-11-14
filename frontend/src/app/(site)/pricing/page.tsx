@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Metadata } from "next";
 import { PricingPlans } from "@/app/components/site/PricingPlans";
+import { SITE_DISPLAY_STYLE, SITE_PAGE_TITLE_CLASS } from "@/app/components/site/siteStyles";
 import { PRICING_COPY } from "@/content/site/pricing";
 import { brand } from "@/shared/brand.generated";
 
@@ -11,15 +12,13 @@ export const metadata: Metadata = {
 
 /**
  * The public pricing page. The plans come from GET /plans at request time in
- * the browser (PricingPlans); this page is the frame around them.
+ * the browser (PricingPlans), which also carries the page's one action and
+ * the security facts under it; this page is the frame around them.
  */
 export default function PricingPage() {
     return (
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6">
-            <h1
-                className="text-3xl font-medium tracking-tight text-fg sm:text-4xl"
-                style={{ fontFamily: "var(--brand-display-face)" }}
-            >
+            <h1 className={SITE_PAGE_TITLE_CLASS} style={SITE_DISPLAY_STYLE}>
                 {PRICING_COPY.title}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-fg-subtle">

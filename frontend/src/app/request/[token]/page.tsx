@@ -24,7 +24,7 @@ export default async function RequestFormPage({ params }: PageProps) {
     const { token } = await params;
     return (
         <div className="flex min-h-dvh flex-col bg-app-background text-fg">
-            <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-12 sm:py-16">
+            <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10 sm:px-6 sm:py-16">
                 <PublicRequestForm token={token} />
             </main>
             <AuthFooter />

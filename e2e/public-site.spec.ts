@@ -103,6 +103,66 @@ test.describe("public site", () => {
             await expectAccessibleInEveryTheme(page, "/security");
         });
 
+        test("/contact offers one email action and passes the axe check", async ({ page }) => {
+            await page.goto("/contact");
+            await expect(
+                page.getByRole("heading", { level: 1, name: "Contact" }),
+            ).toBeVisible();
+            // The page's one action: a mailto built from the brand support
+            // mailbox, with a subject filled in. There is no form.
+            const action = page.locator('a[data-slot="primary-action"]');
+            await expect(action).toHaveCount(1);
+            await expect(action).toHaveAttribute("href", /^mailto:[^?\s]+@[^?\s]+\?subject=.+$/);
+            await expect(page.locator("form")).toHaveCount(0);
+            // The two pages a visitor may want first.
+            await expect(page.getByRole("link", { name: "Security" }).first()).toBeVisible();
+            await expect(page.getByRole("link", { name: "Pricing" }).first()).toBeVisible();
+            await expectAccessibleInEveryTheme(page, "/contact");
+        });
+
+        test("the public pages reflow at 320 and 390px with no horizontal scroll", async ({
+            page,
+        }) => {
+            // A well-formed but unknown token renders the "not available"
+            // card, so /request is exercised at narrow widths without a
+            // session; the live form's narrow-width render is checked in
+            // e2e/intake-form.spec.ts.
+            const unknownRequest = `/request/${"A".repeat(43)}`;
+            const siteOn = process.env.E2E_SITE_ENABLED === "true";
+            const paths = [
+                ...(siteOn ? ["/"] : []),
+                "/pricing",
+                "/security",
+                "/contact",
+                unknownRequest,
+            ];
+            for (const width of [320, 390]) {
+                await page.setViewportSize({ width, height: 844 });
+                for (const path of paths) {
+                    await page.goto(path);
+                    await page.waitForLoadState("networkidle");
+                    const overflow = await page.evaluate(
+                        () =>
+                            document.documentElement.scrollWidth -
+                            document.documentElement.clientWidth,
+                    );
+                    expect(overflow, `${path} overflows the viewport at ${width}px`).toBeLessThanOrEqual(1);
+                    // Every primary action is a comfortable touch target. Pages
+                    // with no such action (the unavailable request card) have
+                    // nothing to measure, and the loop is a no-op.
+                    const actions = page.locator('[data-slot="primary-action"]');
+                    for (let index = 0; index < (await actions.count()); index += 1) {
+                        const box = await actions.nth(index).boundingBox();
+                        expect(box, `${path}: a primary action has no box at ${width}px`).not.toBeNull();
+                        expect(
+                            box!.height,
+                            `${path}: a primary action is under 44px at ${width}px`,
+                        ).toBeGreaterThanOrEqual(44);
+                    }
+                }
+            }
+        });
+
         test("security.txt names a contact and a future Expires", async ({ page }) => {
             const response = await page.request.get("/.well-known/security.txt");
             expect(response.status()).toBe(200);
