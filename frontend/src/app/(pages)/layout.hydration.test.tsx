@@ -14,6 +14,8 @@ vi.mock("@/app/contexts/AuthContext", () => ({
 }));
 vi.mock("@/app/contexts/ChatHistoryContext", () => ({
     ChatHistoryProvider: ({ children }: { children: React.ReactNode }) => children,
+    // The command menu reads recent chats from the history.
+    useChatHistoryContext: () => ({ chats: [] }),
 }));
 vi.mock("@/app/components/shared/AppSidebar", () => ({ AppSidebar: () => <aside>Sidebar</aside> }));
 
