@@ -178,6 +178,8 @@ export function ProjectMemoryModal({
         <Modal
             open={open}
             onClose={requestClose}
+            // A fixed box so the editor can fill the space below the header.
+            className="h-[min(600px,calc(100vh-2rem))]"
             breadcrumbs={[
                 "Projects",
                 projectName ?? "Project",
